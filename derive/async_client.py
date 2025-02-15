@@ -1,5 +1,5 @@
 """
-Async client for Lyra
+Async client for Derive
 """
 
 import asyncio
@@ -10,16 +10,16 @@ from datetime import datetime
 import aiohttp
 from web3 import Web3
 
-from lyra.constants import CONTRACTS, TEST_PRIVATE_KEY
-from lyra.enums import Environment, InstrumentType, OrderSide, OrderType, TimeInForce, UnderlyingCurrency
-from lyra.utils import get_logger
-from lyra.ws_client import WsClient as BaseClient
+from derive.constants import CONTRACTS, TEST_PRIVATE_KEY
+from derive.enums import Environment, InstrumentType, OrderSide, OrderType, TimeInForce, UnderlyingCurrency
+from derive.utils import get_logger
+from derive.ws_client import WsClient as BaseClient
 
 
 class AsyncClient(BaseClient):
     """
-    We use the async client to make async requests to the lyra API
-    We us the ws client to make async requests to the lyra ws API
+    We use the async client to make async requests to the derive API
+    We us the ws client to make async requests to the derive ws API
     """
 
     current_subscriptions = {}
@@ -38,7 +38,7 @@ class AsyncClient(BaseClient):
         wallet=None,
     ):
         """
-        Initialize the LyraClient class.
+        Initialize the DeriveClient class.
         """
         self.verbose = verbose
         self.env = env

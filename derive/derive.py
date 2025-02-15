@@ -1,12 +1,12 @@
 """
-Lyra is a Python library for trading on lyra v2
+Derive is a Python library for trading on derive v2
 """
 
 import pandas as pd
 from web3 import Web3
 
-from lyra.base_client import BaseClient
-from lyra.http_client import HttpClient
+from derive.base_client import BaseClient
+from derive.http_client import HttpClient
 
 # we set to show 4 decimal places
 pd.options.display.float_format = '{:,.4f}'.format
@@ -16,8 +16,8 @@ def to_32byte_hex(val):
     return Web3.to_hex(Web3.to_bytes(val).rjust(32, b"\0"))
 
 
-class LyraClient(BaseClient):
-    """Client for the lyra dex."""
+class DeriveClient(BaseClient):
+    """Client for the derive dex."""
 
     def _create_signature_headers(self):
         """Generate the signature headers."""

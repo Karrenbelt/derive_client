@@ -8,8 +8,8 @@ import rich_click as click
 from dotenv import load_dotenv
 from rich import print
 
-from lyra.analyser import PortfolioAnalyser
-from lyra.enums import (
+from derive.analyser import PortfolioAnalyser
+from derive.enums import (
     CollateralAsset,
     Environment,
     InstrumentType,
@@ -19,8 +19,8 @@ from lyra.enums import (
     SubaccountType,
     UnderlyingCurrency,
 )
-from lyra.lyra import LyraClient
-from lyra.utils import get_logger
+from derive.derive import DeriveClient
+from derive.utils import get_logger
 
 click.rich_click.USE_RICH_MARKUP = True
 pd.set_option('display.precision', 2)
@@ -56,14 +56,14 @@ def set_client(ctx):
         if subaccount_id:
             subaccount_id = int(subaccount_id)
         wallet = os.environ.get("WALLET")
-        ctx.client = LyraClient(**auth, env=env, subaccount_id=subaccount_id, wallet=wallet)
+        ctx.client = DeriveClient(**auth, env=env, subaccount_id=subaccount_id, wallet=wallet)
 
     if ctx.logger.level == "DEBUG":
         print(f"Client created for environment `{ctx.client.env.value}`")
     return ctx.client
 
 
-@click.group("Lyra Client")
+@click.group("Derive Client")
 @click.option(
     "--log-level",
     "-l",
@@ -73,7 +73,7 @@ def set_client(ctx):
 )
 @click.pass_context
 def cli(ctx, log_level):
-    """Lyra v2 client command line interface."""
+    """Derive v2 client command line interface."""
     ctx.ensure_object(dict)
     ctx.obj["logger"] = set_logger(ctx, log_level)
     ctx.obj["client"] = set_client(ctx)

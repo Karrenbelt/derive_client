@@ -1,7 +1,7 @@
 """
 Constants for Lyra.
 """
-from lyra.enums import Environment
+from derive.enums import Environment
 
 PUBLIC_HEADERS = {"accept": "application/json", "content-type": "application/json"}
 

@@ -1,5 +1,5 @@
 """
-Base Client for the lyra dex.
+Base Client for the derive dex.
 """
 import json
 import random
@@ -13,8 +13,8 @@ from rich import print
 from web3 import Web3
 from websocket import WebSocketConnectionClosedException, create_connection
 
-from lyra.constants import CONTRACTS, PUBLIC_HEADERS, TEST_PRIVATE_KEY
-from lyra.enums import (
+from derive.constants import CONTRACTS, PUBLIC_HEADERS, TEST_PRIVATE_KEY
+from derive.enums import (
     ActionType,
     CollateralAsset,
     Environment,
@@ -27,11 +27,11 @@ from lyra.enums import (
     TimeInForce,
     UnderlyingCurrency,
 )
-from lyra.utils import get_logger
+from derive.utils import get_logger
 
 
 class BaseClient:
-    """Client for the lyra dex."""
+    """Client for the derive dex."""
 
     def __init__(
         self,
@@ -43,7 +43,7 @@ class BaseClient:
         wallet=None,
     ):
         """
-        Initialize the LyraClient class.
+        Initialize the deriveClient class.
         """
         self.verbose = verbose
         self.env = env
