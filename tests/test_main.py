@@ -210,6 +210,8 @@ def test_can_create_option_order(derive_client, currency, side):
         order_price = ticker['min_price']
     else:
         order_price = ticker['max_price']
+
+    breakpoint()
     order = derive_client.create_order(
         price=order_price,
         amount=1,

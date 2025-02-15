@@ -210,6 +210,10 @@ class BaseClient:
             message = json.loads(self.ws.recv())
             if message['id'] == id:
                 try:
+                    if "result" not in message:
+                        if self._check_output_for_rate_limit(message):
+                            return self.submit_order(order)
+                        raise ApiException(message['error'])
                     return message['result']['order']
                 except KeyError as error:
                     print(message)
@@ -320,7 +324,9 @@ class BaseClient:
                 message = json.loads(self.ws.recv())
                 if message['id'] == login_request['id']:
                     if "result" not in message:
-                        raise Exception(f"Unable to login {message}")
+                        if self._check_output_for_rate_limit(message):
+                            return self.login_client()
+                        raise ApiException(message['error'])
                     break
         except (WebSocketConnectionClosedException, Exception) as error:
             if retries:
@@ -384,13 +390,18 @@ class BaseClient:
             message = json.loads(self.ws.recv())
             if message['id'] == id:
                 if "result" not in message:
-                    if error := message.get('error'):
-                        if 'Rate limit exceeded' in error['message']:
-                            time.sleep((int(error['data'].split(' ')[-2]) / 1000) + 1)
-                            print("Rate limit exceeded, sleeping and retrying request")
-                            return self.cancel_all()
-                        raise ApiException(message['error'])
+                    if self._check_output_for_rate_limit(message):
+                        return self.cancel_all()
+                    raise ApiException(message['error'])
                 return message['result']
+
+    def _check_output_for_rate_limit(self, message):
+        if error := message.get('error'):
+            if 'Rate limit exceeded' in error['message']:
+                time.sleep((int(error['data'].split(' ')[-2]) / 1000) + 1)
+                print("Rate limit exceeded, sleeping and retrying request")
+                return True
+        return False
 
     def get_positions(self):
         """
@@ -436,6 +447,10 @@ class BaseClient:
         while ids_to_instrument_names:
             message = json.loads(self.ws.recv())
             if message['id'] in ids_to_instrument_names:
+                if "result" not in message:
+                    if self._check_output_for_rate_limit(message):
+                        return self.fetch_tickers(instrument_type=instrument_type, currency=currency)
+                    raise ApiException(message['error'])
                 results[message['result']['instrument_name']] = message['result']
                 del ids_to_instrument_names[message['id']]
         return results
