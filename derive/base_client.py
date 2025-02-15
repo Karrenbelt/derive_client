@@ -30,6 +30,10 @@ from derive.enums import (
 from derive.utils import get_logger
 
 
+class ApiException(Exception):
+    """Exception for API errors."""
+
+
 class BaseClient:
     """Client for the derive dex."""
 
@@ -379,6 +383,13 @@ class BaseClient:
         while True:
             message = json.loads(self.ws.recv())
             if message['id'] == id:
+                if "result" not in message:
+                    if error := message.get('error'):
+                        if 'Rate limit exceeded' in error['message']:
+                            time.sleep((int(error['data'].split(' ')[-2]) / 1000) + 1)
+                            print("Rate limit exceeded, sleeping and retrying request")
+                            return self.cancel_all()
+                        raise ApiException(message['error'])
                 return message['result']
 
     def get_positions(self):

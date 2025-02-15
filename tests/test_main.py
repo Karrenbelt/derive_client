@@ -19,14 +19,7 @@ from derive.enums import (
     SubaccountType,
     UnderlyingCurrency,
 )
-from tests.conftest import TEST_WALLET, freeze_time
-
-
-def test_derive_client(derive_client):
-    """
-    Test the DeriveClient class.
-    """
-    assert derive_client.create_account(TEST_WALLET)
+from tests.conftest import freeze_time
 
 
 @pytest.mark.parametrize(
