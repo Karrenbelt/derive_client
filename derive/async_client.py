@@ -37,9 +37,6 @@ class AsyncClient(BaseClient):
         subaccount_id=None,
         wallet=None,
     ):
-        """
-        Initialize the DeriveClient class.
-        """
         self.verbose = verbose
         self.env = env
         self.contracts = CONTRACTS[env]

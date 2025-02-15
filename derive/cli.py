@@ -9,6 +9,7 @@ from dotenv import load_dotenv
 from rich import print
 
 from derive.analyser import PortfolioAnalyser
+from derive.derive import DeriveClient
 from derive.enums import (
     CollateralAsset,
     Environment,
@@ -19,7 +20,6 @@ from derive.enums import (
     SubaccountType,
     UnderlyingCurrency,
 )
-from derive.derive import DeriveClient
 from derive.utils import get_logger
 
 click.rich_click.USE_RICH_MARKUP = True

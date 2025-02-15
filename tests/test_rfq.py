@@ -7,7 +7,7 @@ from dataclasses import asdict, dataclass
 
 import pytest
 
-from lyra.enums import OrderSide
+from derive.enums import OrderSide
 
 LEG_1_NAME = 'ETH-20240329-2400-C'
 LEG_2_NAME = 'ETH-20240329-2600-C'
@@ -36,53 +36,53 @@ class Rfq:
 
 
 @pytest.mark.skip(reason="This test is not meant to be run in CI")
-def test_lyra_client_create_rfq(
-    lyra_client,
+def test_derive_client_create_rfq(
+    derive_client,
 ):
     """
-    Test the LyraClient class.
+    Test the DeriveClient class.
     """
 
-    subaccount_id = lyra_client.subaccount_id
+    subaccount_id = derive_client.subaccount_id
     leg_1 = Leg(instrument_name=LEG_1_NAME, amount='1', direction=OrderSide.BUY.value)
     leg_2 = Leg(instrument_name=LEG_2_NAME, amount='1', direction=OrderSide.SELL.value)
     rfq = Rfq(leg_1=leg_1, leg_2=leg_2, subaccount_id=subaccount_id)
-    assert lyra_client.send_rfq(rfq.to_dict())
+    assert derive_client.send_rfq(rfq.to_dict())
 
 
 @pytest.mark.skip(reason="This test is not meant to be run in CI")
-def test_lyra_client_create_quote(
-    lyra_client,
+def test_derive_client_create_quote(
+    derive_client,
 ):
     """
-    Test the LyraClient class.
+    Test the DeriveClient class.
     """
 
-    subaccount_id = lyra_client.subaccount_id
+    subaccount_id = derive_client.subaccount_id
     leg_1 = Leg(instrument_name=LEG_1_NAME, amount='1', direction=OrderSide.BUY.value)
     leg_2 = Leg(instrument_name=LEG_2_NAME, amount='1', direction=OrderSide.SELL.value)
     rfq = Rfq(leg_1=leg_1, leg_2=leg_2, subaccount_id=subaccount_id)
-    res = lyra_client.send_rfq(rfq.to_dict())
+    res = derive_client.send_rfq(rfq.to_dict())
 
     # we now create the quote
-    quote = lyra_client.create_quote_object(
+    quote = derive_client.create_quote_object(
         rfq_id=res['rfq_id'],
         legs=[asdict(leg_1), asdict(leg_2)],
         direction='sell',
     )
     # we now sign it
-    assert lyra_client._sign_quote(quote)
+    assert derive_client._sign_quote(quote)
 
 
 @pytest.mark.skip(reason="This test is not meant to be run in CI")
-def test_poll_rfqs(lyra_client):
+def test_poll_rfqs(derive_client):
     """
-    Test the LyraClient class.
+    Test the DeriveClient class.
     """
-    subaccount_id = lyra_client.subaccount_id
+    subaccount_id = derive_client.subaccount_id
     leg_1 = Leg(instrument_name=LEG_1_NAME, amount='1', direction=OrderSide.BUY.value)
     leg_2 = Leg(instrument_name=LEG_2_NAME, amount='1', direction=OrderSide.SELL.value)
     rfq = Rfq(leg_1=leg_1, leg_2=leg_2, subaccount_id=subaccount_id)
-    assert lyra_client.send_rfq(rfq.to_dict())
-    quotes = lyra_client.poll_rfqs()
+    assert derive_client.send_rfq(rfq.to_dict())
+    quotes = derive_client.poll_rfqs()
     assert quotes

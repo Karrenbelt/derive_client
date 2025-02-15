@@ -1,4 +1,4 @@
 # API - Base Client
 
 
-::: lyra.base_client
+::: derive.base_client

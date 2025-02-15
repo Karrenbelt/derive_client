@@ -1,17 +1,17 @@
-# Lyra V2 Python Client.
+# Derive.xyz Python Client.
 
-This repo provides a unified interface for the Lyra V2 Exchange.
+This repo provides a unified interface for the Derive Exchange.
 
 Please checkout the [examples](./examples) directory for usage.
 
 Here is a quick demonstration of the cli functionality.
 
-![alt text](lyra_demo.gif "Demo of cli tools.")
+![alt text](derive_demo.gif "Demo of cli tools.")
 
 ## Install
 
 ```bash
-pip install lyra-v2-client
+pip install derive-client
 ```
 
 ## Dev

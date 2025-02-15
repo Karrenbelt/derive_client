@@ -42,9 +42,6 @@ class BaseClient:
         subaccount_id=None,
         wallet=None,
     ):
-        """
-        Initialize the deriveClient class.
-        """
         self.verbose = verbose
         self.env = env
         self.contracts = CONTRACTS[env]
