@@ -205,16 +205,14 @@ def test_can_create_option_order(derive_client, currency, side):
         instrument_type=InstrumentType.OPTION,
         currency=currency,
     )
-    symbol, ticker = [f for f in tickers.items()][0]
+    symbol, ticker = [f for f in tickers.items() if f[1]['is_active']][0]
     if side == OrderSide.BUY:
         order_price = ticker['min_price']
     else:
         order_price = ticker['max_price']
-
-    breakpoint()
     order = derive_client.create_order(
         price=order_price,
-        amount=1,
+        amount=0.01,
         instrument_name=symbol,
         side=side,
         order_type=OrderType.LIMIT,
