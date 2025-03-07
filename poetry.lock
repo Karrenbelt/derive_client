@@ -1292,22 +1292,20 @@ files = [
 test = ["pytest"]
 
 [[package]]
-name = "lyra_v2_action_signing"
+name = "lyra-v2-action-signing"
 version = "0.0.7"
 description = "Python package to sign on-chain self-custodial requests for orders, transfers, deposits, withdrawals and RFQs."
 optional = false
 python-versions = ">=3.9"
-files = []
-develop = false
+files = [
+    {file = "lyra_v2_action_signing-0.0.7-py3-none-any.whl", hash = "sha256:d909dfe53101b3a5cc283498c6ce34a66d269c4c809b070d492f85afccd85c23"},
+    {file = "lyra_v2_action_signing-0.0.7.tar.gz", hash = "sha256:eb477aa9a7d9956d87e3f46da3132ce58df49f762efce95ed8a70f864cf911e3"},
+]
 
 [package.dependencies]
 eth-abi = ">=4.2.1"
 hexbytes = ">=0.3.1"
 web3 = ">=6.4.0"
-
-[package.source]
-type = "directory"
-url = "../v2-action-signing-python"
 
 [[package]]
 name = "markdown"
@@ -3113,4 +3111,4 @@ type = ["pytest-mypy"]
 [metadata]
 lock-version = "2.0"
 python-versions = ">=3.9,<3.12"
-content-hash = "f2507b1f5a4d3b41fbc0bad1bbf8e2e90b6bcf39f62ba009994d71802d4f44dc"
+content-hash = "f82e5782fbb1972012fb25783208f4672d9796ef557d1bb0b8835bdadc542b85"
