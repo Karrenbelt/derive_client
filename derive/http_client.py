@@ -2,9 +2,8 @@
 Base class for HTTP client.
 """
 
-import time
-
 from eth_account.messages import encode_defunct
+from lyra_v2_action_signing.utils import utc_now_ms
 from web3 import Web3
 
 from derive.base_client import BaseClient
@@ -15,13 +14,13 @@ class HttpClient(BaseClient):
         """
         Create the signature headers
         """
-        timestamp = str(int(time.time() * 1000))
+        ts = utc_now_ms()
         msg = encode_defunct(
-            text=timestamp,
+            text=str(ts),
         )
         signature = self.signer.sign_message(msg)
         return {
             "X-LyraWallet": self.wallet,
-            "X-LyraTimestamp": timestamp,
+            "X-LyraTimestamp": str(ts),
             "X-LyraSignature": Web3.to_hex(signature.signature),
         }

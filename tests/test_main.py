@@ -212,7 +212,7 @@ def test_can_create_option_order(derive_client, currency, side):
         order_price = ticker['max_price']
     order = derive_client.create_order(
         price=order_price,
-        amount=0.01,
+        amount=0.5,
         instrument_name=symbol,
         side=side,
         order_type=OrderType.LIMIT,

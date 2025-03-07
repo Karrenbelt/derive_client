@@ -8,7 +8,7 @@ from datetime import datetime
 
 import eth_abi
 import requests
-from eth_account.messages import encode_defunct
+from lyra_v2_action_signing.utils import sign_ws_login
 from rich import print
 from web3 import Web3
 from websocket import WebSocketConnectionClosedException, create_connection
@@ -61,20 +61,6 @@ class BaseClient:
         else:
             self.subaccount_id = subaccount_id
         print(f"Using subaccount id: {self.subaccount_id}")
-
-    def sign_authentication_header(self):
-        timestamp = str(int(time.time() * 1000))
-        msg = encode_defunct(
-            text=timestamp,
-        )
-        signature = self.web3_client.eth.account.sign_message(
-            msg, private_key=self.signer._private_key
-        ).signature.hex()  # pylint: disable=protected-access
-        return {
-            'wallet': self.wallet,
-            'timestamp': str(timestamp),
-            'signature': signature,
-        }
 
     def connect_ws(self):
         ws = create_connection(self.contracts['WS_ADDRESS'], enable_multithread=True, timeout=60)
@@ -314,7 +300,11 @@ class BaseClient:
     ):
         login_request = {
             'method': 'public/login',
-            'params': self.sign_authentication_header(),
+            'params': sign_ws_login(
+                web3_client=self.web3_client,
+                smart_contract_wallet=self.wallet,
+                session_key_or_wallet_private_key=self.signer._private_key,
+            ),
             'id': str(int(time.time())),
         }
         try:
