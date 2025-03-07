@@ -3,11 +3,14 @@ Base Client for the derive dex.
 """
 import json
 import random
+from decimal import Decimal
 from time import sleep
 
 import eth_abi
 import requests
-from lyra_v2_action_signing.utils import sign_rest_auth_header, sign_ws_login, utc_now_ms
+from lyra_v2_action_signing.module_data import TradeModuleData
+from lyra_v2_action_signing.signed_action import SignedAction
+from lyra_v2_action_signing.utils import MAX_INT_32, get_action_nonce, sign_rest_auth_header, sign_ws_login, utc_now_ms
 from rich import print
 from web3 import Web3
 from websocket import WebSocketConnectionClosedException, create_connection
@@ -140,55 +143,62 @@ class BaseClient:
         """
         if side.name.upper() not in OrderSide.__members__:
             raise Exception(f"Invalid side {side}")
-        order = self._define_order(
-            instrument_name=instrument_name,
-            price=price,
-            amount=amount,
-            side=side,
-        )
+
         _currency = UnderlyingCurrency[instrument_name.split("-")[0]]
         if instrument_name.split("-")[1] == "PERP":
             instruments = self.fetch_instruments(instrument_type=InstrumentType.PERP, currency=_currency)
             instruments = {i['instrument_name']: i for i in instruments}
-            base_asset_sub_id = instruments[instrument_name]['base_asset_sub_id']
-            instrument_type = InstrumentType.PERP
         else:
             instruments = self.fetch_instruments(instrument_type=InstrumentType.OPTION, currency=_currency)
             instruments = {i['instrument_name']: i for i in instruments}
-            base_asset_sub_id = instruments[instrument_name]['base_asset_sub_id']
-            instrument_type = InstrumentType.OPTION
 
-        signed_order = self._sign_order(order, base_asset_sub_id, instrument_type, _currency)
-        response = self.submit_order(signed_order)
+        instrument = instruments[instrument_name]
+        module_data = {
+            "asset_address": instrument['base_asset_address'],
+            "sub_id": int(instrument['base_asset_sub_id']),
+            "limit_price": Decimal(price),
+            "amount": Decimal(amount),
+            "max_fee": Decimal(1000),
+            "recipient_id": int(self.subaccount_id),
+            "is_bid": side == OrderSide.BUY,
+        }
+
+        signed_action = self._generate_signed_action(
+            module_address=self.contracts['TRADE_MODULE_ADDRESS'], module_data=module_data
+        )
+
+        order = {
+            "instrument_name": instrument_name,
+            "direction": side.name.lower(),
+            "order_type": order_type.name.lower(),
+            "mmp": False,
+            "time_in_force": time_in_force.value,
+            **signed_action.to_json(),
+        }
+        response = self.submit_order(order)
         return response
 
-    def _define_order(
+    def _generate_signed_action(
         self,
-        instrument_name: str,
-        price: float,
-        amount: float,
-        side: OrderSide,
-        time_in_force: TimeInForce = TimeInForce.GTC,
+        module_address: str,
+        module_data: dict,
     ):
         """
-        Define the order, in preparation for encoding and signing
+        Generate the signed action
         """
-        ts = utc_now_ms()
-        return {
-            'instrument_name': instrument_name,
-            'subaccount_id': self.subaccount_id,
-            'direction': side.name.lower(),
-            'limit_price': price,
-            'amount': amount,
-            'signature_expiry_sec': int(ts) + 3000,
-            'max_fee': '200.01',
-            'nonce': int(f"{int(ts)}{random.randint(100, 999)}"),
-            'signer': self.signer.address,
-            'order_type': 'limit',
-            'mmp': False,
-            'time_in_force': time_in_force.value,
-            'signature': 'filled_in_below',
-        }
+        action = SignedAction(
+            subaccount_id=self.subaccount_id,
+            owner=self.wallet,
+            signer=self.signer.address,
+            signature_expiry_sec=MAX_INT_32,
+            nonce=get_action_nonce(),
+            module_address=module_address,
+            module_data=TradeModuleData(**module_data),
+            DOMAIN_SEPARATOR=self.contracts['DOMAIN_SEPARATOR'],
+            ACTION_TYPEHASH=self.contracts['ACTION_TYPEHASH'],
+        )
+        action.sign(self.signer._private_key)
+        return action
 
     def submit_order(self, order):
         id = str(utc_now_ms())
@@ -700,18 +710,6 @@ class BaseClient:
             ],
         )
         return self.web3_client.keccak(encoded_action_hash)
-
-    def _generate_signed_action(self, action_hash: bytes, nonce: int, expiration: int):
-        """Generate the signed action."""
-        encoded_typed_data_hash = "".join(['0x1901', self.contracts['DOMAIN_SEPARATOR'][2:], action_hash.hex()[2:]])
-        typed_data_hash = self.web3_client.keccak(hexstr=encoded_typed_data_hash)
-        signature = self.signer.signHash(typed_data_hash).signature.hex()
-        return {
-            "nonce": nonce,
-            "signature": signature,
-            "signature_expiry_sec": expiration,
-            "signer": self.signer.address,
-        }
 
     def get_mmp_config(self, subaccount_id: int, currency: UnderlyingCurrency = None):
         """Get the mmp config."""
