@@ -8,7 +8,7 @@ from datetime import datetime
 
 import eth_abi
 import requests
-from lyra_v2_action_signing.utils import sign_ws_login
+from lyra_v2_action_signing.utils import sign_rest_auth_header, sign_ws_login
 from rich import print
 from web3 import Web3
 from websocket import WebSocketConnectionClosedException, create_connection
@@ -36,6 +36,16 @@ class ApiException(Exception):
 
 class BaseClient:
     """Client for the derive dex."""
+
+    def _create_signature_headers(self):
+        """
+        Create the signature headers.
+        """
+        return sign_rest_auth_header(
+            web3_client=self.web3_client,
+            smart_contract_wallet=self.wallet,
+            session_key_or_wallet_private_key=self.signer._private_key,
+        )
 
     def __init__(
         self,
@@ -399,7 +409,11 @@ class BaseClient:
         """
         url = f"{self.contracts['BASE_URL']}/private/get_positions"
         payload = {"subaccount_id": self.subaccount_id}
-        headers = self._create_signature_headers()
+        headers = sign_rest_auth_header(
+            web3_client=self.web3_client,
+            smart_contract_wallet=self.wallet,
+            session_key_or_wallet_private_key=self.signer._private_key,
+        )
         response = requests.post(url, json=payload, headers=headers)
         results = response.json()["result"]['positions']
         return results
