@@ -117,3 +117,4 @@ site/
 *trader
 
 node_modules
+/.nix-venv
