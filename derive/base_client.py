@@ -799,21 +799,6 @@ class BaseClient:
         results = response.json()["result"]
         return results
 
-    #   pricedLegs[0].price = direction == 'buy' ? '160' : '180';
-    #   pricedLegs[1].price = direction == 'buy' ? '70' : '50';
-    #   return {
-    #     subaccount_id: subaccount_id_maker,
-    #     rfq_id: rfq_response.rfq_id,
-    #     legs: pricedLegs,
-    #     direction: direction,
-    #     max_fee: '10',
-    #     nonce: Number(`${Date.now()}${Math.round(Math.random() * 999)}`),
-    #     signer: wallet.address,
-    #     signature_expiry_sec: Math.floor(Date.now() / 1000 + 350),
-    #     signature: "filled_in_below"
-    #   };
-    # }
-
     def create_quote_object(
         self,
         rfq_id,
