@@ -1,5 +1,5 @@
 """
-Utils for the lyra package.
+Utils for the derive package.
 """
 import logging
 import sys

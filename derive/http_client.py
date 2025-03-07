@@ -1,5 +1,5 @@
 """
-Class to handle base websocket client
+Base class for HTTP client.
 """
 
 import time
@@ -7,10 +7,10 @@ import time
 from eth_account.messages import encode_defunct
 from web3 import Web3
 
-from lyra.base_client import BaseClient
+from derive.base_client import BaseClient
 
 
-class WsClient(BaseClient):
+class HttpClient(BaseClient):
     def _create_signature_headers(self):
         """
         Create the signature headers
@@ -25,8 +25,3 @@ class WsClient(BaseClient):
             "X-LyraTimestamp": timestamp,
             "X-LyraSignature": Web3.to_hex(signature.signature),
         }
-
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.ws = self.connect_ws()
-        self.login_client()

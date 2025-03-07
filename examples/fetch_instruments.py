@@ -1,19 +1,19 @@
 """
-Sample of fetching instruments from the lyra client, and printing the result.
+Sample of fetching instruments from the derive client, and printing the result.
 """
 from rich import print
 
-from lyra.enums import Environment, InstrumentType
-from lyra.lyra import LyraClient
+from derive.derive import DeriveClient
+from derive.enums import Environment, InstrumentType
 from tests.test_main import TEST_PRIVATE_KEY
 
 
 def main():
     """
-    Demonstrate fetching instruments from the lyra client.
+    Demonstrate fetching instruments from the derive client.
     """
 
-    client = LyraClient(TEST_PRIVATE_KEY, env=Environment.PROD, subaccount_id=1)
+    client = DeriveClient(TEST_PRIVATE_KEY, env=Environment.PROD, subaccount_id=1)
 
     for instrument_type in [InstrumentType.OPTION, InstrumentType.PERP]:
         print(f"Fetching instruments for {instrument_type}")

@@ -3,11 +3,11 @@ tests:
 	poetry run pytest tests -vv  --reruns 10 --reruns-delay 30
 
 fmt:
-	poetry run black tests lyra examples
-	poetry run isort tests lyra examples
+	poetry run black tests derive examples
+	poetry run isort tests derive examples
 
 lint:
-	poetry run flake8 tests lyra examples
+	poetry run flake8 tests derive examples
 
 all: fmt lint tests
 
