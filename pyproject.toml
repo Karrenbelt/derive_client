@@ -15,8 +15,9 @@ setuptools = ">=68.2.2,<80"
 rich-click = "^1.7.1"
 python-dotenv = ">=0.14.0,<0.18.0"
 pandas = ">=1,<=3"
-lyra-v2-action-signing = "^0.0.7"
+lyra-v2-action-signing = {path = "../v2-action-signing-python"}
 eth-account = "^0.13"
+eth-typing = "^5.2.0"
 
 
 [tool.poetry.scripts]

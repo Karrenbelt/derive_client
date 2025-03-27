@@ -8,16 +8,29 @@ from time import sleep
 
 import eth_abi
 import requests
-from lyra_v2_action_signing.module_data import TradeModuleData
-from lyra_v2_action_signing.signed_action import SignedAction
-from lyra_v2_action_signing.utils import MAX_INT_32, get_action_nonce, sign_rest_auth_header, sign_ws_login, utc_now_ms
+from eth_abi.abi import encode
+from lyra_v2_action_signing.module_data import (
+    ModuleData,
+    RecipientTransferERC20ModuleData,
+    SenderTransferERC20ModuleData,
+    TradeModuleData,
+    TransferERC20Details,
+)
+from lyra_v2_action_signing.signed_action import SignedAction, dataclass
+from lyra_v2_action_signing.utils import (
+    MAX_INT_32,
+    decimal_to_big_int,
+    get_action_nonce,
+    sign_rest_auth_header,
+    sign_ws_login,
+    utc_now_ms,
+)
 from rich import print
 from web3 import Web3
 from websocket import WebSocketConnectionClosedException, create_connection
 
-from derive.constants import CONTRACTS, PUBLIC_HEADERS, TEST_PRIVATE_KEY
+from derive.constants import CONTRACTS, DEFAULT_REFERER, PUBLIC_HEADERS, TEST_PRIVATE_KEY
 from derive.enums import (
-    ActionType,
     CollateralAsset,
     Environment,
     InstrumentType,
@@ -32,12 +45,44 @@ from derive.enums import (
 from derive.utils import get_logger
 
 
+@dataclass
+class CreateSubAccountDetails:
+    amount: int
+    base_asset_address: str
+    sub_asset_address: str
+
+    def to_eth_tx_params(self):
+        return (
+            decimal_to_big_int(self.amount),
+            Web3.to_checksum_address(self.base_asset_address),
+            Web3.to_checksum_address(self.sub_asset_address),
+        )
+
+
+@dataclass
+class CreateSubAccountData(ModuleData):
+    amount: int
+    asset_name: str
+    margin_type: str
+    create_account_details: CreateSubAccountDetails
+
+    def to_abi_encoded(self):
+        return encode(
+            ['uint256', 'address', 'address'],
+            self.create_account_details.to_eth_tx_params(),
+        )
+
+    def to_json(self):
+        return {}
+
+
 class ApiException(Exception):
     """Exception for API errors."""
 
 
 class BaseClient:
     """Client for the derive dex."""
+    referral_code: str = None
 
     def _create_signature_headers(self):
         """
@@ -57,6 +102,7 @@ class BaseClient:
         verbose=False,
         subaccount_id=None,
         wallet=None,
+        referral_code=None,
     ):
         self.verbose = verbose
         self.env = env
@@ -64,15 +110,13 @@ class BaseClient:
         self.logger = logger or get_logger()
         self.web3_client = Web3()
         self.signer = self.web3_client.eth.account.from_key(private_key)
+        print(f"Signer address: {self.signer.address}")
         self.wallet = self.signer.address if not wallet else wallet
-        print(f"Signing address: {self.signer.address}")
-        if wallet:
-            print(f"Using wallet: {wallet}")
         if not subaccount_id:
             self.subaccount_id = self.fetch_subaccounts()['subaccount_ids'][0]
         else:
             self.subaccount_id = subaccount_id
-        print(f"Using subaccount id: {self.subaccount_id}")
+        self.referral_code = referral_code
 
     def connect_ws(self):
         ws = create_connection(self.contracts['WS_ADDRESS'], enable_multithread=True, timeout=60)
@@ -128,15 +172,24 @@ class BaseClient:
         payload = {"subaccount_id": subaccount_id}
         return self._send_request(url, json=payload)
 
+    def _internal_map_instrument(self, instrument_type, currency):
+        """
+        Map the instrument.
+        """
+        instruments = self.fetch_instruments(instrument_type=instrument_type, currency=currency)
+        return {i['instrument_name']: i for i in instruments}
+
     def create_order(
         self,
         price,
         amount,
         instrument_name: str,
         reduce_only=False,
+        instrument_type: InstrumentType = InstrumentType.PERP,
         side: OrderSide = OrderSide.BUY,
         order_type: OrderType = OrderType.LIMIT,
         time_in_force: TimeInForce = TimeInForce.GTC,
+        instruments = None,  # temporary hack to allow async fetching of instruments
     ):
         """
         Create the order.
@@ -144,20 +197,19 @@ class BaseClient:
         if side.name.upper() not in OrderSide.__members__:
             raise Exception(f"Invalid side {side}")
 
-        _currency = UnderlyingCurrency[instrument_name.split("-")[0]]
-        if instrument_name.split("-")[1] == "PERP":
-            instruments = self.fetch_instruments(instrument_type=InstrumentType.PERP, currency=_currency)
-            instruments = {i['instrument_name']: i for i in instruments}
-        else:
-            instruments = self.fetch_instruments(instrument_type=InstrumentType.OPTION, currency=_currency)
-            instruments = {i['instrument_name']: i for i in instruments}
+        if not instruments:
+            _currency = UnderlyingCurrency[instrument_name.split("-")[0]]
+            if instrument_type in [ InstrumentType.PERP, InstrumentType.ERC20, InstrumentType.OPTION]:
+                instruments = self._internal_map_instrument(instrument_type, _currency)
+            else:
+                raise Exception(f"Invalid instrument type {instrument_type}")
 
         instrument = instruments[instrument_name]
         module_data = {
             "asset_address": instrument['base_asset_address'],
             "sub_id": int(instrument['base_asset_sub_id']),
             "limit_price": Decimal(price),
-            "amount": Decimal(amount),
+            "amount": Decimal(str(amount)),
             "max_fee": Decimal(1000),
             "recipient_id": int(self.subaccount_id),
             "is_bid": side == OrderSide.BUY,
@@ -173,6 +225,7 @@ class BaseClient:
             "order_type": order_type.name.lower(),
             "mmp": False,
             "time_in_force": time_in_force.value,
+            "referral_code": DEFAULT_REFERER if not self.referral_code else self.referral_code,
             **signed_action.to_json(),
         }
         response = self.submit_order(order)
@@ -182,18 +235,20 @@ class BaseClient:
         self,
         module_address: str,
         module_data: dict,
+        module_data_class=TradeModuleData,
+        subaccount_id=None,
     ):
         """
         Generate the signed action
         """
         action = SignedAction(
-            subaccount_id=self.subaccount_id,
+            subaccount_id=self.subaccount_id if subaccount_id is None else subaccount_id,
             owner=self.wallet,
             signer=self.signer.address,
             signature_expiry_sec=MAX_INT_32,
             nonce=get_action_nonce(),
             module_address=module_address,
-            module_data=TradeModuleData(**module_data),
+            module_data=module_data_class(**module_data),
             DOMAIN_SEPARATOR=self.contracts['DOMAIN_SEPARATOR'],
             ACTION_TYPEHASH=self.contracts['ACTION_TYPEHASH'],
         )
@@ -215,44 +270,6 @@ class BaseClient:
                 except KeyError as error:
                     print(message)
                     raise Exception(f"Unable to submit order {message}") from error
-
-    def _encode_trade_data(self, order, base_asset_sub_id, instrument_type, currency):
-        encoded_data = eth_abi.encode(
-            ['address', 'uint256', 'int256', 'int256', 'uint256', 'uint256', 'bool'],
-            [
-                self.contracts[f'{currency.name}_{instrument_type.name}_ADDRESS'],
-                int(base_asset_sub_id),
-                self.web3_client.to_wei(order['limit_price'], 'ether'),
-                self.web3_client.to_wei(order['amount'], 'ether'),
-                self.web3_client.to_wei(order['max_fee'], 'ether'),
-                order['subaccount_id'],
-                order['direction'] == 'buy',
-            ],
-        )
-
-        return self.web3_client.keccak(encoded_data)
-
-    def _sign_order(self, order, base_asset_sub_id, instrument_type, currency):
-        trade_module_data = self._encode_trade_data(order, base_asset_sub_id, instrument_type, currency)
-        encoded_action_hash = eth_abi.encode(
-            ['bytes32', 'uint256', 'uint256', 'address', 'bytes32', 'uint256', 'address', 'address'],
-            [
-                bytes.fromhex(self.contracts['ACTION_TYPEHASH'][2:]),
-                order['subaccount_id'],
-                order['nonce'],
-                self.contracts['TRADE_MODULE_ADDRESS'],
-                trade_module_data,
-                order['signature_expiry_sec'],
-                self.wallet,
-                order['signer'],
-            ],
-        )
-
-        action_hash = self.web3_client.keccak(encoded_action_hash)
-        encoded_typed_data_hash = "".join(['0x1901', self.contracts['DOMAIN_SEPARATOR'][2:], action_hash.hex()[2:]])
-        typed_data_hash = self.web3_client.keccak(hexstr=encoded_typed_data_hash)
-        order['signature'] = self.signer.signHash(typed_data_hash).signature.hex()
-        return order
 
     def _sign_quote(self, quote):
         """
@@ -426,7 +443,7 @@ class BaseClient:
         url = f"{self.contracts['BASE_URL']}/private/get_collaterals"
         payload = {"subaccount_id": self.subaccount_id}
         result = self._send_request(url, json=payload)
-        return result['collaterals'].pop()
+        return result['collaterals']
 
     def fetch_tickers(
         self,
@@ -469,55 +486,86 @@ class BaseClient:
         Create a subaccount.
         """
         url = f"{self.contracts['BASE_URL']}/private/create_subaccount"
-        _, nonce, expiration = self.get_nonce_and_signature_expiry()
         if subaccount_type is SubaccountType.STANDARD:
             contract_key = f"{subaccount_type.name}_RISK_MANAGER_ADDRESS"
         elif subaccount_type is SubaccountType.PORTFOLIO:
             if not collateral_asset:
                 raise Exception("Underlying currency must be provided for portfolio subaccounts")
             contract_key = f"{underlying_currency.name}_{subaccount_type.name}_RISK_MANAGER_ADDRESS"
-        else:
-            raise Exception(f"Invalid subaccount type {subaccount_type}")
+
+        signed_action = self._generate_signed_action(
+            module_address=self.contracts[contract_key],
+            module_data={
+                "amount": amount,
+                "asset_name": collateral_asset.name,
+                "margin_type": "SM" if subaccount_type is SubaccountType.STANDARD else "PM",
+                "create_account_details": CreateSubAccountDetails(
+                    amount=amount,
+                    base_asset_address=self.contracts["CASH_ASSET"],
+                    sub_asset_address=self.contracts[contract_key],
+                ),
+            },
+            module_data_class=CreateSubAccountData,
+            subaccount_id=0,
+        )
+
         payload = {
-            "amount": f"{amount}",
+            "amount": str(amount),
             "asset_name": collateral_asset.name,
             "margin_type": "SM" if subaccount_type is SubaccountType.STANDARD else "PM",
-            'nonce': nonce,
-            "signature": "string",
-            "signature_expiry_sec": expiration,
-            "signer": self.signer.address,
             "wallet": self.wallet,
+            **signed_action.to_json(),
         }
         if subaccount_type is SubaccountType.PORTFOLIO:
             payload['currency'] = underlying_currency.name
-        encoded_deposit_data = self._encode_deposit_data(
-            amount=amount,
-            contract_key=contract_key,
-        )
-        action_hash = self._generate_action_hash(
-            subaccount_id=0,  # as we are depositing to a new subaccount.
-            nonce=nonce,
-            expiration=expiration,
-            encoded_deposit_data=encoded_deposit_data,
-        )
+        del payload['subaccount_id']
+        breakpoint()
+        response = self._send_request(url, json=payload)
+        return response
 
-        typed_data_hash = self._generate_typed_data_hash(
-            action_hash=action_hash,
-        )
+        # _, nonce, expiration = self.get_nonce_and_signature_expiry()
+        # else:
+        #     raise Exception(f"Invalid subaccount type {subaccount_type}")
+        # payload = {
+        #     "amount": f"{amount}",
+        #     "asset_name": collateral_asset.name,
+        #     "margin_type": "SM" if subaccount_type is SubaccountType.STANDARD else "PM",
+        #     'nonce': nonce,
+        #     "signature": "string",
+        #     "signature_expiry_sec": expiration,
+        #     "signer": self.signer.address,
+        #     "wallet": self.wallet,
+        # }
+        # if subaccount_type is SubaccountType.PORTFOLIO:
+        #     payload['currency'] = underlying_currency.name
+        # encoded_deposit_data = self._encode_deposit_data(
+        #     amount=amount,
+        #     contract_key=contract_key,
+        # )
+        # action_hash = self._generate_action_hash(
+        #     subaccount_id=0,  # as we are depositing to a new subaccount.
+        #     nonce=nonce,
+        #     expiration=expiration,
+        #     encoded_deposit_data=encoded_deposit_data,
+        # )
 
-        signature = self.signer.signHash(typed_data_hash).signature.hex()
-        payload['signature'] = signature
-        print(f"Payload: {payload}")
+        # typed_data_hash = self._generate_typed_data_hash(
+        #     action_hash=action_hash,
+        # )
 
-        headers = self._create_signature_headers()
-        response = requests.post(url, json=payload, headers=headers)
+        # signature = self.signer.signHash(typed_data_hash).signature.hex()
+        # payload['signature'] = signature
+        # print(f"Payload: {payload}")
 
-        if "error" in response.json():
-            raise Exception(response.json()["error"])
-        print(response.text)
-        if "result" not in response.json():
-            raise Exception(f"Unable to create subaccount {response.json()}")
-        return response.json()["result"]
+        # headers = self._create_signature_headers()
+        # response = requests.post(url, json=payload, headers=headers)
+
+        # if "error" in response.json():
+        #     raise Exception(response.json()["error"])
+        # print(response.text)
+        # if "result" not in response.json():
+        #     raise Exception(f"Unable to create subaccount {response.json()}")
+        # return response.json()["result"]
 
     def _encode_deposit_data(self, amount: int, contract_key: str):
         """Encode the deposit data"""
@@ -542,174 +590,67 @@ class BaseClient:
         expiration = int(ts) + 6000
         return ts, nonce, expiration
 
-    def _generate_typed_data_hash(
-        self,
-        action_hash: bytes,
-    ):
-        """Generate the typed data hash."""
-
-        encoded_typed_data_hash = "".join(['0x1901', self.contracts['DOMAIN_SEPARATOR'][2:], action_hash.hex()[2:]])
-        typed_data_hash = self.web3_client.keccak(hexstr=encoded_typed_data_hash)
-        return typed_data_hash
-
     def transfer_collateral(self, amount: int, to: str, asset: CollateralAsset):
         """
         Transfer collateral
         """
-
-        ts = utc_now_ms()
-        nonce = int(f"{int(ts)}{random.randint(100, 499)}")
-        nonce_2 = int(f"{int(ts)}{random.randint(500, 999)}")
-        expiration = int(ts) + 6000
-
         url = f"{self.contracts['BASE_URL']}/private/transfer_erc20"
-        _, nonce, expiration = self.get_nonce_and_signature_expiry()
-        transfer = {
-            "address": self.contracts["CASH_ASSET"],
-            "amount": int(amount),
-            "sub_id": 0,
-        }
-        print(f"Transfering to {to} amount {amount} asset {asset.name}")
-
-        encoded_data = self.encode_transfer(
-            amount=amount,
-            to=to,
+        transfer_details = TransferERC20Details(
+            base_address=self.contracts["CASH_ASSET"],
+            sub_id=0,
+            amount=Decimal(amount),
         )
-
-        action_hash_1 = self._generate_action_hash(
+        sender_action = SignedAction(
             subaccount_id=self.subaccount_id,
-            nonce=nonce,
-            expiration=expiration,
-            encoded_deposit_data=encoded_data,
-            action_type=ActionType.TRANSFER,
+            owner=self.wallet,
+            signer=self.signer.address,
+            signature_expiry_sec=MAX_INT_32,
+            nonce=get_action_nonce(),
+            # module_address=TRANSFER_ERC20_MODULE_ADDRESS,
+            module_address=self.contracts["TRANSFER_MODULE_ADDRESS"],
+            module_data=SenderTransferERC20ModuleData(
+                to_subaccount_id=to,
+                transfers=[transfer_details],
+            ),
+            DOMAIN_SEPARATOR=self.contracts["DOMAIN_SEPARATOR"],
+            ACTION_TYPEHASH=self.contracts["ACTION_TYPEHASH"],
         )
+        sender_action.sign(self.signer.key)
 
-        from_signed_action_hash = self._generate_signed_action(
-            action_hash=action_hash_1,
-            nonce=nonce,
-            expiration=expiration,
-        )
-
-        print(f"from_signed_action_hash: {from_signed_action_hash}")
-        print(f"From action hash: {action_hash_1.hex()}")
-
-        action_hash_2 = self._generate_action_hash(
+        recipient_action = SignedAction(
             subaccount_id=to,
-            nonce=nonce_2,
-            expiration=expiration,
-            encoded_deposit_data=self.web3_client.keccak(bytes.fromhex('')),
-            action_type=ActionType.TRANSFER,
+            owner=self.wallet,
+            signer=self.signer.address,
+            signature_expiry_sec=MAX_INT_32,
+            nonce=get_action_nonce(),
+            module_address=self.contracts["TRANSFER_MODULE_ADDRESS"],
+            module_data=RecipientTransferERC20ModuleData(),
+            DOMAIN_SEPARATOR=self.contracts["DOMAIN_SEPARATOR"],
+            ACTION_TYPEHASH=self.contracts["ACTION_TYPEHASH"],
         )
-        to_signed_action_hash = self._generate_signed_action(
-            action_hash=action_hash_2,
-            nonce=nonce_2,
-            expiration=expiration,
-        )
-
-        print(f"To action hash: {action_hash_2.hex()}")
-        print(f"To signed action hash: {to_signed_action_hash}")
+        recipient_action.sign(self.signer.key)
         payload = {
             "subaccount_id": self.subaccount_id,
             "recipient_subaccount_id": to,
             "sender_details": {
-                "nonce": nonce,
-                "signature": "string",
-                "signature_expiry_sec": expiration,
-                "signer": self.signer.address,
+                "nonce": sender_action.nonce,
+                "signature": sender_action.signature,
+                "signature_expiry_sec": sender_action.signature_expiry_sec,
+                "signer": sender_action.signer,
             },
             "recipient_details": {
-                "nonce": nonce_2,
-                "signature": "string",
-                "signature_expiry_sec": expiration,
-                "signer": self.signer.address,
+                "nonce": recipient_action.nonce,
+                "signature": recipient_action.signature,
+                "signature_expiry_sec": recipient_action.signature_expiry_sec,
+                "signer": recipient_action.signer,
             },
-            "transfer": transfer,
+            "transfer": {
+                "address": self.contracts["CASH_ASSET"],
+                "amount": str(transfer_details.amount),
+                "sub_id": str(transfer_details.sub_id),
+            },
         }
-        payload['sender_details']['signature'] = from_signed_action_hash['signature']
-        payload['recipient_details']['signature'] = to_signed_action_hash['signature']
-
-        print(payload)
-        headers = self._create_signature_headers()
-        response = requests.post(url, json=payload, headers=headers)
-
-        print(response.json())
-
-        if "error" in response.json():
-            raise Exception(response.json()["error"])
-        if "result" not in response.json():
-            raise Exception(f"Unable to transfer collateral {response.json()}")
-        return response.json()["result"]
-
-    def encode_transfer(self, amount: int, to: str, asset_sub_id=0, signature_expiry=300):
-        """
-        Encode the transfer
-        const encoder = ethers.AbiCoder.defaultAbiCoder();
-        const TransferDataABI = ['(uint256,address,(address,uint256,int256)[])'];
-        const signature_expiry = getUTCEpochSec() + 300;
-
-        const fromTransfers = [
-          [
-            assetAddress,
-            assetSubId,
-            ethers.parseUnits(amount, 18), // Amount in wei
-          ],
-        ];
-
-        const fromTransferData = [
-          toAccount.subaccountId,
-          "0x0000000000000000000000000000000000000000", // manager (if new account)`
-          fromTransfers,
-        ];
-
-        const fromEncodedData = encoder.encode(TransferDataABI, [fromTransferData]);
-        """
-        transfer_data_abi = ["(uint256,address,(address,uint256,int256)[])"]
-
-        from_transfers = [
-            [
-                self.contracts["CASH_ASSET"],
-                asset_sub_id,
-                self.web3_client.to_wei(amount, 'ether'),
-            ]
-        ]
-
-        from_transfer_data = [
-            int(to),
-            "0x0000000000000000000000000000000000000000",
-            from_transfers,
-        ]
-
-        from_encoded_data = eth_abi.encode(transfer_data_abi, [from_transfer_data])
-        print(f"From transfers: {from_transfers}")
-        print(f"From transfer data: {from_transfer_data}")
-        print(f"From encoded data: {from_encoded_data.hex()}")
-
-        # need to add the signature expiry
-        return self.web3_client.keccak(from_encoded_data)
-
-    def _generate_action_hash(
-        self,
-        subaccount_id: int,
-        nonce: int,
-        expiration: int,
-        encoded_deposit_data: bytes,
-        action_type: ActionType = ActionType.DEPOSIT,
-    ):
-        """Handle the deposit to a new subaccount."""
-        encoded_action_hash = eth_abi.encode(
-            ['bytes32', 'uint256', 'uint256', 'address', 'bytes32', 'uint256', 'address', 'address'],
-            [
-                bytes.fromhex(self.contracts['ACTION_TYPEHASH'][2:]),
-                subaccount_id,
-                nonce,
-                self.contracts[f'{action_type.name}_MODULE_ADDRESS'],
-                encoded_deposit_data,
-                expiration,
-                self.wallet,
-                self.signer.address,
-            ],
-        )
-        return self.web3_client.keccak(encoded_action_hash)
+        return self._send_request(url, json=payload)
 
     def get_mmp_config(self, subaccount_id: int, currency: UnderlyingCurrency = None):
         """Get the mmp config."""
@@ -794,5 +735,9 @@ class BaseClient:
     def _send_request(self, url, json=None, params=None, headers=None):
         headers = self._create_signature_headers() if not headers else headers
         response = requests.post(url, json=json, headers=headers, params=params)
+        if 403 == response.status_code:
+            raise ApiException(response.content)
+        if "error" in response.json():
+            raise ApiException(response.json()["error"])
         results = response.json()["result"]
         return results

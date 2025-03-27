@@ -6,6 +6,7 @@ from derive.enums import Environment
 PUBLIC_HEADERS = {"accept": "application/json", "content-type": "application/json"}
 
 TEST_PRIVATE_KEY = "0xc14f53ee466dd3fc5fa356897ab276acbef4f020486ec253a23b0d1c3f89d4f4"
+DEFAULT_SPOT_QUOTE_TOKEN = "USDC"
 
 CONTRACTS = {
     Environment.TEST: {
@@ -45,3 +46,5 @@ CONTRACTS = {
         "TRANSFER_MODULE_ADDRESS": "0x01259207A40925b794C8ac320456F7F6c8FE2636",
     },
 }
+
+DEFAULT_REFERER = "0x1234567890123456789012345678901234567890"

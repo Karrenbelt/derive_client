@@ -18,6 +18,9 @@ class UnderlyingCurrency(Enum):
 
     ETH = "eth"
     BTC = "btc"
+    USDC = "usdc"
+    LBTC = "lbtc"
+    WEETH = "weeth"
 
 
 class OrderSide(Enum):
