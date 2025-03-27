@@ -4,8 +4,8 @@ Sample for cancelling an order on the derive client.
 
 from rich import print
 
-from derive.derive import DeriveClient
-from derive.enums import Environment
+from derive_client.derive import DeriveClient
+from derive_client.enums import Environment
 from tests.test_main import TEST_PRIVATE_KEY
 
 

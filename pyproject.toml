@@ -4,7 +4,7 @@ version = "0.2.10"
 description = ""
 authors = ["8baller <8baller@station.codes>"]
 readme = "README.md"
-packages = [{include = "derive"}]
+packages = [{include = "derive_client"}]
 
 [tool.poetry.dependencies]
 python = ">=3.9,<3.12"
@@ -21,7 +21,7 @@ eth-typing = "^5.2.0"
 
 
 [tool.poetry.scripts]
-derive= "derive.cli:cli"
+dc= "derive.cli:cli"
 
 
 [tool.poetry.group.dev.dependencies]

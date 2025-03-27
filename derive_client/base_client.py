@@ -29,8 +29,8 @@ from rich import print
 from web3 import Web3
 from websocket import WebSocketConnectionClosedException, create_connection
 
-from derive.constants import CONTRACTS, DEFAULT_REFERER, PUBLIC_HEADERS, TEST_PRIVATE_KEY
-from derive.enums import (
+from derive_client.constants import CONTRACTS, DEFAULT_REFERER, PUBLIC_HEADERS, TEST_PRIVATE_KEY
+from derive_client.enums import (
     CollateralAsset,
     Environment,
     InstrumentType,
@@ -42,7 +42,7 @@ from derive.enums import (
     TimeInForce,
     UnderlyingCurrency,
 )
-from derive.utils import get_logger
+from derive_client.utils import get_logger
 
 
 @dataclass

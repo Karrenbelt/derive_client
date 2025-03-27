@@ -7,7 +7,7 @@ from decimal import Decimal
 import json
 import time
 from datetime import datetime
-from derive.base_client import ApiException
+from derive_client.base_client import ApiException
 from lyra_v2_action_signing.utils import (
     MAX_INT_32,
     decimal_to_big_int,
@@ -19,10 +19,10 @@ from lyra_v2_action_signing.utils import (
 import aiohttp
 from web3 import Web3
 
-from derive.constants import CONTRACTS, DEFAULT_REFERER, TEST_PRIVATE_KEY
-from derive.enums import Environment, InstrumentType, OrderSide, OrderType, TimeInForce, UnderlyingCurrency
-from derive.utils import get_logger
-from derive.ws_client import WsClient as BaseClient
+from derive_client.constants import CONTRACTS, DEFAULT_REFERER, TEST_PRIVATE_KEY
+from derive_client.enums import Environment, InstrumentType, OrderSide, OrderType, TimeInForce, UnderlyingCurrency
+from derive_client.utils import get_logger
+from derive_client.ws_client import WsClient as BaseClient
 
 
 class AsyncClient(BaseClient):

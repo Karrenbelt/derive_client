@@ -2,7 +2,7 @@
 Base class for HTTP client.
 """
 
-from derive.base_client import BaseClient
+from derive_client.base_client import BaseClient
 
 
 class HttpClient(BaseClient):

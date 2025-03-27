@@ -2,7 +2,7 @@
 Class to handle base websocket client
 """
 
-from derive.base_client import BaseClient
+from derive_client.base_client import BaseClient
 
 
 class WsClient(BaseClient):

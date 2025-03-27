@@ -3,8 +3,8 @@ Sample of fetching instruments from the derive client, and printing the result.
 """
 from rich import print
 
-from derive.derive import DeriveClient
-from derive.enums import Environment, InstrumentType
+from derive_client.derive import DeriveClient
+from derive_client.enums import Environment, InstrumentType
 from tests.test_main import TEST_PRIVATE_KEY
 
 

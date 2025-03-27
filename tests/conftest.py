@@ -6,9 +6,9 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from derive.derive import DeriveClient
-from derive.enums import Environment
-from derive.utils import get_logger
+from derive_client.derive import DeriveClient
+from derive_client.enums import Environment
+from derive_client.utils import get_logger
 
 TEST_WALLET = "0x199c2aa4403C4C4ea200a854a34c3BA73C5b517e"
 TEST_PRIVATE_KEY = "0x07d2a546f38573fe0f62e63d505d5b95a95ac5b12b115c8a7dde6ee76acc8556"

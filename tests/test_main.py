@@ -7,9 +7,9 @@ from itertools import product
 
 import pytest
 
-from derive.analyser import PortfolioAnalyser
-from derive.constants import DEFAULT_SPOT_QUOTE_TOKEN
-from derive.enums import CollateralAsset, InstrumentType, OrderSide, OrderType, SubaccountType, UnderlyingCurrency
+from derive_client.analyser import PortfolioAnalyser
+from derive_client.constants import DEFAULT_SPOT_QUOTE_TOKEN
+from derive_client.enums import CollateralAsset, InstrumentType, OrderSide, OrderType, SubaccountType, UnderlyingCurrency
 
 
 @pytest.mark.parametrize(

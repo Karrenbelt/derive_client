@@ -7,8 +7,8 @@ This script is equivalent to the test_fetch_first_subaccount() test in tests/tes
 from pathlib import Path
 import click
 
-from derive.enums import Environment
-from derive.http_client import HttpClient as DeriveClient
+from derive_client.enums import Environment
+from derive_client.http_client import HttpClient as DeriveClient
 
 @click.command()
 @click.option('--signer-key-path', required=True, help='Path to signer key file')
