@@ -3,29 +3,23 @@ Async client for Derive
 """
 
 import asyncio
-from decimal import Decimal
 import json
 import time
 from datetime import datetime
-from derive_client.base_client import ApiException
-from lyra_v2_action_signing.utils import (
-    MAX_INT_32,
-    decimal_to_big_int,
-    get_action_nonce,
-    sign_rest_auth_header,
-    sign_ws_login,
-    utc_now_ms,
-)
+from decimal import ROUND_DOWN, Decimal
+
 import aiohttp
+from lyra_v2_action_signing.utils import sign_ws_login, utc_now_ms
 from web3 import Web3
 
+from derive_client.base_client import ApiException
 from derive_client.constants import CONTRACTS, DEFAULT_REFERER, TEST_PRIVATE_KEY
 from derive_client.enums import Environment, InstrumentType, OrderSide, OrderType, TimeInForce, UnderlyingCurrency
 from derive_client.utils import get_logger
 from derive_client.ws_client import WsClient as BaseClient
 
 
-class AsyncClient(BaseClient):
+class DeriveAsyncClient(BaseClient):
     """
     We use the async client to make async requests to the derive API
     We us the ws client to make async requests to the derive ws API
@@ -69,26 +63,6 @@ class AsyncClient(BaseClient):
         if not self._ws.connected:
             self._ws = await self.connect_ws()
         return self._ws
-
-    async def fetch_ticker(self, instrument_name: str):
-        """
-        Fetch the ticker for a symbol
-        """
-        id = str(int(time.time()))
-        payload = {"instrument_name": instrument_name}
-        if not self.ws:
-            await self.connect_ws()
-
-        self.ws.send(json.dumps({"method": "public/get_ticker", "params": payload, "id": id}))
-
-        # we now wait for the response
-        while True:
-            response = self.ws.recv()
-            response = json.loads(response)
-            if response["id"] == id:
-                close = float(response["result"]["best_bid_price"]) + float(response["result"]["best_ask_price"]) / 2
-                response["result"]["close"] = close
-                return response["result"]
 
     def get_subscription_id(self, instrument_name: str, group: str = "1", depth: str = "100"):
         return f"orderbook.{instrument_name}.{group}.{depth}"
@@ -143,22 +117,6 @@ class AsyncClient(BaseClient):
             data = msg['params']['data']
             self.handle_message(subscription, data)
 
-    # async def login_client(
-    #     self,
-    # ):
-    #     login_request = {
-    #         'method': 'public/login',
-    #         'params': self.sign_authentication_header(),
-    #         'id': str(int(time.time())),
-    #     }
-    #     await self._ws.send_json(login_request)
-    #     async for data in self._ws:
-    #         message = json.loads(data.data)
-    #         if message['id'] == login_request['id']:
-    #             if "result" not in message:
-    #                 raise Exception(f"Unable to login {message}")
-    #             break
-
     async def login_client(
         self,
         retries=3,
@@ -182,11 +140,6 @@ class AsyncClient(BaseClient):
                         return await self.login_client()
                     raise ApiException(message['error'])
                 break
-        # except (Exception) as error:
-        #     if retries:
-        #         await asyncio.sleep(1)
-        #         return await self.login_client(retries=retries - 1)
-        #     raise error
 
     def handle_message(self, subscription, data):
         bids = data['bids']
@@ -301,13 +254,13 @@ class AsyncClient(BaseClient):
         return super().fetch_orders(
             status=status,
         )
+
     async def fetch_ticker(self, instrument_name: str):
         """
         Fetch the ticker for a symbol
         """
-        return super().fetch_ticker(instrument_name
-        )
-    
+        return super().fetch_ticker(instrument_name)
+
     async def create_order(
         self,
         price,
@@ -319,7 +272,6 @@ class AsyncClient(BaseClient):
         time_in_force: TimeInForce = TimeInForce.GTC,
         instrument_type: InstrumentType = InstrumentType.PERP,
         underlying_currency: UnderlyingCurrency = UnderlyingCurrency.USDC,
-
     ):
         """
         Create the order.
@@ -331,11 +283,15 @@ class AsyncClient(BaseClient):
             raise Exception(f"Invalid side {side}")
         instruments = await self._internal_map_instrument(instrument_type, underlying_currency)
         instrument = instruments[instrument_name]
+
+        rounded_price = Decimal(price).quantize(Decimal(instrument['tick_size']), rounding=ROUND_DOWN)
+        rounded_amount = Decimal(amount).quantize(Decimal(instrument['amount_step']), rounding=ROUND_DOWN)
+
         module_data = {
             "asset_address": instrument['base_asset_address'],
             "sub_id": int(instrument['base_asset_sub_id']),
-            "limit_price": Decimal(price),
-            "amount": Decimal(str(amount)),
+            "limit_price": rounded_price,
+            "amount": rounded_amount,
             "max_fee": Decimal(1000),
             "recipient_id": int(self.subaccount_id),
             "is_bid": side == OrderSide.BUY,
@@ -373,7 +329,7 @@ class AsyncClient(BaseClient):
         id = str(utc_now_ms())
         await self._ws.send_json({'method': 'private/order', 'params': order, 'id': id})
         while True:
-            async for msg in self._ws: 
+            async for msg in self._ws:
                 message = json.loads(msg.data)
                 if message['id'] == id:
                     try:
@@ -385,4 +341,3 @@ class AsyncClient(BaseClient):
                     except KeyError as error:
                         print(message)
                         raise Exception(f"Unable to submit order {message}") from error
-

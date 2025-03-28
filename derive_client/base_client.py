@@ -82,6 +82,7 @@ class ApiException(Exception):
 
 class BaseClient:
     """Client for the derive dex."""
+
     referral_code: str = None
 
     def _create_signature_headers(self):
@@ -189,7 +190,7 @@ class BaseClient:
         side: OrderSide = OrderSide.BUY,
         order_type: OrderType = OrderType.LIMIT,
         time_in_force: TimeInForce = TimeInForce.GTC,
-        instruments = None,  # temporary hack to allow async fetching of instruments
+        instruments=None,  # temporary hack to allow async fetching of instruments
     ):
         """
         Create the order.
@@ -199,7 +200,7 @@ class BaseClient:
 
         if not instruments:
             _currency = UnderlyingCurrency[instrument_name.split("-")[0]]
-            if instrument_type in [ InstrumentType.PERP, InstrumentType.ERC20, InstrumentType.OPTION]:
+            if instrument_type in [InstrumentType.PERP, InstrumentType.ERC20, InstrumentType.OPTION]:
                 instruments = self._internal_map_instrument(instrument_type, _currency)
             else:
                 raise Exception(f"Invalid instrument type {instrument_type}")
@@ -416,7 +417,7 @@ class BaseClient:
     def _check_output_for_rate_limit(self, message):
         if error := message.get('error'):
             if 'Rate limit exceeded' in error['message']:
-                sleep((int(error['data'].split(' ')[-2]) / 1000) + 1)
+                sleep((int(error['data'].split(' ')[-2]) / 1000))
                 print("Rate limit exceeded, sleeping and retrying request")
                 return True
         return False
@@ -519,7 +520,6 @@ class BaseClient:
         if subaccount_type is SubaccountType.PORTFOLIO:
             payload['currency'] = underlying_currency.name
         del payload['subaccount_id']
-        breakpoint()
         response = self._send_request(url, json=payload)
         return response
 
