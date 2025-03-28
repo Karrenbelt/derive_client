@@ -8,16 +8,15 @@ from time import sleep
 
 import eth_abi
 import requests
-from eth_abi.abi import encode
-from lyra_v2_action_signing.module_data import (
+from derive_action_signing.module_data import (
     ModuleData,
     RecipientTransferERC20ModuleData,
     SenderTransferERC20ModuleData,
     TradeModuleData,
     TransferERC20Details,
 )
-from lyra_v2_action_signing.signed_action import SignedAction, dataclass
-from lyra_v2_action_signing.utils import (
+from derive_action_signing.signed_action import SignedAction, dataclass
+from derive_action_signing.utils import (
     MAX_INT_32,
     decimal_to_big_int,
     get_action_nonce,
@@ -25,6 +24,7 @@ from lyra_v2_action_signing.utils import (
     sign_ws_login,
     utc_now_ms,
 )
+from eth_abi.abi import encode
 from rich import print
 from web3 import Web3
 from websocket import WebSocketConnectionClosedException, create_connection

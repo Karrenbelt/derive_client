@@ -9,7 +9,7 @@ from datetime import datetime
 from decimal import ROUND_DOWN, Decimal
 
 import aiohttp
-from lyra_v2_action_signing.utils import sign_ws_login, utc_now_ms
+from derive_action_signing.utils import sign_ws_login, utc_now_ms
 from web3 import Web3
 
 from derive_client.base_client import ApiException
