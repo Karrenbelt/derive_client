@@ -6,17 +6,20 @@ import asyncio
 import json
 import time
 from datetime import datetime
+from decimal import ROUND_DOWN, Decimal
 
 import aiohttp
+from derive_action_signing.utils import sign_ws_login, utc_now_ms
 from web3 import Web3
 
-from derive.constants import CONTRACTS, TEST_PRIVATE_KEY
-from derive.enums import Environment, InstrumentType, OrderSide, OrderType, TimeInForce, UnderlyingCurrency
-from derive.utils import get_logger
-from derive.ws_client import WsClient as BaseClient
+from derive_client.base_client import ApiException
+from derive_client.constants import CONTRACTS, DEFAULT_REFERER, TEST_PRIVATE_KEY
+from derive_client.enums import Environment, InstrumentType, OrderSide, OrderType, TimeInForce, UnderlyingCurrency
+from derive_client.utils import get_logger
+from derive_client.ws_client import WsClient as BaseClient
 
 
-class AsyncClient(BaseClient):
+class DeriveAsyncClient(BaseClient):
     """
     We use the async client to make async requests to the derive API
     We us the ws client to make async requests to the derive ws API
@@ -61,26 +64,6 @@ class AsyncClient(BaseClient):
             self._ws = await self.connect_ws()
         return self._ws
 
-    async def fetch_ticker(self, instrument_name: str):
-        """
-        Fetch the ticker for a symbol
-        """
-        id = str(int(time.time()))
-        payload = {"instrument_name": instrument_name}
-        if not self.ws:
-            await self.connect_ws()
-
-        self.ws.send(json.dumps({"method": "public/get_ticker", "params": payload, "id": id}))
-
-        # we now wait for the response
-        while True:
-            response = self.ws.recv()
-            response = json.loads(response)
-            if response["id"] == id:
-                close = float(response["result"]["best_bid_price"]) + float(response["result"]["best_ask_price"]) / 2
-                response["result"]["close"] = close
-                return response["result"]
-
     def get_subscription_id(self, instrument_name: str, group: str = "1", depth: str = "100"):
         return f"orderbook.{instrument_name}.{group}.{depth}"
 
@@ -94,7 +77,7 @@ class AsyncClient(BaseClient):
         if channel not in self.message_queues:
             self.message_queues[channel] = asyncio.Queue()
             msg = {"method": "subscribe", "params": {"channels": [channel]}}
-            await self.ws.send_json(msg)
+            await self._ws.send_json(msg)
             return
 
         while instrument_name not in self.current_subscriptions:
@@ -103,8 +86,8 @@ class AsyncClient(BaseClient):
 
     async def connect_ws(self):
         self.connecting = True
-        session = aiohttp.ClientSession()
-        ws = await session.ws_connect(self.contracts['WS_ADDRESS'])
+        self.session = aiohttp.ClientSession()
+        ws = await self.session.ws_connect(self.contracts['WS_ADDRESS'])
         self._ws = ws
         self.connecting = False
         return ws
@@ -136,18 +119,26 @@ class AsyncClient(BaseClient):
 
     async def login_client(
         self,
+        retries=3,
     ):
         login_request = {
             'method': 'public/login',
-            'params': self.sign_authentication_header(),
-            'id': str(int(time.time())),
+            'params': sign_ws_login(
+                web3_client=self.web3_client,
+                smart_contract_wallet=self.wallet,
+                session_key_or_wallet_private_key=self.signer._private_key,
+            ),
+            'id': str(utc_now_ms()),
         }
         await self._ws.send_json(login_request)
-        async for data in self._ws:
-            message = json.loads(data.data)
+        # we need to wait for the response
+        async for msg in self._ws:
+            message = json.loads(msg.data)
             if message['id'] == login_request['id']:
                 if "result" not in message:
-                    raise Exception(f"Unable to login {message}")
+                    if self._check_output_for_rate_limit(message):
+                        return await self.login_client()
+                    raise ApiException(message['error'])
                 break
 
     def handle_message(self, subscription, data):
@@ -264,6 +255,12 @@ class AsyncClient(BaseClient):
             status=status,
         )
 
+    async def fetch_ticker(self, instrument_name: str):
+        """
+        Fetch the ticker for a symbol
+        """
+        return super().fetch_ticker(instrument_name)
+
     async def create_order(
         self,
         price,
@@ -273,30 +270,74 @@ class AsyncClient(BaseClient):
         side: OrderSide = OrderSide.BUY,
         order_type: OrderType = OrderType.LIMIT,
         time_in_force: TimeInForce = TimeInForce.GTC,
+        instrument_type: InstrumentType = InstrumentType.PERP,
+        underlying_currency: UnderlyingCurrency = UnderlyingCurrency.USDC,
     ):
         """
         Create the order.
         """
+        if not self._ws:
+            await self.connect_ws()
+            await self.login_client()
         if side.name.upper() not in OrderSide.__members__:
             raise Exception(f"Invalid side {side}")
-        order = self._define_order(
-            instrument_name=instrument_name,
-            price=price,
-            amount=amount,
-            side=side,
-        )
-        _currency = UnderlyingCurrency[instrument_name.split("-")[0]]
-        if instrument_name.split("-")[1] == "PERP":
-            instruments = await self.fetch_instruments(instrument_type=InstrumentType.PERP, currency=_currency)
-            instruments = {i['instrument_name']: i for i in instruments}
-            base_asset_sub_id = instruments[instrument_name]['base_asset_sub_id']
-            instrument_type = InstrumentType.PERP
-        else:
-            instruments = await self.fetch_instruments(instrument_type=InstrumentType.OPTION, currency=_currency)
-            instruments = {i['instrument_name']: i for i in instruments}
-            base_asset_sub_id = instruments[instrument_name]['base_asset_sub_id']
-            instrument_type = InstrumentType.OPTION
+        instruments = await self._internal_map_instrument(instrument_type, underlying_currency)
+        instrument = instruments[instrument_name]
 
-        signed_order = self._sign_order(order, base_asset_sub_id, instrument_type, _currency)
-        response = self.submit_order(signed_order)
+        rounded_price = Decimal(price).quantize(Decimal(instrument['tick_size']), rounding=ROUND_DOWN)
+        rounded_amount = Decimal(amount).quantize(Decimal(instrument['amount_step']), rounding=ROUND_DOWN)
+
+        module_data = {
+            "asset_address": instrument['base_asset_address'],
+            "sub_id": int(instrument['base_asset_sub_id']),
+            "limit_price": rounded_price,
+            "amount": rounded_amount,
+            "max_fee": Decimal(1000),
+            "recipient_id": int(self.subaccount_id),
+            "is_bid": side == OrderSide.BUY,
+        }
+
+        signed_action = self._generate_signed_action(
+            module_address=self.contracts['TRADE_MODULE_ADDRESS'], module_data=module_data
+        )
+
+        order = {
+            "instrument_name": instrument_name,
+            "direction": side.name.lower(),
+            "order_type": order_type.name.lower(),
+            "mmp": False,
+            "time_in_force": time_in_force.value,
+            "referral_code": DEFAULT_REFERER if not self.referral_code else self.referral_code,
+            **signed_action.to_json(),
+        }
+        try:
+            response = await self.submit_order(order)
+        except aiohttp.ClientConnectionResetError:
+            await self.connect_ws()
+            await self.login_client()
+            response = await self.submit_order(order)
         return response
+
+    async def _internal_map_instrument(self, instrument_type, currency):
+        """
+        Map the instrument.
+        """
+        instruments = await self.fetch_instruments(instrument_type=instrument_type, currency=currency)
+        return {i['instrument_name']: i for i in instruments}
+
+    async def submit_order(self, order):
+        id = str(utc_now_ms())
+        await self._ws.send_json({'method': 'private/order', 'params': order, 'id': id})
+        while True:
+            async for msg in self._ws:
+                message = json.loads(msg.data)
+                if message['id'] == id:
+                    try:
+                        if "result" not in message:
+                            if self._check_output_for_rate_limit(message):
+                                return await self.submit_order(order)
+                            raise ApiException(message['error'])
+                        return message['result']['order']
+                    except KeyError as error:
+                        print(message)
+                        raise Exception(f"Unable to submit order {message}") from error

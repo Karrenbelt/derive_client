@@ -1,3 +1,4 @@
+ethereum_private_key.txt
 # macOS
 .DS_Store
 .AppleDouble
@@ -117,3 +118,4 @@ site/
 *trader
 
 node_modules
+/.nix-venv

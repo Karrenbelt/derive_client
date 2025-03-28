@@ -8,9 +8,9 @@ import rich_click as click
 from dotenv import load_dotenv
 from rich import print
 
-from derive.analyser import PortfolioAnalyser
-from derive.derive import DeriveClient
-from derive.enums import (
+from derive_client.analyser import PortfolioAnalyser
+from derive_client.derive import DeriveClient
+from derive_client.enums import (
     CollateralAsset,
     Environment,
     InstrumentType,
@@ -20,7 +20,7 @@ from derive.enums import (
     SubaccountType,
     UnderlyingCurrency,
 )
-from derive.utils import get_logger
+from derive_client.utils import get_logger
 
 click.rich_click.USE_RICH_MARKUP = True
 pd.set_option('display.precision', 2)

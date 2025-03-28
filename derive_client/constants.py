@@ -1,11 +1,12 @@
 """
 Constants for Lyra.
 """
-from derive.enums import Environment
+from derive_client.enums import Environment
 
 PUBLIC_HEADERS = {"accept": "application/json", "content-type": "application/json"}
 
 TEST_PRIVATE_KEY = "0xc14f53ee466dd3fc5fa356897ab276acbef4f020486ec253a23b0d1c3f89d4f4"
+DEFAULT_SPOT_QUOTE_TOKEN = "USDC"
 
 CONTRACTS = {
     Environment.TEST: {
@@ -45,3 +46,5 @@ CONTRACTS = {
         "TRANSFER_MODULE_ADDRESS": "0x01259207A40925b794C8ac320456F7F6c8FE2636",
     },
 }
+
+DEFAULT_REFERER = "0x9135BA0f495244dc0A5F029b25CDE95157Db89AD"
