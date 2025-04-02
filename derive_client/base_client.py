@@ -113,12 +113,8 @@ class BaseClient:
         self.signer = self.web3_client.eth.account.from_key(private_key)
         print(f"Signer address: {self.signer.address}")
         self.wallet = self.signer.address if not wallet else wallet
-        breakpoint()
-
         self.subaccount_id = subaccount_id
-        # self.subaccount_id = self.fetch_subaccounts()['subaccount_ids'][0]
-        # else:
-        #     self.subaccount_id = subaccount_id
+        self.subaccount_id = self.fetch_subaccounts()['subaccount_ids'][0] if not subaccount_id else subaccount_id
         self.referral_code = referral_code
 
     def connect_ws(self):
