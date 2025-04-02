@@ -2,6 +2,7 @@
 Cli module in order to allow interaction.
 """
 import os
+from textwrap import dedent
 
 import pandas as pd
 import rich_click as click
@@ -56,6 +57,22 @@ def set_client(ctx):
         if subaccount_id:
             subaccount_id = int(subaccount_id)
         wallet = os.environ.get("WALLET")
+
+        if not wallet and subaccount_id is None:
+            msg = dedent(
+                """
+                Please provide either a wallet or a subaccount_id in the .env file at {env_path}"
+                Wallet is the address of the account to use, subaccount_id is the subaccount to use"
+                Subaccount_id is the subaccount to use"
+
+                Example .env file:
+                    ETH_PRIVATE_KEY=0x1234567890abcdef
+                    ENVIRONMENT=prod
+                    WALLET=0x1234567890abcdef
+                    # SUBACCOUNT_ID=123456
+                """
+            )
+            raise ValueError(msg)
         ctx.client = DeriveClient(**auth, env=env, subaccount_id=subaccount_id, wallet=wallet)
 
     if ctx.logger.level == "DEBUG":

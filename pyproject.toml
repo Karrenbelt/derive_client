@@ -20,7 +20,7 @@ derive-action-signing = "^0.0.9"
 
 
 [tool.poetry.scripts]
-dc= "derive.cli:cli"
+dc= "derive_client.cli:cli"
 
 
 [tool.poetry.group.dev.dependencies]

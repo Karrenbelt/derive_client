@@ -29,7 +29,7 @@ from rich import print
 from web3 import Web3
 from websocket import WebSocketConnectionClosedException, create_connection
 
-from derive_client.constants import CONTRACTS, DEFAULT_REFERER, PUBLIC_HEADERS, TEST_PRIVATE_KEY
+from derive_client.constants import CONTRACTS, DEFAULT_REFERER, PUBLIC_HEADERS
 from derive_client.enums import (
     CollateralAsset,
     Environment,
@@ -97,12 +97,12 @@ class BaseClient:
 
     def __init__(
         self,
-        private_key: str = TEST_PRIVATE_KEY,
-        env: Environment = Environment.TEST,
+        wallet: str,
+        private_key: str,
+        env: Environment,
         logger=None,
         verbose=False,
-        subaccount_id=None,
-        wallet=None,
+        subaccount_id=0,
         referral_code=None,
     ):
         self.verbose = verbose
@@ -113,10 +113,8 @@ class BaseClient:
         self.signer = self.web3_client.eth.account.from_key(private_key)
         print(f"Signer address: {self.signer.address}")
         self.wallet = self.signer.address if not wallet else wallet
-        if not subaccount_id:
-            self.subaccount_id = self.fetch_subaccounts()['subaccount_ids'][0]
-        else:
-            self.subaccount_id = subaccount_id
+        self.subaccount_id = subaccount_id
+        self.subaccount_id = self.fetch_subaccounts()['subaccount_ids'][0] if not subaccount_id else subaccount_id
         self.referral_code = referral_code
 
     def connect_ws(self):

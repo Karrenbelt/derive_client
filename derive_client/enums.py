@@ -76,6 +76,8 @@ class CollateralAsset(Enum):
     """Asset types."""
 
     USDC = "usdc"
+    WEETH = "weeth"
+    LBTC = "lbtc"
 
 
 class ActionType(Enum):
