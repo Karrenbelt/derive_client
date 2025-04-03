@@ -21,6 +21,13 @@ class UnderlyingCurrency(Enum):
     USDC = "usdc"
     LBTC = "lbtc"
     WEETH = "weeth"
+    OP = "op"
+    DRV = "drv"
+    rswETH = "rseeth"
+    rsETH = "rseth"
+    DAI = "dai"
+    USDT = "usdt"
+
 
 
 class OrderSide(Enum):
