@@ -5,7 +5,7 @@ Sample for creating an order on the derive client.
 from rich import print
 
 from derive_client.derive import DeriveClient
-from derive_client.enums import Environment, OrderSide, UnderlyingCurrency, InstrumentType
+from derive_client.enums import Environment, InstrumentType, OrderSide, UnderlyingCurrency
 from tests.conftest import TEST_PRIVATE_KEY, TEST_WALLET
 
 

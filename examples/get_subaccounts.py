@@ -4,10 +4,6 @@ Simple demo script to show how to get a list of subaccounts.
 This script is equivalent to the test_fetch_first_subaccount() test in tests/test_main.py.
 """
 
-from pathlib import Path
-
-import click
-
 from derive_client.enums import Environment
 from derive_client.http_client import HttpClient as DeriveClient
 from tests.conftest import TEST_PRIVATE_KEY, TEST_WALLET
