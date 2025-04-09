@@ -14,8 +14,8 @@ def main():
     """
 
     client = DeriveClient(
-        TEST_PRIVATE_KEY,
         wallet=TEST_WALLET,
+        private_key=TEST_PRIVATE_KEY,
         env=Environment.TEST,
     )
     client.subaccount_id = 132849
