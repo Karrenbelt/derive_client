@@ -288,12 +288,16 @@ def test_transfer_collateral_steps(
     derive_client,
 ):
     """Test transfer collateral."""
-    pre_account_balance = float(derive_client.fetch_subaccount(derive_client.subaccount_id)['collaterals_value'])
+
+    subaccounts = derive_client.fetch_subaccounts()
+    receiver = subaccounts['subaccount_ids'][0]
+    sender = subaccounts['subaccount_ids'][1]
+    pre_account_balance = float(derive_client.fetch_subaccount(sender)['collaterals_value'])
     asset = CollateralAsset.USDC
     amount = 1
-    derive_client.transfer_collateral(amount, derive_client.fetch_subaccounts()['subaccount_ids'][1], asset)
+    derive_client.transfer_collateral(amount, receiver, asset)
     while True:
-        account_balance = float(derive_client.fetch_subaccount(derive_client.subaccount_id)['collaterals_value'])
+        account_balance = float(derive_client.fetch_subaccount(sender)['collaterals_value'])
         if account_balance != pre_account_balance:
             break
         else:
