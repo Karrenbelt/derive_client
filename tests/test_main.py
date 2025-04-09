@@ -292,6 +292,7 @@ def test_transfer_collateral_steps(
     subaccounts = derive_client.fetch_subaccounts()
     receiver = subaccounts['subaccount_ids'][0]
     sender = subaccounts['subaccount_ids'][1]
+
     pre_account_balance = float(derive_client.fetch_subaccount(sender)['collaterals_value'])
     asset = CollateralAsset.USDC
     amount = 1
@@ -324,6 +325,7 @@ def test_transfer_collateral_steps(
         UnderlyingCurrency.BTC.value,
     ],
 )
+@pytest.mark.skip("Currently the subaccounts have no open positions")
 def test_analyser(underlying_currency, derive_client):
     """Test analyser."""
     raw_data = derive_client.fetch_subaccount(derive_client.subaccount_id)
