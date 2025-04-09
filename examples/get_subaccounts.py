@@ -10,21 +10,18 @@ import click
 
 from derive_client.enums import Environment
 from derive_client.http_client import HttpClient as DeriveClient
+from tests.conftest import TEST_PRIVATE_KEY, TEST_WALLET
 
 
-@click.command()
-@click.option('--signer-key-path', required=True, help='Path to signer key file')
-@click.option('--derive-sc-wallet', required=True, help='Derive SC wallet address')
-def main(signer_key_path, derive_sc_wallet):
-    key_file = Path(signer_key_path)
-    if not key_file.exists():
-        click.echo(f"Signer key file not found: {signer_key_path}")
-        return
+def main():
+    """
+    Demonstrate fetching subaccounts from the derive client.
+    """
 
     client = DeriveClient(
-        private_key=key_file.read_text(),
-        wallet=derive_sc_wallet,
-        env=Environment.PROD,
+        private_key=TEST_PRIVATE_KEY,
+        wallet=TEST_WALLET,
+        env=Environment.TEST,
     )
     subaccounts = client.fetch_subaccounts()
     for subaccount in subaccounts:
