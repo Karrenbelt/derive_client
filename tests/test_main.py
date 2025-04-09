@@ -234,10 +234,8 @@ def test_get_tickers(derive_client):
 @pytest.mark.parametrize(
     "currency, side",
     [
-        # (UnderlyingCurrency.ETH, OrderSide.BUY),
-        # (UnderlyingCurrency.ETH, OrderSide.SELL),
-        (UnderlyingCurrency.BTC, OrderSide.BUY),
-        (UnderlyingCurrency.BTC, OrderSide.SELL),
+        (UnderlyingCurrency.ETH, OrderSide.BUY),
+        (UnderlyingCurrency.ETH, OrderSide.SELL),
     ],
 )
 def test_can_create_option_order(derive_client, currency, side):
@@ -255,6 +253,7 @@ def test_can_create_option_order(derive_client, currency, side):
         price=order_price,
         amount=0.5,
         instrument_name=symbol,
+        instrument_type=InstrumentType.OPTION,
         side=side,
         order_type=OrderType.LIMIT,
     )
