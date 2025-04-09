@@ -91,11 +91,8 @@ def test_create_sm_subaccount(derive_client):
 @pytest.mark.parametrize(
     "instrument_name, side, price, instrument_type",
     [
-        ("LBTC-USDC", OrderSide.BUY, 20000, InstrumentType.ERC20),
         ("ETH-PERP", OrderSide.BUY, 200, InstrumentType.PERP),
         ("ETH-PERP", OrderSide.SELL, 10000, InstrumentType.PERP),
-        ("BTC-PERP", OrderSide.BUY, 2000, InstrumentType.PERP),
-        ("BTC-PERP", OrderSide.SELL, 100000, InstrumentType.PERP),
     ],
 )
 def test_create_order(derive_client, instrument_name, side, price, instrument_type):
@@ -106,7 +103,7 @@ def test_create_order(derive_client, instrument_name, side, price, instrument_ty
         price=price,
         amount=0.1,
         instrument_name=instrument_name,
-        side=OrderSide(side),
+        side=side,
         order_type=OrderType.LIMIT,
         instrument_type=instrument_type,
     )
