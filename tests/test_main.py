@@ -277,7 +277,8 @@ def test_transfer_collateral(derive_client):
     """Test transfer collateral."""
     # freeze_time(derive_client)
     amount = 1
-    to = derive_client.fetch_subaccounts()['subaccount_ids'][1]
+    subaccounts = derive_client.fetch_subaccounts()
+    to = subaccounts['subaccount_ids'][0]
     asset = CollateralAsset.USDC
     result = derive_client.transfer_collateral(amount, to, asset)
     assert result
