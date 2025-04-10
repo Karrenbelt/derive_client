@@ -4,29 +4,27 @@ Example of bridging funds from Base to a Derive smart contract funding account
 
 from __future__ import annotations
 
-import os
 import json
-import time
+import os
 import subprocess
+import time
 from enum import IntEnum, StrEnum, auto
 from pathlib import Path
 from typing import Callable
-from pydantic import BaseModel, ConfigDict, Field
 
 import requests
+from eth_account import Account
+from pydantic import BaseModel, ConfigDict
 from web3 import Web3
 from web3.contract import Contract
 from web3.datastructures import AttributeDict
-from hexbytes import HexBytes
-from eth_account import Account
-from tests.conftest import TEST_PRIVATE_KEY
-
 
 Address = str
 MSG_GAS_LIMIT = 100_000
 TARGET_SPEED = "FAST"
 DEPOSIT_GAS_LIMIT = 420_000
 PAYLOAD_SIZE = 161
+PROD_LYRA_ADDRESSES = "https://raw.githubusercontent.com/0xdomrom/socket-plugs/refs/heads/main/deployments/superbridge/prod_lyra_addresses.json"  # noqa: E501
 
 
 class TxStatus(IntEnum):
@@ -53,7 +51,6 @@ class ChainID(IntEnum):
 
 
 class Currency(StrEnum):
-
     @staticmethod
     def _generate_next_value_(name: str, start: int, count: int, last_values: list[str]):
         return name
@@ -108,7 +105,6 @@ def get_repo_root() -> Path:
 
 
 def fetch_json(url: str, cache_path: Path, post_processer: Callable = None):
-
     if cache_path.exists():
         return json.loads(cache_path.read_text())
 
@@ -123,7 +119,7 @@ def fetch_json(url: str, cache_path: Path, post_processer: Callable = None):
     return data
 
 
-def fetch_prod_lyra_addresses(url: str = "https://raw.githubusercontent.com/0xdomrom/socket-plugs/refs/heads/main/deployments/superbridge/prod_lyra_addresses.json") -> LyraAddresses:
+def fetch_prod_lyra_addresses(url: str = PROD_LYRA_ADDRESSES) -> LyraAddresses:
     """Fetch the chain data JSON from chainid.network."""
 
     cache_path = get_repo_root() / "data" / "prod_lyra_addresses.json"
@@ -132,7 +128,6 @@ def fetch_prod_lyra_addresses(url: str = "https://raw.githubusercontent.com/0xdo
 
 
 def fetch_abi(chain_id: ChainID, contract_address: str, apikey: str):
-
     cache_path = get_repo_root() / "data" / chain_id.name.lower() / f"{contract_address}.json"
     base_url = ExplorerBaseUrl[chain_id.name]
     url = f"{base_url}/api?module=contract&action=getabi&address={contract_address}&apikey={apikey}"
@@ -148,7 +143,7 @@ def wait_for_tx_receipt(tx_hash: str, timeout=120, poll_interval=1) -> Attribute
     while True:
         try:
             receipt = w3.eth.get_transaction_receipt(tx_hash)
-        except Exception as error:
+        except Exception:
             receipt = None
         if receipt is not None:
             return receipt
@@ -181,7 +176,6 @@ def increase_allowance(
     amount: int,
     private_key: str,
 ) -> None:
-
     func = erc20_contract.functions.approve(spender, amount)
     nonce = w3.eth.get_transaction_count(from_account.address)
     tx = func.build_transaction(
@@ -222,7 +216,6 @@ def prepare_bridge_tx(
     msg_gas_limit: int,
     connector: Address,
 ) -> dict:
-
     func = contract.functions.bridge(
         receiver_=w3.to_checksum_address(receiver),
         amount_=amount,
@@ -236,15 +229,17 @@ def prepare_bridge_tx(
     func.call({"from": account.address, "value": fees})
 
     nonce = w3.eth.get_transaction_count(account.address)
-    tx = func.build_transaction({
-        "chainId": chain_id,
-        "from": account.address,
-        "nonce": nonce,
-        "gas": DEPOSIT_GAS_LIMIT,
-        "gasPrice": w3.eth.gas_price,
-        "value": fees + 1,
-    })
-    
+    tx = func.build_transaction(
+        {
+            "chainId": chain_id,
+            "from": account.address,
+            "nonce": nonce,
+            "gas": DEPOSIT_GAS_LIMIT,
+            "gasPrice": w3.eth.gas_price,
+            "value": fees + 1,
+        }
+    )
+
     return tx
 
 
@@ -304,7 +299,6 @@ def bridge(
     token_data: NonMintableTokenData,
     private_key: str,
 ):
-
     token_contract = get_erc20_contract(w3, token_data.NonMintableToken)
 
     ensure_balance(token_contract, account.address, amount)
@@ -341,7 +335,6 @@ def bridge(
 
 
 if __name__ == "__main__":
-
     if (basescan_api_key := os.environ.get("BASESCAN_API_KEY")) is None:
         raise ValueError("BASESCAN_API_KEY not found in env.")
     if (dprc_api_key := os.environ.get("DRPC_API_KEY")) is None:
