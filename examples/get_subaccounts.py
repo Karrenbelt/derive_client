@@ -26,7 +26,7 @@ def main(signer_key_path: Path, derive_sc_wallet: str):
     client = DeriveClient(
         private_key=signer_key_path.read_text(),
         wallet=derive_sc_wallet,
-        env=Environment.TEST,
+        env=Environment.PROD,
     )
     subaccounts = client.fetch_subaccounts()
     for subaccount in subaccounts:
