@@ -4,7 +4,7 @@ Sample of fetching instruments from the derive client, and printing the result.
 from rich import print
 
 from derive_client.derive import DeriveClient
-from derive_client.enums import Environment, InstrumentType
+from derive_client.enums import Environment, InstrumentType, UnderlyingCurrency
 from tests.conftest import TEST_PRIVATE_KEY, TEST_WALLET
 
 
@@ -14,15 +14,15 @@ def main():
     """
 
     client = DeriveClient(
-        TEST_PRIVATE_KEY,
         wallet=TEST_WALLET,
+        private_key=TEST_PRIVATE_KEY,
         env=Environment.TEST,
     )
-    client.subaccount_id = 132849
 
+    currency = UnderlyingCurrency.BTC
     for instrument_type in [InstrumentType.OPTION, InstrumentType.PERP]:
-        print(f"Fetching instruments for {instrument_type}")
-        instruments = client.fetch_instruments(instrument_type=instrument_type)
+        print(f"Fetching instruments for {currency} {instrument_type}")
+        instruments = client.fetch_instruments(instrument_type=instrument_type, currency=currency)
         print(instruments)
 
 
