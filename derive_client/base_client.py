@@ -12,6 +12,7 @@ from derive_action_signing.module_data import (
     ModuleData,
     RecipientTransferERC20ModuleData,
     SenderTransferERC20ModuleData,
+    DepositModuleData,
     TradeModuleData,
     TransferERC20Details,
 )
@@ -739,3 +740,57 @@ class BaseClient:
             raise ApiException(response.json()["error"])
         results = response.json()["result"]
         return results
+
+
+    def fetch_all_currencies(self):
+        """
+        Fetch the currency list
+        """
+        url = f"{self.contracts['BASE_URL']}/public/get_all_currencies"
+        return self._send_request(url, json={})
+
+    def transfer_from_funding_to_subaccount(
+            self, amount: int, asset_name: str, subaccount_id: int
+    ):
+        """
+        Transfer from funding to subaccount
+        """
+
+        instrument = self.fetch_instruments(
+            instrument_type=InstrumentType.ERC20,
+            currency=UnderlyingCurrency[asset_name.split("-")[0]],
+        )
+
+        sender_action = SignedAction(
+            subaccount_id=self.subaccount_id,
+            owner=self.wallet,
+            signer=self.signer.address,
+            signature_expiry_sec=MAX_INT_32,
+            nonce=get_action_nonce(),
+            module_address=self.contracts["DEPOSIT_MODULE_ADDRESS"],
+            module_data=DepositModuleData(
+                amount=str(amount),
+                asset_name=(asset_name),
+                to_subaccount_id=subaccount_id,
+            ),
+            DOMAIN_SEPARATOR=self.contracts["DOMAIN_SEPARATOR"],
+            ACTION_TYPEHASH=self.contracts["ACTION_TYPEHASH"],
+        )
+        sender_action.sign(self.signer.key)
+        payload = {
+            "amount": str(amount),
+            "asset_name": asset_name,
+            "is_atomic_signing": False,
+            "nonce": sender_action.nonce,
+            "signature": sender_action.signature,
+            "signature_expiry_sec": sender_action.signature_expiry_sec,
+            "signer": sender_action.signer,
+            "subaccount_id": subaccount_id,
+        }
+        url = f"{self.contracts['BASE_URL']}/private/deposit"
+        return self._send_request(
+            url,
+            json=payload,
+        )
+
+

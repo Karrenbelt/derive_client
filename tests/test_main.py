@@ -353,3 +353,24 @@ def test_set_mmp_config(derive_client):
             assert set_config[k] == v.name
         else:
             assert float(set_config[k]) == v
+
+
+def test_transfer_from_funding_to_subaccount(derive_client):
+    """Test transfer from funding to subaccount."""
+    # freeze_time(derive_client)
+    amount = 1
+    to_subaccount_id = derive_client.fetch_subaccounts()['subaccount_ids'][0]
+    result = derive_client.transfer_from_funding_to_subaccount(
+        amount=amount,
+        subaccount_id=to_subaccount_id,
+        asset_name=CollateralAsset.USDC.name,
+    )
+    assert result
+
+
+
+def test_fetch_all_currencies(derive_client):
+    """Test fetch all currencies."""
+    currencies = derive_client.fetch_all_currencies()
+    assert isinstance(currencies, list)
+    assert len(currencies) > 0
