@@ -12,7 +12,6 @@ import subprocess
 from enum import IntEnum, StrEnum, auto
 from pathlib import Path
 from typing import Callable
-# from dataclasses import dataclass, field
 from pydantic import BaseModel, ConfigDict, Field
 
 import requests
@@ -240,48 +239,54 @@ if (dprc_api_key := os.environ.get("DRPC_API_KEY")) is None:
     raise ValueError("DRPC_API_KEY not found in environment variables.")
 if (ethereum_private_key := os.environ.get("ETHEREUM_PRIVATE_KEY")) is None:
     raise ValueError("ETHEREUM_PRIVATE_KEY not found in environment variables.")
+if (smart_contract_wallet_address := os.environ.get("DERIVE_SMART_CONTRACT_WALLET_ADDRESS")) is None:
+    raise ValueError("DERIVE_SMART_CONTRACT_WALLET_ADDRESS not found in env.")
 
 
 lyra_addresses = fetch_prod_lyra_addresses()
 
-# get some data from mainnet
+# 1. Get some data from mainnet
 rpc_url = f"https://lb.drpc.org/ogrpc?network={MAINNET}&dkey={dprc_api_key}"
 w3 = Web3(Web3.HTTPProvider(rpc_url))
 if not w3.is_connected():
     raise ConnectionError(f"Failed to connect to RPC at {rpc_url}")
 
 
-account = Account.from_key(ethereum_private_key)
 socket_bridge_abi = fetch_abi(SOCKET_BRIDGE_ADDRESS, etherscan_api_key)
 bridge_contract = w3.eth.contract(address=SOCKET_BRIDGE_ADDRESS, abi=socket_bridge_abi)
 
 
-# Example transaction of the bridging
+# Example transaction of the bridging (from Derive documentation)
 tx_hash = "0x69272bbed41fd09f4b50bba6e0e451cc57a19fe81db41ac7819e003cb3088a00"
 tx_data = w3.eth.get_transaction(tx_hash)
 func_obj, func_params = bridge_contract.decode_function_input(tx_data['input'])
 
-# Now bridge from BASE
+
+# 2. Now bridge from BASE
+account = Account.from_key(ethereum_private_key)
+
+base_weETH = TokenData(**lyra_addresses[str(ChainID.BASE)][Currency.weETH])
+connector = base_weETH.connectors[str(ChainID.LYRA)][TARGET_SPEED]
+
+socket_bridge_abi = fetch_abi(chain_id=ChainID.BASE, contract_address=base_weETH.Vault, apikey=basescan_api_key)
+bridge_contract = w3.eth.contract(address=base_weETH.Vault, abi=socket_bridge_abi)
+
 rpc_url = f"https://lb.drpc.org/ogrpc?network={BASE}&dkey={dprc_api_key}"
 w3 = Web3(Web3.HTTPProvider(rpc_url))
 if not w3.is_connected():
     raise ConnectionError(f"Failed to connect to RPC at {rpc_url}")
 
 
-lyra_addresses = fetch_prod_lyra_addresses()
-base_weETH = TokenData(**lyra_addresses[str(ChainID.BASE)]["weETH"])
-connector = base_weETH.connectors[str(ChainID.LYRA)]["FAST"]
-
-
 amount_eth = 0.001
-receiver = base_weETH.Vault
+spender = base_weETH.Vault
+receiver = smart_contract_wallet_address
 
 # sanity checks
 erc20_abi_path = get_repo_root() / "data" / "erc20.json"
 erc20_abi = json.loads(erc20_abi_path.read_text())
 weeth_contract = w3.eth.contract(address=Web3.to_checksum_address(base_weETH.NonMintableToken), abi=erc20_abi)
 balance = weeth_contract.functions.balanceOf(account.address).call()
-allowance = weeth_contract.functions.allowance(account.address, receiver).call()
+allowance = weeth_contract.functions.allowance(account.address, spender).call()
 
 
 if amount_eth > balance:
@@ -292,7 +297,7 @@ if amount_eth > allowance:
     increase_allowance(
         from_account=account, 
         erc20_contract=weeth_contract,
-        spender=receiver,
+        spender=spender,
         amount_eth=amount_eth,
         private_key=ethereum_private_key,
     )
@@ -319,4 +324,3 @@ try:
 except Exception as error:
     print(error)
     breakpoint()
-
