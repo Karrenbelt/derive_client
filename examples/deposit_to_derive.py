@@ -1,8 +1,7 @@
+"""
+Example of bridging funds from Base to a Derive smart contract funding account
+"""
 
-# Rollup RPC Node
-# Contract	Mainnet Address	Testnet Address
-# RPC Endpoint	https://rpc.lyra.finance	<https://rpc-prod-testnet-0eakp60405.t.conduit.xyz>
-# Block Explorer	https://explorer.lyra.finance	<https://explorer-prod-testnet-0eakp60405.t.conduit.xyz>
 from __future__ import annotations
 
 import os
@@ -17,14 +16,13 @@ from pydantic import BaseModel, ConfigDict, Field
 import requests
 from web3 import Web3
 from web3.contract import Contract
+from web3.datastructures import AttributeDict
 from hexbytes import HexBytes
 from eth_account import Account
 from tests.conftest import TEST_PRIVATE_KEY
 
 
 Address = str
-MAINNET = "ethereum"
-BASE = "base"
 MSG_GAS_LIMIT = 100_000
 TARGET_SPEED = "FAST"
 DEPOSIT_GAS_LIMIT = 420_000
@@ -32,8 +30,8 @@ PAYLOAD_SIZE = 161
 
 
 class TxStatus(IntEnum):
-    FAILED = auto()
-    SUCCESS = auto()
+    FAILED = 0
+    SUCCESS = 1
 
 
 class ChainID(IntEnum):
@@ -145,7 +143,7 @@ def fetch_abi(chain_id: ChainID, contract_address: str, apikey: str):
     return fetch_json(url, cache_path, post_processer=response_processer)
 
 
-def wait_for_receipt(tx_hash: str, timeout=120, poll_interval=1):
+def wait_for_tx_receipt(tx_hash: str, timeout=120, poll_interval=1) -> AttributeDict:
     start_time = time.time()
     while True:
         try:
@@ -159,15 +157,32 @@ def wait_for_receipt(tx_hash: str, timeout=120, poll_interval=1):
         time.sleep(poll_interval)
 
 
+def sign_and_send_tx(w3: Web3, tx, private_key: str) -> AttributeDict:
+    """
+    Sign a transaction, send it, and wait for the receipt.
+
+    Exceptions (e.g. timeout) will propagate, so the caller may handle them.
+    """
+
+    signed_tx = w3.eth.account.sign_transaction(tx, private_key=private_key)
+    print(f"signed_tx: {signed_tx}")
+    tx_hash = w3.eth.send_raw_transaction(signed_tx.raw_transaction)
+    print(f"tx_hash: 0x{tx_hash.hex()}")
+    tx_receipt = wait_for_tx_receipt(tx_hash=tx_hash)
+    print(f"tx_receipt: {tx_receipt}")
+    return tx_receipt
+
+
 def increase_allowance(
+    w3: Web3,
     from_account: Account,
-    erc20_contract,
-    spender,
-    amount_eth,
-    private_key,
-):
-    value = w3.to_wei(amount_eth, "ether")
-    func = erc20_contract.functions.approve(spender, value)
+    erc20_contract: Contract,
+    spender: Address,
+    amount: int,
+    private_key: str,
+) -> None:
+
+    func = erc20_contract.functions.approve(spender, amount)
     nonce = w3.eth.get_transaction_count(from_account.address)
     tx = func.build_transaction(
         {
@@ -177,18 +192,18 @@ def increase_allowance(
             "gasPrice": w3.eth.gas_price,
         }
     )
-    signed_tx = w3.eth.account.sign_transaction(tx, private_key=ethereum_private_key)
 
     try:
-        tx_hash = w3.eth.send_raw_transaction(signed_tx.raw_transaction)
-        print("Transaction hash:", HexBytes(tx_hash))
-        tx_receipt = wait_for_receipt(tx_hash=tx_hash)
-        print("Transaction receipt:", tx_receipt)
+        tx_receipt = sign_and_send_tx(w3, tx=tx, private_key=private_key)
+        if tx_receipt.status == TxStatus.SUCCESS:
+            print("Transaction succeeded!")
+        else:
+            raise Exception("Transaction reverted.")
     except Exception as error:
         raise error
 
 
-def get_min_fees(bridge_contract, connector: Address) -> int:
+def get_min_fees(bridge_contract: Contract, connector: Address) -> int:
     total_fees = bridge_contract.functions.getMinFees(
         connector_=Web3.to_checksum_address(connector),
         msgGasLimit_=MSG_GAS_LIMIT,
@@ -200,49 +215,30 @@ def get_min_fees(bridge_contract, connector: Address) -> int:
 def prepare_bridge_tx(
     w3: Web3,
     chain_id: ChainID,
-    from_account: Account,
+    account: Account,
     contract: Contract,
     receiver: Address,
-    amount_eth: float,
+    amount: int,
     msg_gas_limit: int,
     connector: Address,
 ) -> dict:
-    """
-    Prepare a depositToAppChain transaction.
 
-    Args:
-        from_account: The account derived from the private key.
-        contract: The Web3 contract instance for the socket bridge.
-        receiver: Address on the app chain that will receive the deposit.
-        amount_eth: The deposit amount expressed in ETH.
-        msg_gas_limit: Gas limit to be used for the L2 message execution.
-        connector: The connector address as required by the bridge function.
-        web3: An instance of Web3 connected to the Base network RPC.
-
-    Returns:
-        A transaction dictionary ready to be signed and sent.
-    """
-    # Convert the deposit amount in ETH to Wei.
-    deposit_value = w3.to_wei(amount_eth, "ether")
-
-    # Retrieve the current transaction count (nonce) from the sender's account
-    nonce = w3.eth.get_transaction_count(from_account.address)
-
-    # Build the transaction
     func = contract.functions.bridge(
         receiver_=w3.to_checksum_address(receiver),
-        amount_=deposit_value,
+        amount_=amount,
         msgGasLimit_=msg_gas_limit,
         connector_=w3.to_checksum_address(connector),
         extraData_=b"",
         options_=b"",
     )
-    fees = get_min_fees(contract, connector=connector)
-    func.call({"from": from_account.address, "value": fees})
 
+    fees = get_min_fees(contract, connector=connector)
+    func.call({"from": account.address, "value": fees})
+
+    nonce = w3.eth.get_transaction_count(account.address)
     tx = func.build_transaction({
         "chainId": chain_id,
-        "from": from_account.address,
+        "from": account.address,
         "nonce": nonce,
         "gas": DEPOSIT_GAS_LIMIT,
         "gasPrice": w3.eth.gas_price,
@@ -252,79 +248,135 @@ def prepare_bridge_tx(
     return tx
 
 
-if (etherscan_api_key := os.environ.get("ETHERSCAN_API_KEY")) is None:
-    raise ValueError("ETHERSCAN_API_KEY not found in env.")
-if (basescan_api_key := os.environ.get("BASESCAN_API_KEY")) is None:
-    raise ValueError("BASESCAN_API_KEY not found in env.")
-if (dprc_api_key := os.environ.get("DRPC_API_KEY")) is None:
-    raise ValueError("DRPC_API_KEY not found in environment variables.")
-if (ethereum_private_key := os.environ.get("ETHEREUM_PRIVATE_KEY")) is None:
-    raise ValueError("ETHEREUM_PRIVATE_KEY not found in environment variables.")
-if (smart_contract_wallet_address := os.environ.get("DERIVE_SMART_CONTRACT_WALLET_ADDRESS")) is None:
-    raise ValueError("DERIVE_SMART_CONTRACT_WALLET_ADDRESS not found in env.")
+def get_w3_connection(network: str, api_key: str) -> Web3:
+    rpc_url = f"https://lb.drpc.org/ogrpc?network={network}&dkey={api_key}"
+    w3 = Web3(Web3.HTTPProvider(rpc_url))
+    if not w3.is_connected():
+        raise ConnectionError(f"Failed to connect to RPC at {rpc_url}")
+    return w3
 
 
-rpc_url = f"https://lb.drpc.org/ogrpc?network={BASE}&dkey={dprc_api_key}"
-w3 = Web3(Web3.HTTPProvider(rpc_url))
-if not w3.is_connected():
-    raise ConnectionError(f"Failed to connect to RPC at {rpc_url}")
+def get_contract(w3: Web3, address: str, abi: list) -> Contract:
+    return w3.eth.contract(address=Web3.to_checksum_address(address), abi=abi)
 
-chain_id = ChainID.BASE
-account = Account.from_key(ethereum_private_key)
 
-lyra_addresses = fetch_prod_lyra_addresses()
-base_weETH = lyra_addresses.chains[chain_id][Currency.weETH]
-connector = base_weETH.connectors[ChainID.LYRA][TARGET_SPEED]
+def get_erc20_contract(w3: Web3, token_address: str) -> Contract:
+    erc20_abi_path = get_repo_root() / "data" / "erc20.json"
+    abi = json.loads(erc20_abi_path.read_text())
+    return get_contract(w3=w3, address=token_address, abi=abi)
 
-socket_bridge_abi = fetch_abi(chain_id=chain_id, contract_address=base_weETH.Vault, apikey=basescan_api_key)
-bridge_contract = w3.eth.contract(address=base_weETH.Vault, abi=socket_bridge_abi)
 
-amount_eth = 0.001
-spender = base_weETH.Vault
-receiver = smart_contract_wallet_address
+def ensure_balance(token_contract: Contract, owner: Address, amount: int):
+    balance = token_contract.functions.balanceOf(owner).call()
+    if amount > balance:
+        raise ValueError(f"Not enough funds: {balance}, tried to send: {amount}")
 
-# sanity checks
-erc20_abi_path = get_repo_root() / "data" / "erc20.json"
-erc20_abi = json.loads(erc20_abi_path.read_text())
-weeth_contract = w3.eth.contract(address=Web3.to_checksum_address(base_weETH.NonMintableToken), abi=erc20_abi)
-balance = weeth_contract.functions.balanceOf(account.address).call()
-allowance = weeth_contract.functions.allowance(account.address, spender).call()
 
-if amount_eth > balance:
-    raise ValueError(f"Not enough funds: {balance}, tried to send: {amount_eth}")
+def ensure_allowance(
+    w3: Web3,
+    token_contract: Contract,
+    owner: Address,
+    spender: Address,
+    amount: int,
+    private_key: str,
+):
+    allowance = token_contract.functions.allowance(owner, spender).call()
+    if amount > allowance:
+        print(f"Increasing allowance from {allowance} to {amount}")
+        increase_allowance(
+            w3=w3,
+            from_account=Account.from_key(private_key),
+            erc20_contract=token_contract,
+            spender=spender,
+            amount=amount,
+            private_key=private_key,
+        )
 
-if amount_eth > allowance:
-    print(f"Increasing allowance from {allowance} to {amount_eth}")
-    increase_allowance(
-        from_account=account, 
-        erc20_contract=weeth_contract,
+
+def bridge(
+    w3: Web3,
+    chain_id: ChainID,
+    account: Account,
+    amount: int,
+    receiver: Address,
+    bridge_contract: Contract,
+    connector: Address,
+    token_data: NonMintableTokenData,
+    private_key: str,
+):
+
+    token_contract = get_erc20_contract(w3, token_data.NonMintableToken)
+
+    ensure_balance(token_contract, account.address, amount)
+
+    spender = token_data.Vault
+    ensure_allowance(
+        w3=w3,
+        token_contract=token_contract,
+        owner=account.address,
         spender=spender,
-        amount_eth=amount_eth,
-        private_key=ethereum_private_key,
+        amount=amount,
+        private_key=private_key,
     )
 
+    tx = prepare_bridge_tx(
+        w3=w3,
+        chain_id=chain_id,
+        account=account,
+        contract=bridge_contract,
+        receiver=receiver,
+        amount=amount,
+        msg_gas_limit=MSG_GAS_LIMIT,
+        connector=connector,
+    )
 
-tx = prepare_bridge_tx(
-    w3=w3,
-    chain_id=chain_id,
-    from_account=account,
-    contract=bridge_contract,
-    receiver=receiver,
-    amount_eth=amount_eth,
-    msg_gas_limit=MSG_GAS_LIMIT,
-    connector=connector,
-)
+    try:
+        tx_receipt = sign_and_send_tx(w3=w3, tx=tx, private_key=private_key)
+        if tx_receipt.status == TxStatus.SUCCESS:
+            print("Transaction succeeded!")
+        else:
+            raise Exception("Transaction reverted.")
+    except Exception as error:
+        raise error
 
-try:
-    signed_tx = w3.eth.account.sign_transaction(tx, private_key=ethereum_private_key)
-    print(f"signed_tx: {signed_tx}")
-    tx_hash = w3.eth.send_raw_transaction(signed_tx.raw_transaction)
-    print(f"tx_hash: {HexBytes(tx_hash)}")
-    tx_receipt = wait_for_receipt(tx_hash=tx_hash)
-    print(f"tx_receipt: {tx_receipt}")
-    if tx_receipt.status == TxStatus.SUCCESS:
-        print(f"Successfully deposit to {smart_contract_wallet_address}")
-        return
-    raise Exception(f"Failed to deposit to {smart_contract_wallet_address}")
-except Exception as error:
-    raise error
+
+if __name__ == "__main__":
+
+    if (basescan_api_key := os.environ.get("BASESCAN_API_KEY")) is None:
+        raise ValueError("BASESCAN_API_KEY not found in env.")
+    if (dprc_api_key := os.environ.get("DRPC_API_KEY")) is None:
+        raise ValueError("DRPC_API_KEY not found in environment variables.")
+    if (ethereum_private_key := os.environ.get("ETHEREUM_PRIVATE_KEY")) is None:
+        raise ValueError("ETHEREUM_PRIVATE_KEY not found in environment variables.")
+    if (smart_contract_wallet_address := os.environ.get("DERIVE_SMART_CONTRACT_WALLET_ADDRESS")) is None:
+        raise ValueError("DERIVE_SMART_CONTRACT_WALLET_ADDRESS not found in env.")
+
+    chain_id = ChainID.BASE
+
+    w3 = get_w3_connection(network="base", api_key=dprc_api_key)
+    account = Account.from_key(ethereum_private_key)
+    lyra_addresses = fetch_prod_lyra_addresses()
+
+    token_data = lyra_addresses.chains[chain_id][Currency.weETH]
+    connector = token_data.connectors[ChainID.LYRA][TARGET_SPEED]
+
+    vault_address = token_data.Vault
+    receiver = smart_contract_wallet_address
+
+    abi = fetch_abi(chain_id=chain_id, contract_address=vault_address, apikey=basescan_api_key)
+    bridge_contract = get_contract(w3=w3, address=vault_address, abi=abi)
+
+    amount_eth = 0.001
+    amount = w3.to_wei(amount_eth, "ether")
+
+    bridge(
+        w3=w3,
+        chain_id=chain_id,
+        account=account,
+        amount=amount,
+        receiver=receiver,
+        bridge_contract=bridge_contract,
+        connector=connector,
+        token_data=token_data,
+        private_key=ethereum_private_key,
+    )
