@@ -381,4 +381,4 @@ def test_fetch_currency(derive_client):
     currency = derive_client.fetch_currency(UnderlyingCurrency.BTC.name)
     assert isinstance(currency, dict)
     assert currency['currency'] == UnderlyingCurrency.BTC.name
-    assert currency['managers'].pop().get('address')
+    assert currency['managers'].pop().get('address') is not None

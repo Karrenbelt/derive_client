@@ -763,15 +763,18 @@ class BaseClient:
         """
         Transfer from funding to subaccount
         """
-        currencies = self.fetch_all_currencies()
+        currency = self.fetch_currency(asset_name)
+        manager_address = currency['managers'][1].get('address') # Errr why is there 3 managers?
+        underlying_address = currency['protocol_asset_addresses']['spot']
 
+        if not manager_address or not underlying_address:
+            raise Exception(f"Unable to find manager address or underlying address for {asset_name}")
 
-
-        breakpoint()
-
-        instrument = self.fetch_instruments(
-            instrument_type=InstrumentType.ERC20,
-            currency=UnderlyingCurrency[asset_name.split("-")[0]],
+        deposit_module_data = DepositModuleData(
+            amount=str(amount),
+            asset=underlying_address,
+            manager=manager_address,
+            decimals=6,
         )
 
         sender_action = SignedAction(
@@ -781,11 +784,7 @@ class BaseClient:
             signature_expiry_sec=MAX_INT_32,
             nonce=get_action_nonce(),
             module_address=self.contracts["DEPOSIT_MODULE_ADDRESS"],
-            module_data=DepositModuleData(
-                amount=str(amount),
-                asset_name=(asset_name),
-                to_subaccount_id=subaccount_id,
-            ),
+            module_data=deposit_module_data,
             DOMAIN_SEPARATOR=self.contracts["DOMAIN_SEPARATOR"],
             ACTION_TYPEHASH=self.contracts["ACTION_TYPEHASH"],
         )
