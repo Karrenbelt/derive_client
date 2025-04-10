@@ -72,11 +72,6 @@ class Currency(StrEnum):
     eBTC = auto()
 
 
-class ExplorerBaseUrl(StrEnum):
-    ETH = "https://api.etherscan.io/"
-    BASE = "https://api.basescan.org/"
-
-
 class TokenData(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -125,17 +120,6 @@ def fetch_prod_lyra_addresses(url: str = PROD_LYRA_ADDRESSES) -> LyraAddresses:
     cache_path = get_repo_root() / "data" / "prod_lyra_addresses.json"
 
     return LyraAddresses(chains=fetch_json(url=url, cache_path=cache_path))
-
-
-def fetch_abi(chain_id: ChainID, contract_address: str, apikey: str):
-    cache_path = get_repo_root() / "data" / chain_id.name.lower() / f"{contract_address}.json"
-    base_url = ExplorerBaseUrl[chain_id.name]
-    url = f"{base_url}/api?module=contract&action=getabi&address={contract_address}&apikey={apikey}"
-
-    def response_processer(data):
-        return json.loads(data["result"])
-
-    return fetch_json(url, cache_path, post_processer=response_processer)
 
 
 def wait_for_tx_receipt(tx_hash: str, timeout=120, poll_interval=1) -> AttributeDict:
@@ -335,8 +319,6 @@ def bridge(
 
 
 if __name__ == "__main__":
-    if (basescan_api_key := os.environ.get("BASESCAN_API_KEY")) is None:
-        raise ValueError("BASESCAN_API_KEY not found in env.")
     if (dprc_api_key := os.environ.get("DRPC_API_KEY")) is None:
         raise ValueError("DRPC_API_KEY not found in environment variables.")
     if (ethereum_private_key := os.environ.get("ETHEREUM_PRIVATE_KEY")) is None:
@@ -356,7 +338,8 @@ if __name__ == "__main__":
     vault_address = token_data.Vault
     receiver = smart_contract_wallet_address
 
-    abi = fetch_abi(chain_id=chain_id, contract_address=vault_address, apikey=basescan_api_key)
+    vault_abi_path =  get_repo_root() / "data" / "socket_superbridge_vault.json"
+    abi = json.loads(vault_abi_path.read_text())
     bridge_contract = get_contract(w3=w3, address=vault_address, abi=abi)
 
     amount_eth = 0.001
