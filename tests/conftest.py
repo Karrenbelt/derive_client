@@ -15,6 +15,7 @@ TEST_WALLET = "0x8772185a1516f0d61fC1c2524926BfC69F95d698"
 TEST_PRIVATE_KEY = "0x2ae8be44db8a590d20bffbe3b6872df9b569147d3bf6801a35a28281a4816bbd"
 SUBACCOUNT_ID = 30769
 
+
 def freeze_time(derive_client):
     ts = 1705439697008
     nonce = 17054396970088651
@@ -26,10 +27,8 @@ def freeze_time(derive_client):
 @pytest.fixture
 def derive_client():
     derive_client = DeriveClient(
-        private_key=TEST_PRIVATE_KEY, 
-        wallet=TEST_WALLET,
-        env=Environment.TEST, 
-        logger=get_logger())
+        private_key=TEST_PRIVATE_KEY, wallet=TEST_WALLET, env=Environment.TEST, logger=get_logger()
+    )
     yield derive_client
     derive_client.cancel_all()
 

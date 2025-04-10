@@ -29,7 +29,6 @@ class UnderlyingCurrency(Enum):
     USDT = "usdt"
 
 
-
 class OrderSide(Enum):
     """Order sides."""
 
