@@ -16,6 +16,8 @@ from pydantic import BaseModel, ConfigDict, Field
 
 import requests
 from web3 import Web3
+from web3.contract import Contract
+from hexbytes import HexBytes
 from eth_account import Account
 from tests.conftest import TEST_PRIVATE_KEY
 
@@ -25,6 +27,13 @@ MAINNET = "ethereum"
 BASE = "base"
 MSG_GAS_LIMIT = 100_000
 TARGET_SPEED = "FAST"
+DEPOSIT_GAS_LIMIT = 420_000
+PAYLOAD_SIZE = 161
+
+
+class TxStatus(IntEnum):
+    FAILED = auto()
+    SUCCESS = auto()
 
 
 class ChainID(IntEnum):
@@ -172,31 +181,31 @@ def increase_allowance(
 
     try:
         tx_hash = w3.eth.send_raw_transaction(signed_tx.raw_transaction)
-        print("Transaction hash:", tx_hash)
+        print("Transaction hash:", HexBytes(tx_hash))
         tx_receipt = wait_for_receipt(tx_hash=tx_hash)
         print("Transaction receipt:", tx_receipt)
     except Exception as error:
-        print(error)
-        breakpoint()
+        raise error
 
 
 def get_min_fees(bridge_contract, connector: Address) -> int:
     total_fees = bridge_contract.functions.getMinFees(
         connector_=Web3.to_checksum_address(connector),
         msgGasLimit_=MSG_GAS_LIMIT,
-        payloadSize_=161,
+        payloadSize_=PAYLOAD_SIZE,
     ).call()
     return total_fees
 
 
 def prepare_bridge_tx(
+    w3: Web3,
+    chain_id: ChainID,
     from_account: Account,
-    contract,           # The bridge contract instance (with depositToAppChain ABI)
-    receiver: Address,  # The destination address on the App Chain (e.g. Lyra)
-    amount_eth: float,  # Amount in ETH (human-readable)
+    contract: Contract,
+    receiver: Address,
+    amount_eth: float,
     msg_gas_limit: int,
-    connector: Address, # The connector address as per Derive's configuration
-    w3: Web3
+    connector: Address,
 ) -> dict:
     """
     Prepare a depositToAppChain transaction.
@@ -232,10 +241,10 @@ def prepare_bridge_tx(
     func.call({"from": from_account.address, "value": fees})
 
     tx = func.build_transaction({
-        "chainId": ChainID.BASE,
+        "chainId": chain_id,
         "from": from_account.address,
         "nonce": nonce,
-        "gas": 420_000,
+        "gas": DEPOSIT_GAS_LIMIT,
         "gasPrice": w3.eth.gas_price,
         "value": fees + 1,
     })
@@ -260,14 +269,14 @@ w3 = Web3(Web3.HTTPProvider(rpc_url))
 if not w3.is_connected():
     raise ConnectionError(f"Failed to connect to RPC at {rpc_url}")
 
-
+chain_id = ChainID.BASE
 account = Account.from_key(ethereum_private_key)
 
 lyra_addresses = fetch_prod_lyra_addresses()
-base_weETH = lyra_addresses.chains[ChainID.BASE][Currency.weETH]
+base_weETH = lyra_addresses.chains[chain_id][Currency.weETH]
 connector = base_weETH.connectors[ChainID.LYRA][TARGET_SPEED]
 
-socket_bridge_abi = fetch_abi(chain_id=ChainID.BASE, contract_address=base_weETH.Vault, apikey=basescan_api_key)
+socket_bridge_abi = fetch_abi(chain_id=chain_id, contract_address=base_weETH.Vault, apikey=basescan_api_key)
 bridge_contract = w3.eth.contract(address=base_weETH.Vault, abi=socket_bridge_abi)
 
 amount_eth = 0.001
@@ -280,7 +289,6 @@ erc20_abi = json.loads(erc20_abi_path.read_text())
 weeth_contract = w3.eth.contract(address=Web3.to_checksum_address(base_weETH.NonMintableToken), abi=erc20_abi)
 balance = weeth_contract.functions.balanceOf(account.address).call()
 allowance = weeth_contract.functions.allowance(account.address, spender).call()
-
 
 if amount_eth > balance:
     raise ValueError(f"Not enough funds: {balance}, tried to send: {amount_eth}")
@@ -297,23 +305,26 @@ if amount_eth > allowance:
 
 
 tx = prepare_bridge_tx(
+    w3=w3,
+    chain_id=chain_id,
     from_account=account,
     contract=bridge_contract,
     receiver=receiver,
     amount_eth=amount_eth,
     msg_gas_limit=MSG_GAS_LIMIT,
     connector=connector,
-    w3=w3,
 )
 
-
-try: 
+try:
     signed_tx = w3.eth.account.sign_transaction(tx, private_key=ethereum_private_key)
     print(f"signed_tx: {signed_tx}")
     tx_hash = w3.eth.send_raw_transaction(signed_tx.raw_transaction)
-    print(f"tx_hash: {tx_hash}")
+    print(f"tx_hash: {HexBytes(tx_hash)}")
     tx_receipt = wait_for_receipt(tx_hash=tx_hash)
     print(f"tx_receipt: {tx_receipt}")
+    if tx_receipt.status == TxStatus.SUCCESS:
+        print(f"Successfully deposit to {smart_contract_wallet_address}")
+        return
+    raise Exception(f"Failed to deposit to {smart_contract_wallet_address}")
 except Exception as error:
-    print(error)
-    breakpoint()
+    raise error
