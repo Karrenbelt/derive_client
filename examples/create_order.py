@@ -5,8 +5,8 @@ Sample for creating an order on the derive client.
 from rich import print
 
 from derive_client.derive import DeriveClient
-from derive_client.enums import Environment, OrderSide
-from tests.conftest import TEST_PRIVATE_KEY
+from derive_client.enums import Environment, InstrumentType, OrderSide, UnderlyingCurrency
+from tests.conftest import TEST_PRIVATE_KEY, TEST_WALLET
 
 
 def main():
@@ -14,9 +14,13 @@ def main():
     Demonstrate fetching instruments from the derive client.
     """
 
-    client = DeriveClient(TEST_PRIVATE_KEY, env=Environment.TEST)
+    instrument = InstrumentType.PERP
+    currency = UnderlyingCurrency.ETH  # needs to match the subaccount_currency
+    instrument_name = f"{currency.value}-{instrument.value}".upper()
+
+    client = DeriveClient(wallet=TEST_WALLET, private_key=TEST_PRIVATE_KEY, env=Environment.TEST)
     order = client.create_order(
-        instrument_name="BTC-PERP",
+        instrument_name=instrument_name,
         side=OrderSide.BUY,
         price=1000,
         amount=1,

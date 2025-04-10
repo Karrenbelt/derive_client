@@ -13,16 +13,18 @@ from derive_client.http_client import HttpClient as DeriveClient
 
 
 @click.command()
-@click.option('--signer-key-path', required=True, help='Path to signer key file')
+@click.option('--signer-key-path', required=True, type=Path, help='Path to signer key file')
 @click.option('--derive-sc-wallet', required=True, help='Derive SC wallet address')
-def main(signer_key_path, derive_sc_wallet):
-    key_file = Path(signer_key_path)
-    if not key_file.exists():
+def main(signer_key_path: Path, derive_sc_wallet: str):
+    """
+    Demonstrate fetching subaccounts from the derive client.
+    """
+
+    if not signer_key_path.exists():
         click.echo(f"Signer key file not found: {signer_key_path}")
-        return
 
     client = DeriveClient(
-        private_key=key_file.read_text(),
+        private_key=signer_key_path.read_text(),
         wallet=derive_sc_wallet,
         env=Environment.PROD,
     )
