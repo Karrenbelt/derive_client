@@ -3,15 +3,17 @@
 # Contract	Mainnet Address	Testnet Address
 # RPC Endpoint	https://rpc.lyra.finance	<https://rpc-prod-testnet-0eakp60405.t.conduit.xyz>
 # Block Explorer	https://explorer.lyra.finance	<https://explorer-prod-testnet-0eakp60405.t.conduit.xyz>
+from __future__ import annotations
 
 import os
 import json
 import time
 import subprocess
-from enum import IntEnum
+from enum import IntEnum, StrEnum, auto
 from pathlib import Path
 from typing import Callable
-from dataclasses import dataclass
+# from dataclasses import dataclass, field
+from pydantic import BaseModel, ConfigDict, Field
 
 import requests
 from web3 import Web3
@@ -23,6 +25,7 @@ Address = str
 MAINNET = "ethereum"
 BASE = "base"
 MSG_GAS_LIMIT = 100_000
+TARGET_SPEED = "FAST"
 
 
 class ChainID(IntEnum):
@@ -34,14 +37,64 @@ class ChainID(IntEnum):
     ARBITRUM = 42161
     BLAST = 81457
 
+    @classmethod
+    def _missing_(cls, value):
+        try:
+            int_value = int(value)
+            return next(member for member in cls if member == int_value)
+        except (ValueError, TypeError, StopIteration):
+            return super()._missing_(value)
 
-@dataclass
-class TokenData:
+
+class Currency(StrEnum):
+
+    @staticmethod
+    def _generate_next_value_(name: str, start: int, count: int, last_values: list[str]):
+        return name
+
+    weETH = auto()
+    rswETH = auto()
+    rsETH = auto()
+    USDe = auto()
+    deUSD = auto()
+    PYUSD = auto()
+    sUSDe = auto()
+    SolvBTC = auto()
+    SolvBTCBBN = auto()
+    LBTC = auto()
+    OP = auto()
+    DAI = auto()
+    sDAI = auto()
+    cbBTC = auto()
+    eBTC = auto()
+
+
+class Explorer(StrEnum):
+    ETH = "https://api.etherscan.io/"
+    BASE = "https://api.basescan.org/"
+
+
+class TokenData(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     isAppChain: bool
-    NonMintableToken: Address
+    connectors: dict[ChainID, dict[str, str]]
+    LyraTSAShareHandlerDepositHook: Address | None = None
+    LyraTSADepositHook: Address | None = None
+
+
+class MintableTokenData(TokenData):
+    Controller: Address
+    MintableToken: Address
+
+
+class NonMintableTokenData(TokenData):
     Vault: Address
-    LyraTSAShareHandlerDepositHook: Address
-    connectors: dict[str, dict[str, str]]
+    NonMintableToken: Address
+
+
+class LyraAddresses(BaseModel):
+    chains: dict[ChainID, dict[Currency, MintableTokenData | NonMintableTokenData]]
 
 
 # socket bridge on mainnet
@@ -68,23 +121,23 @@ def fetch_json(url: str, cache_path: Path, post_processer: Callable = None):
     return data
 
 
-def fetch_prod_lyra_addresses(url: str = "https://raw.githubusercontent.com/0xdomrom/socket-plugs/refs/heads/main/deployments/superbridge/prod_lyra_addresses.json") -> list[dict]:
+def fetch_prod_lyra_addresses(url: str = "https://raw.githubusercontent.com/0xdomrom/socket-plugs/refs/heads/main/deployments/superbridge/prod_lyra_addresses.json") -> LyraAddresses:
     """Fetch the chain data JSON from chainid.network."""
 
     cache_path = get_repo_root() / "data" / "prod_lyra_addresses.json"
-    return fetch_json(url=url, cache_path=cache_path)
+
+    return LyraAddresses(chains=fetch_json(url=url, cache_path=cache_path))
 
 
 def fetch_abi(contract_address: str, etherscan_api_key: str):
 
     cache_path = get_repo_root() / "data" / "socket_bridge_abi.json"
     url = f"https://api.etherscan.io/api?module=contract&action=getabi&address={contract_address}&apikey={etherscan_api_key}"
-    
+
     def response_processer(data):
         return json.loads(data["result"])
 
     return fetch_json(url, cache_path, post_processer=response_processer)
-
 
 
 def wait_for_receipt(tx_hash, timeout=120, poll_interval=1):
@@ -184,6 +237,8 @@ if (dprc_api_key := os.environ.get("DRPC_API_KEY")) is None:
 if (ethereum_private_key := os.environ.get("ETHEREUM_PRIVATE_KEY")) is None:
     raise ValueError("ETHEREUM_PRIVATE_KEY not found in environment variables.")
 
+
+lyra_addresses = fetch_prod_lyra_addresses()
 
 # get some data from mainnet
 rpc_url = f"https://lb.drpc.org/ogrpc?network={MAINNET}&dkey={dprc_api_key}"
