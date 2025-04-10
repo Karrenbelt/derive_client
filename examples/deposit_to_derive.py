@@ -68,7 +68,7 @@ class Currency(StrEnum):
     eBTC = auto()
 
 
-class Explorer(StrEnum):
+class ExplorerBaseUrl(StrEnum):
     ETH = "https://api.etherscan.io/"
     BASE = "https://api.basescan.org/"
 
@@ -94,10 +94,6 @@ class NonMintableTokenData(TokenData):
 
 class LyraAddresses(BaseModel):
     chains: dict[ChainID, dict[Currency, MintableTokenData | NonMintableTokenData]]
-
-
-# socket bridge on mainnet
-SOCKET_BRIDGE_ADDRESS = Web3.to_checksum_address("0x6D303CEE7959f814042d31e0624fb88ec6fbcc1d")  
 
 
 def get_repo_root() -> Path:
@@ -128,10 +124,11 @@ def fetch_prod_lyra_addresses(url: str = "https://raw.githubusercontent.com/0xdo
     return LyraAddresses(chains=fetch_json(url=url, cache_path=cache_path))
 
 
-def fetch_abi(contract_address: str, etherscan_api_key: str):
+def fetch_abi(chain_id: ChainID, contract_address: str, apikey: str):
 
-    cache_path = get_repo_root() / "data" / "socket_bridge_abi.json"
-    url = f"https://api.etherscan.io/api?module=contract&action=getabi&address={contract_address}&apikey={etherscan_api_key}"
+    cache_path = get_repo_root() / "data" / chain_id.name.lower() / f"{contract_address}.json"
+    base_url = ExplorerBaseUrl[chain_id.name]
+    url = f"{base_url}/api?module=contract&action=getabi&address={contract_address}&apikey={apikey}"
 
     def response_processer(data):
         return json.loads(data["result"])
@@ -183,6 +180,15 @@ def increase_allowance(
         breakpoint()
 
 
+def get_min_fees(bridge_contract, connector: Address) -> int:
+    total_fees = bridge_contract.functions.getMinFees(
+        connector_=Web3.to_checksum_address(connector),
+        msgGasLimit_=MSG_GAS_LIMIT,
+        payloadSize_=161,
+    ).call()
+    return total_fees
+
+
 def prepare_bridge_tx(
     from_account: Account,
     contract,           # The bridge contract instance (with depositToAppChain ABI)
@@ -209,25 +215,29 @@ def prepare_bridge_tx(
     """
     # Convert the deposit amount in ETH to Wei.
     deposit_value = w3.to_wei(amount_eth, "ether")
-    
+
     # Retrieve the current transaction count (nonce) from the sender's account
     nonce = w3.eth.get_transaction_count(from_account.address)
-    
+
     # Build the transaction
-    func = contract.functions.depositToAppChain(
-        w3.to_checksum_address(receiver),
-        deposit_value,
-        msg_gas_limit,
-        w3.to_checksum_address(connector)
+    func = contract.functions.bridge(
+        receiver_=w3.to_checksum_address(receiver),
+        amount_=deposit_value,
+        msgGasLimit_=msg_gas_limit,
+        connector_=w3.to_checksum_address(connector),
+        extraData_=b"",
+        options_=b"",
     )
-    
+    fees = get_min_fees(contract, connector=connector)
+    func.call({"from": from_account.address, "value": fees})
+
     tx = func.build_transaction({
         "chainId": ChainID.BASE,
         "from": from_account.address,
         "nonce": nonce,
-        "gas": msg_gas_limit,
+        "gas": 420_000,
         "gasPrice": w3.eth.gas_price,
-        "value": deposit_value,
+        "value": fees + 1,
     })
     
     return tx
@@ -235,6 +245,8 @@ def prepare_bridge_tx(
 
 if (etherscan_api_key := os.environ.get("ETHERSCAN_API_KEY")) is None:
     raise ValueError("ETHERSCAN_API_KEY not found in env.")
+if (basescan_api_key := os.environ.get("BASESCAN_API_KEY")) is None:
+    raise ValueError("BASESCAN_API_KEY not found in env.")
 if (dprc_api_key := os.environ.get("DRPC_API_KEY")) is None:
     raise ValueError("DRPC_API_KEY not found in environment variables.")
 if (ethereum_private_key := os.environ.get("ETHEREUM_PRIVATE_KEY")) is None:
@@ -243,39 +255,20 @@ if (smart_contract_wallet_address := os.environ.get("DERIVE_SMART_CONTRACT_WALLE
     raise ValueError("DERIVE_SMART_CONTRACT_WALLET_ADDRESS not found in env.")
 
 
-lyra_addresses = fetch_prod_lyra_addresses()
-
-# 1. Get some data from mainnet
-rpc_url = f"https://lb.drpc.org/ogrpc?network={MAINNET}&dkey={dprc_api_key}"
-w3 = Web3(Web3.HTTPProvider(rpc_url))
-if not w3.is_connected():
-    raise ConnectionError(f"Failed to connect to RPC at {rpc_url}")
-
-
-socket_bridge_abi = fetch_abi(SOCKET_BRIDGE_ADDRESS, etherscan_api_key)
-bridge_contract = w3.eth.contract(address=SOCKET_BRIDGE_ADDRESS, abi=socket_bridge_abi)
-
-
-# Example transaction of the bridging (from Derive documentation)
-tx_hash = "0x69272bbed41fd09f4b50bba6e0e451cc57a19fe81db41ac7819e003cb3088a00"
-tx_data = w3.eth.get_transaction(tx_hash)
-func_obj, func_params = bridge_contract.decode_function_input(tx_data['input'])
-
-
-# 2. Now bridge from BASE
-account = Account.from_key(ethereum_private_key)
-
-base_weETH = TokenData(**lyra_addresses[str(ChainID.BASE)][Currency.weETH])
-connector = base_weETH.connectors[str(ChainID.LYRA)][TARGET_SPEED]
-
-socket_bridge_abi = fetch_abi(chain_id=ChainID.BASE, contract_address=base_weETH.Vault, apikey=basescan_api_key)
-bridge_contract = w3.eth.contract(address=base_weETH.Vault, abi=socket_bridge_abi)
-
 rpc_url = f"https://lb.drpc.org/ogrpc?network={BASE}&dkey={dprc_api_key}"
 w3 = Web3(Web3.HTTPProvider(rpc_url))
 if not w3.is_connected():
     raise ConnectionError(f"Failed to connect to RPC at {rpc_url}")
 
+
+account = Account.from_key(ethereum_private_key)
+
+lyra_addresses = fetch_prod_lyra_addresses()
+base_weETH = lyra_addresses.chains[ChainID.BASE][Currency.weETH]
+connector = base_weETH.connectors[ChainID.LYRA][TARGET_SPEED]
+
+socket_bridge_abi = fetch_abi(chain_id=ChainID.BASE, contract_address=base_weETH.Vault, apikey=basescan_api_key)
+bridge_contract = w3.eth.contract(address=base_weETH.Vault, abi=socket_bridge_abi)
 
 amount_eth = 0.001
 spender = base_weETH.Vault
