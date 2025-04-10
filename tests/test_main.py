@@ -374,3 +374,11 @@ def test_fetch_all_currencies(derive_client):
     currencies = derive_client.fetch_all_currencies()
     assert isinstance(currencies, list)
     assert len(currencies) > 0
+
+
+def test_fetch_currency(derive_client):
+    """Test fetch currency."""
+    currency = derive_client.fetch_currency(UnderlyingCurrency.BTC.name)
+    assert isinstance(currency, dict)
+    assert currency['currency'] == UnderlyingCurrency.BTC.name
+    assert currency['managers'].pop().get('address')

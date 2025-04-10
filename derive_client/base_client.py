@@ -748,6 +748,14 @@ class BaseClient:
         """
         url = f"{self.contracts['BASE_URL']}/public/get_all_currencies"
         return self._send_request(url, json={})
+    
+    def fetch_currency(self, asset_name):
+        """
+        Fetch the currency list
+        """
+        url = f"{self.contracts['BASE_URL']}/public/get_currency"
+        payload = {"currency": asset_name}
+        return self._send_request(url, json=payload)
 
     def transfer_from_funding_to_subaccount(
             self, amount: int, asset_name: str, subaccount_id: int
@@ -755,6 +763,11 @@ class BaseClient:
         """
         Transfer from funding to subaccount
         """
+        currencies = self.fetch_all_currencies()
+
+
+
+        breakpoint()
 
         instrument = self.fetch_instruments(
             instrument_type=InstrumentType.ERC20,
