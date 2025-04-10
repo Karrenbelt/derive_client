@@ -140,10 +140,13 @@ def fetch_abi(contract_address: str, etherscan_api_key: str):
     return fetch_json(url, cache_path, post_processer=response_processer)
 
 
-def wait_for_receipt(tx_hash, timeout=120, poll_interval=1):
+def wait_for_receipt(tx_hash: str, timeout=120, poll_interval=1):
     start_time = time.time()
     while True:
-        receipt = w3.eth.get_transaction_receipt(tx_hash)
+        try:
+            receipt = w3.eth.get_transaction_receipt(tx_hash)
+        except Exception as error:
+            receipt = None
         if receipt is not None:
             return receipt
         if time.time() - start_time > timeout:
@@ -177,6 +180,7 @@ def increase_allowance(
         tx_receipt = wait_for_receipt(tx_hash=tx_hash)
         print("Transaction receipt:", tx_receipt)
     except Exception as error:
+        print(error)
         breakpoint()
 
 
@@ -313,5 +317,6 @@ try:
     tx_receipt = wait_for_receipt(tx_hash=tx_hash)
     print(f"tx_receipt: {tx_receipt}")
 except Exception as error:
+    print(error)
     breakpoint()
 
