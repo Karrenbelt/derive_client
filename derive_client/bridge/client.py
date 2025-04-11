@@ -25,6 +25,9 @@ from derive_client.bridge.utils import (
 )
 
 
+VAULT_ABI_PATH = get_repo_root() / "data" / "socket_superbridge_vault.json"
+
+
 class BridgeClient:
     def __init__(self, w3: Web3, account: Account, chain_id: ChainID):
         self.w3 = w3
@@ -32,9 +35,10 @@ class BridgeClient:
         self.chain_id = chain_id
         self.bridge_contract: Contract | None = None
 
-    def load_bridge_contract(self, vault_address: str, abi: list):
+    def load_bridge_contract(self, vault_address: str) -> None:
         """Instantiate the bridge contract."""
 
+        abi = json.loads(VAULT_ABI_PATH.read_text())
         address = self.w3.to_checksum_address(vault_address)
         self.bridge_contract = get_contract(w3=self.w3, address=address, abi=abi)
 
