@@ -5,7 +5,6 @@ Example of bridging funds from Base to a Derive smart contract funding account
 import os
 
 import click
-from rich import print
 from dotenv import load_dotenv
 
 from derive_client.bridge.enums import ChainID, Currency

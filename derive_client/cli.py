@@ -10,6 +10,7 @@ from dotenv import load_dotenv
 from rich import print
 
 from derive_client.analyser import PortfolioAnalyser
+from derive_client.bridge.enums import ChainID, Currency
 from derive_client.derive import DeriveClient
 from derive_client.enums import (
     CollateralAsset,
@@ -22,31 +23,9 @@ from derive_client.enums import (
     UnderlyingCurrency,
 )
 from derive_client.utils import get_logger
-from derive_client.bridge.enums import ChainID, Currency
-
 
 click.rich_click.USE_RICH_MARKUP = True
 pd.set_option('display.precision', 2)
-
-
-class ChainIDParamType(click.ParamType):
-    name = "chain-id"
-
-    def convert(self, value, param, ctx):
-        try:
-            return ChainID(int(value))
-        except (ValueError, KeyError):
-            pass
-
-        try:
-            return ChainID[value.upper()]
-        except KeyError:
-            self.fail(
-                f"{value} is not a valid chain id. Choose from: "
-                + ", ".join(f"{c.value} ({c.name})" for c in ChainID),
-                param,
-                ctx,
-            )
 
 
 def set_logger(ctx, level):
@@ -129,46 +108,40 @@ def bridge():
     "-c",
     type=click.Choice(f"{c.name}" for c in ChainID),
     required=True,
-    help="The chain ID to bridge FROM."
+    help="The chain ID to bridge FROM.",
 )
 @click.option(
-    "--receiver",
-    "-r",
-    type=str,
-    required=True,
-    help="The Derive smart contract wallet address to receive the funds."
+    "--receiver", "-r", type=str, required=True, help="The Derive smart contract wallet address to receive the funds."
 )
 @click.option(
     "--currency",
     "-t",
-    type=click.Choice([f.value for f in Currency]),
+    type=click.Choice(map(str, Currency)),
     required=True,
-    help="The token symbol (e.g. weETH) to bridge."
+    help="The token symbol (e.g. weETH) to bridge.",
 )
 @click.option(
-    "--amount",
-    "-a",
-    type=float,
-    required=True,
-    help="The amount to deposit in ETH (will be converted to Wei)."
+    "--amount", "-a", type=float, required=True, help="The amount to deposit in ETH (will be converted to Wei)."
 )
 @click.pass_context
 def deposit(ctx, chain_id, receiver, currency, amount):
     """
     Deposit funds via the socket superbridge to a Derive funding account.
-    
+
     Example:
         $ cli bridge deposit --chain-id 8453 --receiver 0xYourDeriveAddress --currency weETH --amount 0.001
     """
 
     chain_id = ChainID[chain_id]
     currency = Currency(currency)
-    
+
     client = ctx.obj["client"]
     wei_amount = client.web3_client.to_wei(amount, "ether")
-    
+
     try:
-        tx_receipt = client.deposit_to_derive(chain_id=chain_id, receiver=receiver, currency=currency, amount=wei_amount)
+        tx_receipt = client.deposit_to_derive(
+            chain_id=chain_id, receiver=receiver, currency=currency, amount=wei_amount
+        )
         print(f"[bold green]Deposit successful! Transaction receipt:[/bold green] {tx_receipt}")
     except Exception as err:
         raise click.ClickException(f"Deposit failed: {err}")

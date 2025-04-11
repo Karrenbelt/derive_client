@@ -5,25 +5,16 @@ Bridge client to deposit funds to the Derive smart contract funding account
 from __future__ import annotations
 
 import json
-import os
 
 from eth_account import Account
 from web3 import Web3
 from web3.contract import Contract
 
-from derive_client.bridge.constants import MSG_GAS_LIMIT, TARGET_SPEED
-from derive_client.bridge.enums import ChainID, Currency, TxStatus
+from derive_client.bridge.constants import MSG_GAS_LIMIT
+from derive_client.bridge.enums import ChainID, TxStatus
 from derive_client.bridge.models import Address, NonMintableTokenData
 from derive_client.bridge.transaction import ensure_allowance, ensure_balance, prepare_bridge_tx
-from derive_client.bridge.utils import (
-    get_contract,
-    get_erc20_contract,
-    get_prod_lyra_addresses,
-    get_repo_root,
-    get_w3_connection,
-    sign_and_send_tx,
-)
-
+from derive_client.bridge.utils import get_contract, get_erc20_contract, get_repo_root, sign_and_send_tx
 
 VAULT_ABI_PATH = get_repo_root() / "data" / "socket_superbridge_vault.json"
 
