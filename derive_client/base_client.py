@@ -31,13 +31,12 @@ from rich import print
 from web3 import Web3
 from websocket import WebSocketConnectionClosedException, create_connection
 
-from derive_client.constants import CONTRACTS, DEFAULT_REFERER, PUBLIC_HEADERS, TOKEN_DECIMALS
 from derive_client.bridge.client import BridgeClient
 from derive_client.bridge.constants import TARGET_SPEED
 from derive_client.bridge.enums import ChainID, Currency
 from derive_client.bridge.models import Address
 from derive_client.bridge.utils import get_prod_lyra_addresses, get_w3_connection
-from derive_client.constants import CONTRACTS, DEFAULT_REFERER, PUBLIC_HEADERS
+from derive_client.constants import CONTRACTS, DEFAULT_REFERER, PUBLIC_HEADERS, TOKEN_DECIMALS
 from derive_client.enums import (
     CollateralAsset,
     Environment,
@@ -771,7 +770,7 @@ class BaseClient:
         url = f"{self.contracts['BASE_URL']}/private/deposit"
 
         print(f"Payload: {payload}")
-
+        print("Encoded data:", deposit_module_data.to_abi_encoded().hex())
         action_hash = sender_action._get_action_hash()
         typed_data_hash = sender_action._to_typed_data_hash()
         print(f"Action hash: {action_hash.hex()}")
@@ -806,6 +805,7 @@ class BaseClient:
                 0 if account_type is SubaccountType.STANDARD else 1 if account_currency is UnderlyingCurrency.ETH else 2
             )
             manager_address = manager_addresses[index].get('address')
+
         if not manager_address or not underlying_address:
             raise Exception(f"Unable to find manager address or underlying address for {asset_name}")
         return manager_address, underlying_address, TOKEN_DECIMALS[deposit_currency]

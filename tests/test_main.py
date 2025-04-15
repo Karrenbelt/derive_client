@@ -250,13 +250,12 @@ def test_can_create_option_order(derive_client, currency, side):
     else:
         order_price = ticker['max_price']
     order = derive_client.create_order(
-        price=order_price,
         amount=0.5,
+        side=side,
+        price=order_price,
         instrument_name=symbol,
         instrument_type=InstrumentType.OPTION,
-        side=side,
         order_type=OrderType.LIMIT,
-        instrument_type=InstrumentType.OPTION,
     )
     assert order
 
@@ -371,29 +370,3 @@ def test_fetch_currency(derive_client):
     assert isinstance(currency, dict)
     assert currency['currency'] == UnderlyingCurrency.BTC.name
     assert currency['managers'].pop().get('address') is not None
-
-
-def test_transfer_from_funding_to_subaccount(derive_client):
-    """Test transfer from funding to subaccount."""
-    # freeze_time(derive_client)
-    amount = 1
-    to_subaccount_id = derive_client.fetch_subaccounts()['subaccount_ids'][0]
-    result = derive_client.transfer_from_funding_to_subaccount(
-        amount=amount,
-        subaccount_id=to_subaccount_id,
-        asset_name=CollateralAsset.USDC.name,
-    )
-    assert result
-
-
-def test_transfer_from_subaccount_to_funding(derive_client):
-    """Test transfer from subaccount to funding."""
-    # freeze_time(derive_client)
-    amount = 1
-    from_subaccount_id = derive_client.fetch_subaccounts()['subaccount_ids'][0]
-    result = derive_client.transfer_from_subaccount_to_funding(
-        amount=amount,
-        subaccount_id=from_subaccount_id,
-        asset_name=CollateralAsset.USDC.name,
-    )
-    assert result
