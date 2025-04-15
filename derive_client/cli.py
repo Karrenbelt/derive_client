@@ -136,10 +136,8 @@ def deposit(ctx, chain_id, currency, amount):
     wei_amount = client.web3_client.to_wei(amount, "ether")
 
     try:
-        client.deposit_to_derive(
-            chain_id=chain_id, currency=currency, amount=wei_amount, receiver=client.wallet
-        )
-        print(f"[bold green]Deposit successful! Transaction receipt:[/bold green]")
+        client.deposit_to_derive(chain_id=chain_id, currency=currency, amount=wei_amount, receiver=client.wallet)
+        print("[bold green]Deposit successful! Transaction receipt:[/bold green]")
     except Exception as err:
         raise click.ClickException(f"Deposit failed: {err}")
 

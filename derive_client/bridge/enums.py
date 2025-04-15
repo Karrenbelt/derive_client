@@ -3,14 +3,16 @@
 import sys
 from enum import Enum, IntEnum, auto
 
-
 if sys.version_info < (3, 11):
+
     class StrEnum(str, Enum):
         @staticmethod
         def _generate_next_value_(name, start, count, last_values):
             return name.lower()
+
         def __str__(self):
             return self.value
+
 else:
     from enum import StrEnum
 
