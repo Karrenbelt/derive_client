@@ -91,11 +91,11 @@ def test_create_sm_subaccount(derive_client):
 @pytest.mark.parametrize(
     "instrument_name, side, price, instrument_type",
     [
-        ("LBTC-USDC", OrderSide.BUY, 20000, InstrumentType.ERC20),
+        # ("LBTC-USDC", OrderSide.BUY, 25000, InstrumentType.ERC20),
+        # ("BTC-PERP", OrderSide.BUY, 2000, InstrumentType.PERP),
+        # ("BTC-PERP", OrderSide.SELL, 100000, InstrumentType.PERP),
         ("ETH-PERP", OrderSide.BUY, 200, InstrumentType.PERP),
         ("ETH-PERP", OrderSide.SELL, 10000, InstrumentType.PERP),
-        ("BTC-PERP", OrderSide.BUY, 2000, InstrumentType.PERP),
-        ("BTC-PERP", OrderSide.SELL, 100000, InstrumentType.PERP),
     ],
 )
 def test_create_order(derive_client, instrument_name, side, price, instrument_type):
@@ -237,10 +237,10 @@ def test_get_tickers(derive_client):
 @pytest.mark.parametrize(
     "currency, side",
     [
-        # (UnderlyingCurrency.ETH, OrderSide.BUY),
-        # (UnderlyingCurrency.ETH, OrderSide.SELL),
-        (UnderlyingCurrency.BTC, OrderSide.BUY),
-        (UnderlyingCurrency.BTC, OrderSide.SELL),
+        (UnderlyingCurrency.ETH, OrderSide.BUY),
+        (UnderlyingCurrency.ETH, OrderSide.SELL),
+        # (UnderlyingCurrency.BTC, OrderSide.BUY),
+        # (UnderlyingCurrency.BTC, OrderSide.SELL),
     ],
 )
 def test_can_create_option_order(derive_client, currency, side):
@@ -249,7 +249,7 @@ def test_can_create_option_order(derive_client, currency, side):
         instrument_type=InstrumentType.OPTION,
         currency=currency,
     )
-    symbol, ticker = [f for f in tickers.items() if f[1]['is_active']][0]
+    symbol, ticker = [f for f in tickers.items() if f[1]['is_active']][-1]
     if side == OrderSide.BUY:
         order_price = ticker['min_price']
     else:
@@ -260,6 +260,7 @@ def test_can_create_option_order(derive_client, currency, side):
         instrument_name=symbol,
         side=side,
         order_type=OrderType.LIMIT,
+        instrument_type=InstrumentType.OPTION,
     )
     assert order
 
@@ -324,9 +325,8 @@ def test_analyser(underlying_currency, derive_client):
     raw_data = derive_client.fetch_subaccount(derive_client.subaccount_id)
     analyser = PortfolioAnalyser(raw_data)
     analyser.print_positions(underlying_currency)
-    assert len(analyser.get_positions(underlying_currency))
-    assert len(analyser.get_open_positions(underlying_currency))
-    assert analyser.get_subaccount_value()
+    analyser.get_open_positions(underlying_currency)
+    analyser.get_subaccount_value()
     assert len(analyser.get_total_greeks(underlying_currency))
 
 

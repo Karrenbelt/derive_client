@@ -31,7 +31,7 @@ from rich import print
 from web3 import Web3
 from websocket import WebSocketConnectionClosedException, create_connection
 
-from derive_client.constants import CONTRACTS, DEFAULT_REFERER, PUBLIC_HEADERS
+from derive_client.constants import CONTRACTS, DEFAULT_REFERER, PUBLIC_HEADERS, TOKEN_DECIMALS
 from derive_client.enums import (
     CollateralAsset,
     Environment,
@@ -703,10 +703,7 @@ class BaseClient:
         """
         Transfer from funding to subaccount
         """
-        currency = self.fetch_currency(asset_name)
-        manager_address = currency['managers'][2].get('address')  # Errr why is there 3 managers?
-        underlying_address = currency['protocol_asset_addresses']['spot']
-
+        manager_address, underlying_address, decimals = self.get_manager_for_subaccount(subaccount_id, asset_name)
         if not manager_address or not underlying_address:
             raise Exception(f"Unable to find manager address or underlying address for {asset_name}")
 
@@ -714,7 +711,8 @@ class BaseClient:
             amount=str(amount),
             asset=underlying_address,
             manager=manager_address,
-            decimals=6,
+            decimals=decimals,
+            asset_name=asset_name,
         )
 
         sender_action = SignedAction(
@@ -752,26 +750,49 @@ class BaseClient:
             json=payload,
         )
 
+    def get_manager_for_subaccount(self, subaccount_id, asset_name):
+        """
+        Look up the manager for a subaccount
+
+        Check if target account is PM or SM
+        If SM, use the standard manager address
+        If PM, use the appropriate manager address based on the currency of the subaccount
+        """
+        deposit_currency = UnderlyingCurrency[asset_name]
+        currency = self.fetch_currency(asset_name)
+        underlying_address = currency['protocol_asset_addresses']['spot']
+        manager_addresses = currency['managers']
+
+        if len(manager_addresses) == 1:
+            manager_address = manager_addresses[0].get('address')
+        else:
+            to_account = self.fetch_subaccount(subaccount_id)
+            account_type = (
+                SubaccountType.STANDARD if to_account.get("margin_type") == "SM" else SubaccountType.PORTFOLIO
+            )
+            account_currency = UnderlyingCurrency[to_account.get("currency")]
+            index = (
+                0 if account_type is SubaccountType.STANDARD else 1 if account_currency is UnderlyingCurrency.ETH else 2
+            )
+            manager_address = manager_addresses[index].get('address')
+        if not manager_address or not underlying_address:
+            raise Exception(f"Unable to find manager address or underlying address for {asset_name}")
+        return manager_address, underlying_address, TOKEN_DECIMALS[deposit_currency]
+
     def transfer_from_subaccount_to_funding(self, amount: int, asset_name: str, subaccount_id: int):
         """
         Transfer from subaccount to funding
         """
-        currency = self.fetch_currency(asset_name)
-        manager_address = currency['managers'][1].get('address')  # Errr why is there 3 managers?
-        underlying_address = currency['protocol_asset_addresses']['spot']
-
+        manager_address, underlying_address, decimals = self.get_manager_for_subaccount(subaccount_id, asset_name)
         if not manager_address or not underlying_address:
             raise Exception(f"Unable to find manager address or underlying address for {asset_name}")
 
         module_data = WithdrawModuleData(
             amount=str(amount),
             asset=underlying_address,
-            decimals=6,
+            decimals=decimals,
+            asset_name=asset_name,
         )
-
-        # todo: implement decimal lookup
-        # todo: use self account info to determine the type of account withdrawing from
-
         sender_action = SignedAction(
             subaccount_id=subaccount_id,
             owner=self.wallet,

@@ -1,7 +1,7 @@
 """
 Constants for Lyra.
 """
-from derive_client.enums import Environment
+from derive_client.enums import Environment, UnderlyingCurrency
 
 PUBLIC_HEADERS = {"accept": "application/json", "content-type": "application/json"}
 
@@ -50,3 +50,18 @@ CONTRACTS = {
 }
 
 DEFAULT_REFERER = "0x9135BA0f495244dc0A5F029b25CDE95157Db89AD"
+
+
+TOKEN_DECIMALS = {
+    UnderlyingCurrency.ETH: 18,
+    UnderlyingCurrency.BTC: 8,
+    UnderlyingCurrency.USDC: 6,
+    UnderlyingCurrency.LBTC: 8,
+    UnderlyingCurrency.WEETH: 18,
+    UnderlyingCurrency.OP: 18,
+    UnderlyingCurrency.DRV: 18,
+    UnderlyingCurrency.rswETH: 18,
+    UnderlyingCurrency.rsETH: 18,
+    UnderlyingCurrency.DAI: 18,
+    UnderlyingCurrency.USDT: 6,
+}
