@@ -113,7 +113,7 @@ def bridge():
 @click.option(
     "--currency",
     "-t",
-    type=click.Choice(map(str, Currency)),
+    type=click.Choice(f"{c.name}" for c in Currency),
     required=True,
     help="The token symbol (e.g. weETH) to bridge.",
 )
@@ -136,10 +136,10 @@ def deposit(ctx, chain_id, currency, amount):
     wei_amount = client.web3_client.to_wei(amount, "ether")
 
     try:
-        tx_receipt = client.deposit_to_derive(
+        client.deposit_to_derive(
             chain_id=chain_id, currency=currency, amount=wei_amount, receiver=client.wallet
         )
-        print(f"[bold green]Deposit successful! Transaction receipt:[/bold green] {tx_receipt}")
+        print(f"[bold green]Deposit successful! Transaction receipt:[/bold green]")
     except Exception as err:
         raise click.ClickException(f"Deposit failed: {err}")
 
