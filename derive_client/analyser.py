@@ -18,14 +18,20 @@ class PortfolioAnalyser:
 
     def __init__(self, raw_data: List[dict]):
         self.raw_data = raw_data
-        self.positions = pd.DataFrame.from_records(raw_data['positions'])
-        self.positions["amount"] = pd.to_numeric(self.positions["amount"])
-        for col in DELTA_COLUMNS:
-            self.positions[col] = pd.to_numeric(self.positions[col])
-            adjusted_greek = self.positions[col] * self.positions.amount
-            self.positions[col] = adjusted_greek
+        if not raw_data:
+            raise ValueError("No data provided")
+        open_positions = raw_data['positions']
+        if open_positions:
+            self.positions = pd.DataFrame.from_records(raw_data['positions'])
+            self.positions["amount"] = pd.to_numeric(self.positions["amount"])
+            for col in DELTA_COLUMNS:
+                self.positions[col] = pd.to_numeric(self.positions[col])
+                adjusted_greek = self.positions[col] * self.positions.amount
+                self.positions[col] = adjusted_greek
 
-        self.positions = self.positions.apply(pd.to_numeric, errors='ignore')
+            self.positions = self.positions.apply(pd.to_numeric, errors='ignore')
+        else:
+            self.positions = pd.DataFrame(columns=['instrument_name', 'amount'] + DELTA_COLUMNS)
 
     def get_positions(self, underlying_currency: str) -> pd.DataFrame:
         df = self.positions
