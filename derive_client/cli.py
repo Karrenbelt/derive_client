@@ -10,6 +10,7 @@ from dotenv import load_dotenv
 from rich import print
 
 from derive_client.analyser import PortfolioAnalyser
+from derive_client.bridge.enums import ChainID, Currency
 from derive_client.derive import DeriveClient
 from derive_client.enums import (
     CollateralAsset,
@@ -94,6 +95,51 @@ def cli(ctx, log_level):
     ctx.ensure_object(dict)
     ctx.obj["logger"] = set_logger(ctx, log_level)
     ctx.obj["client"] = set_client(ctx)
+
+
+@cli.group("bridge")
+def bridge():
+    """Interact with bridging functions."""
+
+
+@bridge.command("deposit")
+@click.option(
+    "--chain-id",
+    "-c",
+    type=click.Choice(f"{c.name}" for c in ChainID),
+    required=True,
+    help="The chain ID to bridge FROM.",
+)
+@click.option(
+    "--currency",
+    "-t",
+    type=click.Choice(f"{c.name}" for c in Currency),
+    required=True,
+    help="The token symbol (e.g. weETH) to bridge.",
+)
+@click.option(
+    "--amount", "-a", type=float, required=True, help="The amount to deposit in ETH (will be converted to Wei)."
+)
+@click.pass_context
+def deposit(ctx, chain_id, currency, amount):
+    """
+    Deposit funds via the socket superbridge to a Derive funding account.
+
+    Example:
+        $ cli bridge deposit --chain-id 8453 --currency weETH --amount 0.001
+    """
+
+    chain_id = ChainID[chain_id]
+    currency = Currency(currency)
+
+    client = ctx.obj["client"]
+    wei_amount = client.web3_client.to_wei(amount, "ether")
+
+    try:
+        client.deposit_to_derive(chain_id=chain_id, currency=currency, amount=wei_amount, receiver=client.wallet)
+        print("[bold green]Deposit successful! Transaction receipt:[/bold green]")
+    except Exception as err:
+        raise click.ClickException(f"Deposit failed: {err}")
 
 
 @cli.group("instruments")
