@@ -141,14 +141,14 @@ class BaseClient:
             raise Exception(result_code["error"])
         return True
 
-    def deposit_to_derive(self, chain_id: ChainID, receiver: Address, currency: Currency, amount: int):
+    def deposit_to_derive(self, chain_id: ChainID, currency: Currency, amount: int, receiver: Address):
         """Deposit funds via socket superbridge to Derive chain smart contract funding account.
 
         Parameters:
             chain_id (ChainID): The chain you are bridging FROM.
-            receiver (Address): The Derive smart contract wallet address to receive the funds.
             currency (Currency): The asset being bridged.
             amount (int): The amount to deposit, in Wei.
+            receiver (Address): The Derive smart contract wallet address to receive the funds.
         """
 
         w3 = get_w3_connection(chain_id=chain_id)
