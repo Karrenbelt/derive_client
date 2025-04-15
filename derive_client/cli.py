@@ -111,9 +111,6 @@ def bridge():
     help="The chain ID to bridge FROM.",
 )
 @click.option(
-    "--receiver", "-r", type=str, required=True, help="The Derive smart contract wallet address to receive the funds."
-)
-@click.option(
     "--currency",
     "-t",
     type=click.Choice(map(str, Currency)),
@@ -124,12 +121,12 @@ def bridge():
     "--amount", "-a", type=float, required=True, help="The amount to deposit in ETH (will be converted to Wei)."
 )
 @click.pass_context
-def deposit(ctx, chain_id, receiver, currency, amount):
+def deposit(ctx, chain_id, currency, amount):
     """
     Deposit funds via the socket superbridge to a Derive funding account.
 
     Example:
-        $ cli bridge deposit --chain-id 8453 --receiver 0xYourDeriveAddress --currency weETH --amount 0.001
+        $ cli bridge deposit --chain-id 8453 --currency weETH --amount 0.001
     """
 
     chain_id = ChainID[chain_id]
@@ -140,7 +137,7 @@ def deposit(ctx, chain_id, receiver, currency, amount):
 
     try:
         tx_receipt = client.deposit_to_derive(
-            chain_id=chain_id, receiver=receiver, currency=currency, amount=wei_amount
+            chain_id=chain_id, currency=currency, amount=wei_amount, receiver=client.wallet
         )
         print(f"[bold green]Deposit successful! Transaction receipt:[/bold green] {tx_receipt}")
     except Exception as err:
