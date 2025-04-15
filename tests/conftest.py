@@ -27,23 +27,17 @@ def freeze_time(derive_client):
 @pytest.fixture
 def derive_client():
     derive_client = DeriveClient(
-        private_key=TEST_PRIVATE_KEY, wallet=TEST_WALLET, env=Environment.TEST, logger=get_logger()
-    )
-    yield derive_client
-    derive_client.cancel_all()
-
-
-@pytest.fixture
-def derive_client_2():
-    derive_client = DeriveClient(TEST_PRIVATE_KEY, env=Environment.TEST, logger=get_logger())
-    derive_client.subaccount_id = derive_client.fetch_subaccounts()[-1]['id']
+        wallet=TEST_WALLET, private_key=TEST_PRIVATE_KEY, env=Environment.TEST, logger=get_logger()
+    derive_client.subaccount_id = SUBACCOUNT_ID
     yield derive_client
     derive_client.cancel_all()
 
 
 @pytest.fixture
 async def derive_async_client():
-    derive_client = DeriveAsyncClient(TEST_PRIVATE_KEY, env=Environment.TEST, wallet=TEST_WALLET, logger=get_logger())
-    derive_client.subaccount_id = 132849
+    derive_client = DeriveAsyncClient(
+        wallet=TEST_WALLET, private_key=TEST_PRIVATE_KEY, env=Environment.TEST, logger=get_logger()
+    )
+    derive_client.subaccount_id = SUBACCOUNT_ID
     yield derive_client
     await derive_client.cancel_all()

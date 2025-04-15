@@ -91,9 +91,6 @@ def test_create_sm_subaccount(derive_client):
 @pytest.mark.parametrize(
     "instrument_name, side, price, instrument_type",
     [
-        # ("LBTC-USDC", OrderSide.BUY, 25000, InstrumentType.ERC20),
-        # ("BTC-PERP", OrderSide.BUY, 2000, InstrumentType.PERP),
-        # ("BTC-PERP", OrderSide.SELL, 100000, InstrumentType.PERP),
         ("ETH-PERP", OrderSide.BUY, 200, InstrumentType.PERP),
         ("ETH-PERP", OrderSide.SELL, 10000, InstrumentType.PERP),
     ],
@@ -106,7 +103,7 @@ def test_create_order(derive_client, instrument_name, side, price, instrument_ty
         price=price,
         amount=0.1,
         instrument_name=instrument_name,
-        side=OrderSide(side),
+        side=side,
         order_type=OrderType.LIMIT,
         instrument_type=instrument_type,
     )
@@ -239,8 +236,6 @@ def test_get_tickers(derive_client):
     [
         (UnderlyingCurrency.ETH, OrderSide.BUY),
         (UnderlyingCurrency.ETH, OrderSide.SELL),
-        # (UnderlyingCurrency.BTC, OrderSide.BUY),
-        # (UnderlyingCurrency.BTC, OrderSide.SELL),
     ],
 )
 def test_can_create_option_order(derive_client, currency, side):
@@ -258,6 +253,7 @@ def test_can_create_option_order(derive_client, currency, side):
         price=order_price,
         amount=0.5,
         instrument_name=symbol,
+        instrument_type=InstrumentType.OPTION,
         side=side,
         order_type=OrderType.LIMIT,
         instrument_type=InstrumentType.OPTION,
@@ -278,7 +274,8 @@ def test_transfer_collateral(derive_client):
     """Test transfer collateral."""
     # freeze_time(derive_client)
     amount = 1
-    to = derive_client.fetch_subaccounts()['subaccount_ids'][1]
+    subaccounts = derive_client.fetch_subaccounts()
+    to = subaccounts['subaccount_ids'][0]
     asset = CollateralAsset.USDC
     result = derive_client.transfer_collateral(amount, to, asset)
     assert result
@@ -288,12 +285,17 @@ def test_transfer_collateral_steps(
     derive_client,
 ):
     """Test transfer collateral."""
-    pre_account_balance = float(derive_client.fetch_subaccount(derive_client.subaccount_id)['collaterals_value'])
+
+    subaccounts = derive_client.fetch_subaccounts()
+    receiver = subaccounts['subaccount_ids'][0]
+    sender = subaccounts['subaccount_ids'][1]
+
+    pre_account_balance = float(derive_client.fetch_subaccount(sender)['collaterals_value'])
     asset = CollateralAsset.USDC
     amount = 1
-    derive_client.transfer_collateral(amount, derive_client.fetch_subaccounts()['subaccount_ids'][1], asset)
+    derive_client.transfer_collateral(amount, receiver, asset)
     while True:
-        account_balance = float(derive_client.fetch_subaccount(derive_client.subaccount_id)['collaterals_value'])
+        account_balance = float(derive_client.fetch_subaccount(sender)['collaterals_value'])
         if account_balance != pre_account_balance:
             break
         else:
@@ -320,6 +322,7 @@ def test_transfer_collateral_steps(
         UnderlyingCurrency.BTC.value,
     ],
 )
+@pytest.mark.skip("Currently the subaccounts have no open positions")
 def test_analyser(underlying_currency, derive_client):
     """Test analyser."""
     raw_data = derive_client.fetch_subaccount(derive_client.subaccount_id)
