@@ -1,8 +1,8 @@
+import functools
 import json
 import subprocess
 import time
 from pathlib import Path
-import functools
 
 from web3 import Web3
 from web3.contract import Contract
@@ -86,16 +86,12 @@ def estimate_fees(w3, percentiles: list[int], blocks=20, default_tip=10_000):
     fee_estimations = []
     for priority_fee in avg_priority_fees:
         max_fee = latest_base_fee + priority_fee
-        fee_estimations.append({
-            'maxFeePerGas': max_fee,
-            'maxPriorityFeePerGas': priority_fee
-        })
+        fee_estimations.append({'maxFeePerGas': max_fee, 'maxPriorityFeePerGas': priority_fee})
 
     return fee_estimations
 
 
 def exp_backoff_retry(func=None, *, attempts=3, initial_delay=1, exceptions=(Exception,)):
-
     if func is None:
         return lambda f: exp_backoff_retry(f, attempts=attempts, initial_delay=initial_delay, exceptions=exceptions)
 
@@ -111,4 +107,5 @@ def exp_backoff_retry(func=None, *, attempts=3, initial_delay=1, exceptions=(Exc
                 print(f"Failed execution:\n{e}\nTrying again in {delay} seconds")
                 time.sleep(delay)
                 delay *= 2
+
     return wrapper

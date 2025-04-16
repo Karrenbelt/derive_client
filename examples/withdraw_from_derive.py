@@ -2,26 +2,28 @@
 Example of bridging funds from a Derive smart contract funding account to BASE
 """
 
-import os
 import json
-import contextvars
+import os
 
-import click
-from web3 import Web3
 from dotenv import load_dotenv
 from eth_account import Account
+from web3 import Web3
 from web3.contract import Contract
-from web3.gas_strategies.time_based import construct_time_based_gas_price_strategy
 
-from derive_client.bridge.constants import TARGET_SPEED, MSG_GAS_LIMIT, DEPOSIT_GAS_LIMIT, PAYLOAD_SIZE
+from derive_client.bridge.constants import MSG_GAS_LIMIT, PAYLOAD_SIZE, TARGET_SPEED
 from derive_client.bridge.enums import ChainID, Currency, DRPCEndPoints, TxStatus
 from derive_client.bridge.models import Address
+from derive_client.bridge.transaction import sign_and_send_tx
+from derive_client.bridge.utils import (
+    estimate_fees,
+    exp_backoff_retry,
+    get_contract,
+    get_erc20_contract,
+    get_prod_lyra_addresses,
+    get_repo_root,
+)
 from derive_client.derive import DeriveClient
 from tests.conftest import Environment
-
-from derive_client.bridge.utils import get_prod_lyra_addresses, get_w3_connection, get_contract, get_erc20_contract, get_repo_root, sign_and_send_tx, exp_backoff_retry, estimate_fees
-from derive_client.bridge.transaction import get_min_fees, sign_and_send_tx, increase_allowance
-
 
 CONTROLLER_ABI_PATH = get_repo_root() / "data" / "controller.json"
 DEPOSIT_HOOK_ABI_PATH = get_repo_root() / "data" / "deposit_hook.json"
@@ -49,17 +51,11 @@ def bridge_mainnet_eth_to_derive(
         raise ConnectionError("Failed to connect to Ethereum mainnet RPC.")
 
     proxy_address = "0x61e44dc0dae6888b5a301887732217d5725b0bff"
-    abi = json.loads(L1_CHUG_SPLASH_PROXY_ABI_PATH.read_text())
-    proxy_contract = get_contract(w3=w3_mainnet, address=proxy_address, abi=abi)
-
-    impl_address = proxy_contract.functions.getImplementation().call()
     bridge_abi = json.loads(L1_STANDARD_BRIDGE_ABI_PATH.read_text())
-    bridge_contract = w3_mainnet.eth.contract(address=impl_address, abi=bridge_abi)
+    proxy_contract = get_contract(w3=w3_mainnet, address=proxy_address, abi=bridge_abi)
 
     eth_balance = w3_mainnet.eth.get_balance(account.address)
     nonce = w3_mainnet.eth.get_transaction_count(account.address)
-
-    proxy_contract = get_contract(w3=w3_mainnet, address=proxy_address, abi=bridge_abi)
 
     @exp_backoff_retry
     def simulate_tx():
@@ -69,15 +65,17 @@ def bridge_mainnet_eth_to_derive(
 
         tx = proxy_contract.functions.bridgeETH(
             MSG_GAS_LIMIT,  # _minGasLimit # Optimism
-            b"",            # _extraData
-        ).build_transaction({
-            "from": account.address,
-            "value": amount,
-            "nonce": nonce,
-            "maxFeePerGas": max_fee,
-            "maxPriorityFeePerGas": priority_fee,
-            "chainId": ChainID.ETH,
-        })
+            b"",  # _extraData
+        ).build_transaction(
+            {
+                "from": account.address,
+                "value": amount,
+                "nonce": nonce,
+                "maxFeePerGas": max_fee,
+                "maxPriorityFeePerGas": priority_fee,
+                "chainId": ChainID.ETH,
+            }
+        )
         estimated_gas = w3_mainnet.eth.estimate_gas(tx)
         tx["gas"] = estimated_gas
         required_cost = estimated_gas * max_fee + amount
@@ -142,21 +140,25 @@ def main():
 
     # check there are enough funds in the pool so the amount can be withdrawn
     if not locked_amount >= amount:
-        raise RuntimeError(f"Insufficient funds locked in pool: has {locked_amount}, want {amount} ({(locked_amount/amount*100):.2f}%)")
+        raise RuntimeError(
+            f"Insufficient funds locked in pool: has {locked_amount}, want {amount} ({(locked_amount/amount*100):.2f}%)"
+        )
 
     # check gas token reserve
     gas_eth_amount = 0.00005
     gas_amount = client.web3_client.to_wei(gas_eth_amount, "ether")
     eth_balance = w3.eth.get_balance(account.address)
     if eth_balance < gas_amount:
-        print(f"Not enough native ETH to pay for gas, bridging from mainnet.")
+        print("Not enough native ETH to pay for gas, bridging from mainnet.")
         bridge_mainnet_eth_to_derive(account, amount=gas_amount)
 
     abi = json.loads(LIGHT_ACCOUNT_ABI_PATH.read_text())
     light_account = get_contract(w3=w3, address=wallet, abi=abi)
 
-    ### WITHDRAW_WRAPPER
-    fee = controller_contract.functions.getMinFees(connector_=connector, msgGasLimit_=MSG_GAS_LIMIT, payloadSize_=PAYLOAD_SIZE).call()
+    # WITHDRAW_WRAPPER
+    fee = controller_contract.functions.getMinFees(
+        connector_=connector, msgGasLimit_=MSG_GAS_LIMIT, payloadSize_=PAYLOAD_SIZE
+    ).call()
     if amount < fee:
         raise RuntimeError(f"Amount {amount} less than fee {fee} ({(amount/fee*100):.2f}%)")
 
@@ -175,9 +177,11 @@ def main():
 
     approve_data = token_contract.encodeABI(fn_name="approve", args=[withdraw_wrapper.address, amount])
     bridge_data = withdraw_wrapper.encodeABI(fn_name="withdrawToChain", args=list(kwargs.values()))
-    func = light_account.functions.executeBatch(dest=[token_contract.address, withdraw_wrapper.address], func=[approve_data, bridge_data])
+    func = light_account.functions.executeBatch(
+        dest=[token_contract.address, withdraw_wrapper.address], func=[approve_data, bridge_data]
+    )
 
-    token_balance = token_contract.functions.balanceOf(wallet).call()
+    balance = token_contract.functions.balanceOf(wallet).call()
     owner = light_account.functions.owner().call()
     nonce = w3.eth.get_transaction_count(owner)
 
@@ -187,17 +191,21 @@ def main():
         max_fee = fee_estimations[0]['maxFeePerGas']
         priority_fee = fee_estimations[0]['maxPriorityFeePerGas']
 
-        tx = func.build_transaction({
-            "from": owner,
-            "nonce": nonce,
-            "maxFeePerGas": max_fee,
-            "maxPriorityFeePerGas": priority_fee,
-        })
+        tx = func.build_transaction(
+            {
+                "from": owner,
+                "nonce": nonce,
+                "maxFeePerGas": max_fee,
+                "maxPriorityFeePerGas": priority_fee,
+            }
+        )
         estimated_gas = w3.eth.estimate_gas(tx)
         tx["gas"] = estimated_gas
-        required_cost = estimated_gas * max_fee + amount
-        if token_balance < required_cost:
-            raise RuntimeError(f"Insufficient token balance: have {token_balance}, need {required_cost} ({(token_balance/required_cost*100):.2f}%)")
+        required = estimated_gas * max_fee + amount
+        if balance < required:
+            raise RuntimeError(
+                f"Insufficient token balance: have {balance}, need {required} ({(balance/required*100):.2f}%)"
+            )
         w3.eth.call(tx)
         return tx
 
