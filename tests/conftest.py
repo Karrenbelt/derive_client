@@ -6,7 +6,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from derive_client.async_client import DeriveAsyncClient
+from derive_client.clients import DeriveAsyncClient
 from derive_client.derive import DeriveClient
 from derive_client.types import Environment
 from derive_client.utils import get_logger
