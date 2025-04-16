@@ -30,7 +30,7 @@ from web3 import Web3
 from websocket import WebSocketConnectionClosedException, create_connection
 
 from derive_client._bridge import BridgeClient
-from derive_client.constants import CONTRACTS, DEFAULT_REFERER, PUBLIC_HEADERS, TARGET_SPEED
+from derive_client.constants import CONFIGS, DEFAULT_REFERER, PUBLIC_HEADERS, TARGET_SPEED
 from derive_client.custom_types import (
     Address,
     ChainID,
@@ -111,7 +111,7 @@ class BaseClient:
     ):
         self.verbose = verbose
         self.env = env
-        self.contracts = CONTRACTS[env]
+        self.config = CONFIGS[env]
         self.logger = logger or get_logger()
         self.web3_client = Web3()
         self.signer = self.web3_client.eth.account.from_key(private_key)
@@ -122,13 +122,13 @@ class BaseClient:
         self.referral_code = referral_code
 
     def connect_ws(self):
-        ws = create_connection(self.contracts['WS_ADDRESS'], enable_multithread=True, timeout=60)
+        ws = create_connection(self.config.ws_address, enable_multithread=True, timeout=60)
         return ws
 
     def create_account(self, wallet):
         """Call the create account endpoint."""
         payload = {"wallet": wallet}
-        url = f"{self.contracts['BASE_URL']}/public/create_account"
+        url = f"{self.config.base_url}/public/create_account"
         result = requests.post(
             headers=PUBLIC_HEADERS,
             url=url,
@@ -200,7 +200,7 @@ class BaseClient:
         First fetch all instrucments
         Then get the ticket for all instruments.
         """
-        url = f"{self.contracts['BASE_URL']}/public/get_instruments"
+        url = f"{self.config.base_url}/public/get_instruments"
         payload = {
             "expired": expired,
             "instrument_type": instrument_type.value,
@@ -212,7 +212,7 @@ class BaseClient:
         """
         Returns the subaccounts for a given wallet
         """
-        url = f"{self.contracts['BASE_URL']}/private/get_subaccounts"
+        url = f"{self.config.base_url}/private/get_subaccounts"
         payload = {"wallet": self.wallet}
         return self._send_request(url, json=payload)
 
@@ -220,7 +220,7 @@ class BaseClient:
         """
         Returns information for a given subaccount
         """
-        url = f"{self.contracts['BASE_URL']}/private/get_subaccount"
+        url = f"{self.config.base_url}/private/get_subaccount"
         payload = {"subaccount_id": subaccount_id}
         return self._send_request(url, json=payload)
 
@@ -268,7 +268,7 @@ class BaseClient:
         }
 
         signed_action = self._generate_signed_action(
-            module_address=self.contracts['TRADE_MODULE_ADDRESS'], module_data=module_data
+            module_address=self.config.contracts.TRADE_MODULE_ADDRESS, module_data=module_data
         )
 
         order = {
@@ -301,8 +301,8 @@ class BaseClient:
             nonce=get_action_nonce(),
             module_address=module_address,
             module_data=module_data_class(**module_data),
-            DOMAIN_SEPARATOR=self.contracts['DOMAIN_SEPARATOR'],
-            ACTION_TYPEHASH=self.contracts['ACTION_TYPEHASH'],
+            DOMAIN_SEPARATOR=self.config.domain_separator,
+            ACTION_TYPEHASH=self.config.action_typehash,
         )
         action.sign(self.signer._private_key)
         return action
@@ -345,7 +345,7 @@ class BaseClient:
             leg_sign = 1 if leg['direction'] == 'buy' else -1
             signed_amount = self.web3_client.to_wei(leg['amount'], 'ether') * leg_sign * dir_sign
             return [
-                self.contracts[f"{underlying_currency.name}_OPTION_ADDRESS"],
+                self.config.contracts[f"{underlying_currency.name}_OPTION_ADDRESS"],
                 sub_id,
                 self.web3_client.to_wei(quote['price'], 'ether'),
                 signed_amount,
@@ -408,7 +408,7 @@ class BaseClient:
         """
         Fetch the ticker for a given instrument name.
         """
-        url = f"{self.contracts['BASE_URL']}/public/get_ticker"
+        url = f"{self.config.base_url}/public/get_ticker"
         payload = {"instrument_name": instrument_name}
         response = requests.post(url, json=payload, headers=PUBLIC_HEADERS)
         results = json.loads(response.content)["result"]
@@ -425,7 +425,7 @@ class BaseClient:
         """
         Fetch the orders for a given instrument name.
         """
-        url = f"{self.contracts['BASE_URL']}/private/get_orders"
+        url = f"{self.config.base_url}/private/get_orders"
         payload = {"instrument_name": instrument_name, "subaccount_id": self.subaccount_id}
         for key, value in {"label": label, "page": page, "page_size": page_size, "status": status}.items():
             if value:
@@ -477,7 +477,7 @@ class BaseClient:
         """
         Get positions
         """
-        url = f"{self.contracts['BASE_URL']}/private/get_positions"
+        url = f"{self.config.base_url}/private/get_positions"
         payload = {"subaccount_id": self.subaccount_id}
         headers = sign_rest_auth_header(
             web3_client=self.web3_client,
@@ -492,7 +492,7 @@ class BaseClient:
         """
         Get collaterals
         """
-        url = f"{self.contracts['BASE_URL']}/private/get_collaterals"
+        url = f"{self.config.base_url}/private/get_collaterals"
         payload = {"subaccount_id": self.subaccount_id}
         result = self._send_request(url, json=payload)
         return result['collaterals']
@@ -537,7 +537,7 @@ class BaseClient:
         """
         Create a subaccount.
         """
-        url = f"{self.contracts['BASE_URL']}/private/create_subaccount"
+        url = f"{self.config.base_url}/private/create_subaccount"
         if subaccount_type is SubaccountType.STANDARD:
             contract_key = f"{subaccount_type.name}_RISK_MANAGER_ADDRESS"
         elif subaccount_type is SubaccountType.PORTFOLIO:
@@ -546,15 +546,15 @@ class BaseClient:
             contract_key = f"{underlying_currency.name}_{subaccount_type.name}_RISK_MANAGER_ADDRESS"
 
         signed_action = self._generate_signed_action(
-            module_address=self.contracts[contract_key],
+            module_address=self.config.contracts[contract_key],
             module_data={
                 "amount": amount,
                 "asset_name": collateral_asset.name,
                 "margin_type": "SM" if subaccount_type is SubaccountType.STANDARD else "PM",
                 "create_account_details": CreateSubAccountDetails(
                     amount=amount,
-                    base_asset_address=self.contracts["CASH_ASSET"],
-                    sub_asset_address=self.contracts[contract_key],
+                    base_asset_address=self.config.contracts["CASH_ASSET"],
+                    sub_asset_address=self.config.contracts[contract_key],
                 ),
             },
             module_data_class=CreateSubAccountData,
@@ -625,8 +625,8 @@ class BaseClient:
             ['uint256', 'address', 'address'],
             [
                 int(amount * 1e6),
-                self.contracts["CASH_ASSET"],
-                self.contracts[contract_key],
+                self.config.contracts["CASH_ASSET"],
+                self.config.contracts[contract_key],
             ],
         )
         print(f"Encoded data: {encoded_data}")
@@ -645,9 +645,9 @@ class BaseClient:
         """
         Transfer collateral
         """
-        url = f"{self.contracts['BASE_URL']}/private/transfer_erc20"
+        url = f"{self.config.base_url}/private/transfer_erc20"
         transfer_details = TransferERC20Details(
-            base_address=self.contracts["CASH_ASSET"],
+            base_address=self.config.contracts["CASH_ASSET"],
             sub_id=0,
             amount=Decimal(amount),
         )
@@ -658,13 +658,13 @@ class BaseClient:
             signature_expiry_sec=MAX_INT_32,
             nonce=get_action_nonce(),
             # module_address=TRANSFER_ERC20_MODULE_ADDRESS,
-            module_address=self.contracts["TRANSFER_MODULE_ADDRESS"],
+            module_address=self.config.contracts["TRANSFER_MODULE_ADDRESS"],
             module_data=SenderTransferERC20ModuleData(
                 to_subaccount_id=to,
                 transfers=[transfer_details],
             ),
-            DOMAIN_SEPARATOR=self.contracts["DOMAIN_SEPARATOR"],
-            ACTION_TYPEHASH=self.contracts["ACTION_TYPEHASH"],
+            DOMAIN_SEPARATOR=self.config.domain_separator,
+            ACTION_TYPEHASH=self.config.action_typehash,
         )
         sender_action.sign(self.signer.key)
 
@@ -674,10 +674,10 @@ class BaseClient:
             signer=self.signer.address,
             signature_expiry_sec=MAX_INT_32,
             nonce=get_action_nonce(),
-            module_address=self.contracts["TRANSFER_MODULE_ADDRESS"],
+            module_address=self.config.contracts["TRANSFER_MODULE_ADDRESS"],
             module_data=RecipientTransferERC20ModuleData(),
-            DOMAIN_SEPARATOR=self.contracts["DOMAIN_SEPARATOR"],
-            ACTION_TYPEHASH=self.contracts["ACTION_TYPEHASH"],
+            DOMAIN_SEPARATOR=self.config.domain_separator,
+            ACTION_TYPEHASH=self.config.action_typehash,
         )
         recipient_action.sign(self.signer.key)
         payload = {
@@ -696,7 +696,7 @@ class BaseClient:
                 "signer": recipient_action.signer,
             },
             "transfer": {
-                "address": self.contracts["CASH_ASSET"],
+                "address": self.config.contracts["CASH_ASSET"],
                 "amount": str(transfer_details.amount),
                 "sub_id": str(transfer_details.sub_id),
             },
@@ -705,7 +705,7 @@ class BaseClient:
 
     def get_mmp_config(self, subaccount_id: int, currency: UnderlyingCurrency = None):
         """Get the mmp config."""
-        url = f"{self.contracts['BASE_URL']}/private/get_mmp_config"
+        url = f"{self.config.base_url}/private/get_mmp_config"
         payload = {"subaccount_id": self.subaccount_id}
         if currency:
             payload['currency'] = currency.name
@@ -721,7 +721,7 @@ class BaseClient:
         mmp_delta_limit: str,
     ):
         """Set the mmp config."""
-        url = f"{self.contracts['BASE_URL']}/private/set_mmp_config"
+        url = f"{self.config.base_url}/private/set_mmp_config"
         payload = {
             "subaccount_id": subaccount_id,
             "currency": currency.name,
@@ -734,7 +734,7 @@ class BaseClient:
 
     def send_rfq(self, rfq):
         """Send an RFQ."""
-        url = f"{self.contracts['BASE_URL']}/private/send_rfq"
+        url = f"{self.config.base_url}/private/send_rfq"
         return self._send_request(url, rfq)
 
     def poll_rfqs(self):
@@ -751,7 +751,7 @@ class BaseClient:
               legs: Array<RfqLeg>
             }
         """
-        url = f"{self.contracts['BASE_URL']}/private/poll_rfqs"
+        url = f"{self.config.base_url}/private/poll_rfqs"
         params = {
             "subaccount_id": self.subaccount_id,
             "status": RfqStatus.OPEN.value,
@@ -760,7 +760,7 @@ class BaseClient:
 
     def send_quote(self, quote):
         """Send a quote."""
-        url = f"{self.contracts['BASE_URL']}/private/send_quote"
+        url = f"{self.config.base_url}/private/send_quote"
         return self._send_request(url, quote)
 
     def create_quote_object(

@@ -12,7 +12,7 @@ import aiohttp
 from derive_action_signing.utils import sign_ws_login, utc_now_ms
 from web3 import Web3
 
-from derive_client.constants import CONTRACTS, DEFAULT_REFERER, TEST_PRIVATE_KEY
+from derive_client.constants import CONFIGS, DEFAULT_REFERER, TEST_PRIVATE_KEY
 from derive_client.custom_types import Environment, InstrumentType, OrderSide, OrderType, TimeInForce, UnderlyingCurrency
 from derive_client.utils import get_logger
 
@@ -43,7 +43,7 @@ class AsyncClient(BaseClient):
     ):
         self.verbose = verbose
         self.env = env
-        self.contracts = CONTRACTS[env]
+        self.config = CONFIGS[env]
         self.logger = logger or get_logger()
         self.web3_client = Web3()
         self.signer = self.web3_client.eth.account.from_key(private_key)
@@ -88,7 +88,7 @@ class AsyncClient(BaseClient):
     async def connect_ws(self):
         self.connecting = True
         self.session = aiohttp.ClientSession()
-        ws = await self.session.ws_connect(self.contracts['WS_ADDRESS'])
+        ws = await self.session.ws_connect(self.config.ws_address)
         self._ws = ws
         self.connecting = False
         return ws
@@ -299,7 +299,7 @@ class AsyncClient(BaseClient):
         }
 
         signed_action = self._generate_signed_action(
-            module_address=self.contracts['TRADE_MODULE_ADDRESS'], module_data=module_data
+            module_address=self.config.contracts.TRADE_MODULE_ADDRESS, module_data=module_data
         )
 
         order = {
