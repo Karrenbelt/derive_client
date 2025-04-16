@@ -3,9 +3,9 @@ from web3 import Web3
 from web3.contract import Contract
 
 from derive_client.bridge.constants import DEPOSIT_GAS_LIMIT, MSG_GAS_LIMIT, PAYLOAD_SIZE
-from derive_client.bridge.enums import TxStatus, ChainID
+from derive_client.bridge.enums import ChainID, TxStatus
 from derive_client.bridge.models import Address
-from derive_client.bridge.utils import sign_and_send_tx, exp_backoff_retry
+from derive_client.bridge.utils import estimate_fees, exp_backoff_retry, sign_and_send_tx
 
 
 def ensure_balance(token_contract: Contract, owner: Address, amount: int):
@@ -114,7 +114,85 @@ def prepare_bridge_tx(
     return tx
 
 
-def _prepare_mainnet_to_derive_tx(w3: Web3, account: Account, amount: int) -> dict:
+def prepare_withdraw_wrapper_tx(
+    w3: Web3,
+    # chain_id: int,
+    account: Account,
+    wallet: Address,
+    receiver: str,
+    token_contract: Contract,
+    light_account: Contract,
+    withdraw_wrapper: Contract,
+    controller_contract: Contract,
+    amount: int,
+    connector: str,
+    msg_gas_limit: int = MSG_GAS_LIMIT,
+) -> dict:
+    """
+    Prepares a withdrawal transaction using the withdraw wrapper on Derive.
+    This function builds and simulates a transaction that calls `withdrawToChain`
+    via a batch execution on the provided Light Account.
+    """
+
+    fees = get_min_fees(w3=w3, bridge_contract=controller_contract, connector=connector)
+    if amount < fees:
+        raise RuntimeError(f"Amount {amount} less than fee {fees} ({(amount/fees*100):.2f}%)")
+
+    kwargs = {
+        "token": token_contract.address,
+        "amount": amount,
+        "recipient": receiver,
+        "socketController": controller_contract.address,
+        "connector": connector,
+        "gasLimit": msg_gas_limit,
+    }
+
+    # Encode the token approval and withdrawToChain for the withdraw wrapper.
+    approve_data = token_contract.encodeABI(fn_name="approve", args=[withdraw_wrapper.address, amount])
+    bridge_data = withdraw_wrapper.encodeABI(fn_name="withdrawToChain", args=list(kwargs.values()))
+
+    # Build the batch execution call via the Light Account.
+    func = light_account.functions.executeBatch(
+        dest=[token_contract.address, withdraw_wrapper.address], func=[approve_data, bridge_data]
+    )
+
+    balance = token_contract.functions.balanceOf(wallet).call()
+    nonce = w3.eth.get_transaction_count(account.address)
+
+    @exp_backoff_retry
+    def simulate_tx():
+        fee_estimations = estimate_fees(w3, blocks=100, percentiles=[99])
+        max_fee = fee_estimations[0]['maxFeePerGas']
+        priority_fee = fee_estimations[0]['maxPriorityFeePerGas']
+
+        tx = func.build_transaction(
+            {
+                "from": account.address,
+                "nonce": nonce,
+                "maxFeePerGas": max_fee,
+                "maxPriorityFeePerGas": priority_fee,
+            }
+        )
+        estimated_gas = w3.eth.estimate_gas(tx)
+        tx["gas"] = estimated_gas
+
+        required = estimated_gas * max_fee + amount
+        if balance < required:
+            raise RuntimeError(
+                f"Insufficient token balance: have {balance}, need {required} ({(balance/required*100):.2f}%)"
+            )
+        w3.eth.call(tx)
+        return tx
+
+    return simulate_tx()
+
+
+def _prepare_mainnet_to_derive_tx(
+    w3: Web3,
+    account: Account,
+    amount: int,
+    proxy_contract: Contract,
+) -> dict:
     """
     Prepares a bridging transaction to move ETH from Ethereum mainnet to Derive.
     This function uses fee estimation and simulates the tx.
@@ -130,10 +208,6 @@ def _prepare_mainnet_to_derive_tx(w3: Web3, account: Account, amount: int) -> di
 
     if not w3.eth.chain_id == ChainID.ETH:
         raise ValueError(f"Connected to chain ID {w3.eth.chain_id}, but expected Ethereum mainnet ({ChainID.ETH}).")
-
-    proxy_address = "0x61e44dc0dae6888b5a301887732217d5725b0bff"
-    bridge_abi = json.loads(L1_STANDARD_BRIDGE_ABI_PATH.read_text())
-    proxy_contract = get_contract(w3=w3, address=proxy_address, abi=bridge_abi)
 
     balance = w3.eth.get_balance(account.address)
     nonce = w3.eth.get_transaction_count(account.address)
