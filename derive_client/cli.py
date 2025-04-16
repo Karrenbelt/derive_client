@@ -142,6 +142,47 @@ def deposit(ctx, chain_id, currency, amount):
         raise click.ClickException(f"Deposit failed: {err}")
 
 
+@bridge.command("withdraw")
+@click.option(
+    "--chain-id",
+    "-c",
+    type=click.Choice(f"{c.name}" for c in ChainID),
+    required=True,
+    help="The chain ID to bridge FROM.",
+)
+@click.option(
+    "--currency",
+    "-t",
+    type=click.Choice(f"{c.name}" for c in Currency),
+    required=True,
+    help="The token symbol (e.g. weETH) to bridge.",
+)
+@click.option(
+    "--amount", "-a", type=float, required=True, help="The amount to deposit in ETH (will be converted to Wei)."
+)
+@click.pass_context
+def withdraw(ctx, chain_id, currency, amount):
+    """
+    Withdraw funds from Derive funding account via the Withdraw Wrapper contract.
+
+    Example:
+        $ cli bridge withdraw --chain-id BASE --currency weETH --amount 0.001
+    """
+
+    chain_id = ChainID[chain_id]
+    currency = Currency(currency)
+
+    client = ctx.obj["client"]
+    wei_amount = client.web3_client.to_wei(amount, "ether")
+    reciever = client.signer.address
+
+    try:
+        client.withdraw_from_derive(chain_id=chain_id, currency=currency, amount=wei_amount, receiver=reciever)
+        print(f"[bold green]Withdrawal from {chain_id.name} successful![/bold green]")
+    except Exception as err:
+        raise click.ClickException(f"Deposit failed: {err}")
+
+
 @cli.group("instruments")
 def instruments():
     """Interact with markets."""
