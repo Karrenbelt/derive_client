@@ -29,11 +29,15 @@ from rich import print
 from web3 import Web3
 from websocket import WebSocketConnectionClosedException, create_connection
 
-from derive_client.bridge.client import BridgeClient
-from derive_client.bridge.constants import TARGET_SPEED
-from derive_client.bridge.enums import ChainID, Currency
-from derive_client.bridge.models import Address
-from derive_client.bridge.utils import get_prod_lyra_addresses, get_w3_connection
+from derive_client._bridge import (
+    TARGET_SPEED,
+    Address,
+    BridgeClient,
+    ChainID,
+    Currency,
+    get_prod_lyra_addresses,
+    get_w3_connection,
+)
 from derive_client.constants import CONTRACTS, DEFAULT_REFERER, PUBLIC_HEADERS
 from derive_client.enums import (
     CollateralAsset,
