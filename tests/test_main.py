@@ -8,7 +8,7 @@ import pytest
 
 from derive_client.analyser import PortfolioAnalyser
 from derive_client.constants import DEFAULT_SPOT_QUOTE_TOKEN
-from derive_client.types import (
+from derive_client.custom_types import (
     CollateralAsset,
     InstrumentType,
     OrderSide,

@@ -2,7 +2,7 @@
 
 from pydantic import BaseModel, ConfigDict
 
-from derive_client.types.enums import ChainID, Currency
+from .enums import ChainID, Currency
 
 Address = str
 

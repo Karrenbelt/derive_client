@@ -4,7 +4,7 @@ Constants for Lyra.
 
 from pathlib import Path
 
-from derive_client.types import Environment
+from derive_client.custom_types import Environment
 
 REPO_ROOT = Path(__file__).parent.parent
 DATA_DIR = REPO_ROOT / "data"

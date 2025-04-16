@@ -18,7 +18,7 @@ from derive_client._bridge.transaction import (
     prepare_withdraw_wrapper_tx,
 )
 from derive_client.constants import ABI_DATA_DIR, MSG_GAS_LIMIT, TARGET_SPEED
-from derive_client.types import Address, ChainID, MintableTokenData, NonMintableTokenData, RPCEndPoints, TxStatus
+from derive_client.custom_types import Address, ChainID, MintableTokenData, NonMintableTokenData, RPCEndPoints, TxStatus
 from derive_client.utils import get_contract, get_erc20_contract, sign_and_send_tx
 
 VAULT_ABI_PATH = ABI_DATA_DIR / "socket_superbridge_vault.json"

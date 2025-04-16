@@ -8,7 +8,7 @@ import pytest
 
 from derive_client.clients import AsyncClient
 from derive_client.derive import DeriveClient
-from derive_client.types import Environment
+from derive_client.custom_types import Environment
 from derive_client.utils import get_logger
 
 TEST_WALLET = "0x8772185a1516f0d61fC1c2524926BfC69F95d698"

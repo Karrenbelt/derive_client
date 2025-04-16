@@ -14,7 +14,7 @@ from web3.contract import Contract
 from web3.datastructures import AttributeDict
 
 from derive_client.constants import ABI_DATA_DIR, DATA_DIR
-from derive_client.types import ChainID, LyraAddresses, RPCEndPoints
+from derive_client.custom_types import ChainID, LyraAddresses, RPCEndPoints
 
 
 def get_logger():
