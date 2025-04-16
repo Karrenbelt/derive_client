@@ -10,7 +10,6 @@ from eth_account import Account
 from web3 import Web3
 from web3.contract import Contract
 
-from derive_client._bridge.constants import MSG_GAS_LIMIT, TARGET_SPEED
 from derive_client._bridge.transaction import (
     _prepare_mainnet_to_derive_tx,
     ensure_allowance,
@@ -19,7 +18,7 @@ from derive_client._bridge.transaction import (
     prepare_withdraw_wrapper_tx,
 )
 from derive_client._bridge.utils import get_contract, get_erc20_contract, sign_and_send_tx
-from derive_client.constants import REPO_ROOT
+from derive_client.constants import MSG_GAS_LIMIT, REPO_ROOT, TARGET_SPEED
 from derive_client.types import Address, ChainID, MintableTokenData, NonMintableTokenData, RPCEndPoints, TxStatus
 
 VAULT_ABI_PATH = REPO_ROOT / "data" / "socket_superbridge_vault.json"

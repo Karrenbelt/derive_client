@@ -2,8 +2,8 @@ from eth_account import Account
 from web3 import Web3
 from web3.contract import Contract
 
-from derive_client._bridge.constants import DEPOSIT_GAS_LIMIT, MSG_GAS_LIMIT, PAYLOAD_SIZE
 from derive_client._bridge.utils import estimate_fees, exp_backoff_retry, sign_and_send_tx
+from derive_client.constants import DEPOSIT_GAS_LIMIT, MSG_GAS_LIMIT, PAYLOAD_SIZE
 from derive_client.types import Address, ChainID, TxStatus
 
 

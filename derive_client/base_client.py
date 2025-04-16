@@ -29,18 +29,13 @@ from rich import print
 from web3 import Web3
 from websocket import WebSocketConnectionClosedException, create_connection
 
-from derive_client._bridge import (
-    TARGET_SPEED,
-    BridgeClient,
-    get_prod_lyra_addresses,
-    get_w3_connection,
-)
-from derive_client.constants import CONTRACTS, DEFAULT_REFERER, PUBLIC_HEADERS
+from derive_client._bridge import BridgeClient, get_prod_lyra_addresses, get_w3_connection
+from derive_client.constants import CONTRACTS, DEFAULT_REFERER, PUBLIC_HEADERS, TARGET_SPEED
 from derive_client.types import (
     Address,
     ChainID,
-    Currency,
     CollateralAsset,
+    Currency,
     Environment,
     InstrumentType,
     OrderSide,
