@@ -1,7 +1,12 @@
 """
 Constants for Lyra.
 """
+
+from pathlib import Path
+
 from derive_client.enums import Environment
+
+THIS_REPO_ROOT = Path(__file__).parent.parent
 
 PUBLIC_HEADERS = {"accept": "application/json", "content-type": "application/json"}
 

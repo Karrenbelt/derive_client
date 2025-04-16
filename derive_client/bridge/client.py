@@ -10,6 +10,7 @@ from eth_account import Account
 from web3 import Web3
 from web3.contract import Contract
 
+from derive_client.constants import THIS_REPO_ROOT
 from derive_client.bridge.constants import MSG_GAS_LIMIT, TARGET_SPEED
 from derive_client.bridge.enums import ChainID, RPCEndPoints, TxStatus
 from derive_client.bridge.models import Address, MintableTokenData, NonMintableTokenData
@@ -20,15 +21,16 @@ from derive_client.bridge.transaction import (
     prepare_bridge_tx,
     prepare_withdraw_wrapper_tx,
 )
-from derive_client.bridge.utils import get_contract, get_erc20_contract, get_repo_root, sign_and_send_tx
+from derive_client.bridge.utils import get_contract, get_erc20_contract, sign_and_send_tx
 
-VAULT_ABI_PATH = get_repo_root() / "data" / "socket_superbridge_vault.json"
-CONTROLLER_ABI_PATH = get_repo_root() / "data" / "controller.json"
-DEPOSIT_HOOK_ABI_PATH = get_repo_root() / "data" / "deposit_hook.json"
-LIGHT_ACCOUNT_ABI_PATH = get_repo_root() / "data" / "light_account.json"
-L1_CHUG_SPLASH_PROXY_ABI_PATH = get_repo_root() / "data" / "l1_chug_splash_proxy.json"
-L1_STANDARD_BRIDGE_ABI_PATH = get_repo_root() / "data" / "l1_standard_bridge.json"
-WITHDRAW_WRAPPER_V2_ABI_PATH = get_repo_root() / "data" / "withdraw_wrapper_v2.json"
+
+VAULT_ABI_PATH = THIS_REPO_ROOT / "data" / "socket_superbridge_vault.json"
+CONTROLLER_ABI_PATH = THIS_REPO_ROOT / "data" / "controller.json"
+DEPOSIT_HOOK_ABI_PATH = THIS_REPO_ROOT / "data" / "deposit_hook.json"
+LIGHT_ACCOUNT_ABI_PATH = THIS_REPO_ROOT / "data" / "light_account.json"
+L1_CHUG_SPLASH_PROXY_ABI_PATH = THIS_REPO_ROOT / "data" / "l1_chug_splash_proxy.json"
+L1_STANDARD_BRIDGE_ABI_PATH = THIS_REPO_ROOT / "data" / "l1_standard_bridge.json"
+WITHDRAW_WRAPPER_V2_ABI_PATH = THIS_REPO_ROOT / "data" / "withdraw_wrapper_v2.json"
 
 
 class BridgeClient:

@@ -1,8 +1,6 @@
 import functools
 import json
-import subprocess
 import time
-from pathlib import Path
 
 from web3 import Web3
 from web3.contract import Contract
@@ -10,15 +8,12 @@ from web3.datastructures import AttributeDict
 
 from derive_client.bridge.enums import ChainID, RPCEndPoints
 from derive_client.bridge.models import LyraAddresses
-
-
-def get_repo_root() -> Path:
-    return Path(subprocess.check_output(["git", "rev-parse", "--show-toplevel"]).decode().strip())
+from derive_client.constants import THIS_REPO_ROOT
 
 
 def get_prod_lyra_addresses() -> LyraAddresses:
     """Fetch the socket superbridge JSON data."""
-    prod_lyra_addresses = get_repo_root() / "data" / "prod_lyra_addresses.json"
+    prod_lyra_addresses = THIS_REPO_ROOT / "data" / "prod_lyra_addresses.json"
     return LyraAddresses(chains=json.loads(prod_lyra_addresses.read_text()))
 
 
@@ -35,7 +30,7 @@ def get_contract(w3: Web3, address: str, abi: list) -> Contract:
 
 
 def get_erc20_contract(w3: Web3, token_address: str) -> Contract:
-    erc20_abi_path = get_repo_root() / "data" / "erc20.json"
+    erc20_abi_path = THIS_REPO_ROOT / "data" / "erc20.json"
     abi = json.loads(erc20_abi_path.read_text())
     return get_contract(w3=w3, address=token_address, abi=abi)
 
