@@ -7,6 +7,8 @@ from pathlib import Path
 from derive_client.types import Environment
 
 REPO_ROOT = Path(__file__).parent.parent
+DATA_DIR = REPO_ROOT / "data"
+ABI_DATA_DIR = DATA_DIR / "abi"
 
 PUBLIC_HEADERS = {"accept": "application/json", "content-type": "application/json"}
 

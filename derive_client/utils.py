@@ -13,7 +13,7 @@ from web3 import Web3
 from web3.contract import Contract
 from web3.datastructures import AttributeDict
 
-from derive_client.constants import REPO_ROOT
+from derive_client.constants import ABI_DATA_DIR, DATA_DIR
 from derive_client.types import ChainID, LyraAddresses, RPCEndPoints
 
 
@@ -44,7 +44,7 @@ def get_logger():
 
 def get_prod_lyra_addresses() -> LyraAddresses:
     """Fetch the socket superbridge JSON data."""
-    prod_lyra_addresses = REPO_ROOT / "data" / "prod_lyra_addresses.json"
+    prod_lyra_addresses = DATA_DIR / "prod_lyra_addresses.json"
     return LyraAddresses(chains=json.loads(prod_lyra_addresses.read_text()))
 
 
@@ -61,7 +61,7 @@ def get_contract(w3: Web3, address: str, abi: list) -> Contract:
 
 
 def get_erc20_contract(w3: Web3, token_address: str) -> Contract:
-    erc20_abi_path = REPO_ROOT / "data" / "erc20.json"
+    erc20_abi_path = ABI_DATA_DIR / "erc20.json"
     abi = json.loads(erc20_abi_path.read_text())
     return get_contract(w3=w3, address=token_address, abi=abi)
 

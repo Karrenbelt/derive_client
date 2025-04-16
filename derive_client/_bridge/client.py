@@ -17,17 +17,17 @@ from derive_client._bridge.transaction import (
     prepare_bridge_tx,
     prepare_withdraw_wrapper_tx,
 )
-from derive_client.constants import MSG_GAS_LIMIT, REPO_ROOT, TARGET_SPEED
+from derive_client.constants import ABI_DATA_DIR, MSG_GAS_LIMIT, TARGET_SPEED
 from derive_client.types import Address, ChainID, MintableTokenData, NonMintableTokenData, RPCEndPoints, TxStatus
 from derive_client.utils import get_contract, get_erc20_contract, sign_and_send_tx
 
-VAULT_ABI_PATH = REPO_ROOT / "data" / "socket_superbridge_vault.json"
-CONTROLLER_ABI_PATH = REPO_ROOT / "data" / "controller.json"
-DEPOSIT_HOOK_ABI_PATH = REPO_ROOT / "data" / "deposit_hook.json"
-LIGHT_ACCOUNT_ABI_PATH = REPO_ROOT / "data" / "light_account.json"
-L1_CHUG_SPLASH_PROXY_ABI_PATH = REPO_ROOT / "data" / "l1_chug_splash_proxy.json"
-L1_STANDARD_BRIDGE_ABI_PATH = REPO_ROOT / "data" / "l1_standard_bridge.json"
-WITHDRAW_WRAPPER_V2_ABI_PATH = REPO_ROOT / "data" / "withdraw_wrapper_v2.json"
+VAULT_ABI_PATH = ABI_DATA_DIR / "socket_superbridge_vault.json"
+CONTROLLER_ABI_PATH = ABI_DATA_DIR / "controller.json"
+DEPOSIT_HOOK_ABI_PATH = ABI_DATA_DIR / "deposit_hook.json"
+LIGHT_ACCOUNT_ABI_PATH = ABI_DATA_DIR / "light_account.json"
+L1_CHUG_SPLASH_PROXY_ABI_PATH = ABI_DATA_DIR / "l1_chug_splash_proxy.json"
+L1_STANDARD_BRIDGE_ABI_PATH = ABI_DATA_DIR / "l1_standard_bridge.json"
+WITHDRAW_WRAPPER_V2_ABI_PATH = ABI_DATA_DIR / "withdraw_wrapper_v2.json"
 
 
 class BridgeClient:
