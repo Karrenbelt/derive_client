@@ -2,6 +2,7 @@ import json
 import subprocess
 import time
 from pathlib import Path
+import functools
 
 from web3 import Web3
 from web3.contract import Contract
@@ -88,3 +89,23 @@ def estimate_fees(w3, percentiles: list[int], blocks=20):
         })
 
     return fee_estimations
+
+
+def exp_backoff_retry(func=None, *, attempts=3, initial_delay=1, exceptions=(Exception,)):
+
+    if func is None:
+        return lambda f: exp_backoff_retry(f, attempts=attempts, initial_delay=initial_delay, exceptions=exceptions)
+
+    @functools.wraps(func)
+    def wrapper(*args, **kwargs):
+        delay = initial_delay
+        for attempt in range(attempts):
+            try:
+                return func(*args, **kwargs)
+            except exceptions as e:
+                if attempt == attempts - 1:
+                    raise
+                print(f"Failed execution:\n{e}\nTrying again in {delay} seconds")
+                time.sleep(delay)
+                delay *= 2
+    return wrapper
