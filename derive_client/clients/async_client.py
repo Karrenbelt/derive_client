@@ -20,7 +20,7 @@ from .base_client import ApiException
 from .ws_client import WsClient as BaseClient
 
 
-class DeriveAsyncClient(BaseClient):
+class AsyncClient(BaseClient):
     """
     We use the async client to make async requests to the derive API
     We us the ws client to make async requests to the derive ws API

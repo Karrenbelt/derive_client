@@ -6,7 +6,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from derive_client.clients import DeriveAsyncClient
+from derive_client.clients import AsyncClient
 from derive_client.derive import DeriveClient
 from derive_client.types import Environment
 from derive_client.utils import get_logger
@@ -46,7 +46,7 @@ def derive_client_2():
 
 @pytest.fixture
 async def derive_async_client():
-    derive_client = DeriveAsyncClient(
+    derive_client = AsyncClient(
         wallet=TEST_WALLET, private_key=TEST_PRIVATE_KEY, env=Environment.TEST, logger=get_logger()
     )
     derive_client.subaccount_id = SUBACCOUNT_ID
