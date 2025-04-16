@@ -8,7 +8,7 @@ from web3 import Web3
 from web3.contract import Contract
 from web3.datastructures import AttributeDict
 
-from derive_client.bridge.enums import ChainID, DRPCEndPoints
+from derive_client.bridge.enums import ChainID, RPCEndPoints
 from derive_client.bridge.models import LyraAddresses
 
 
@@ -23,7 +23,7 @@ def get_prod_lyra_addresses() -> LyraAddresses:
 
 
 def get_w3_connection(chain_id: ChainID) -> Web3:
-    rpc_url = DRPCEndPoints[chain_id.name]
+    rpc_url = RPCEndPoints[chain_id.name]
     w3 = Web3(Web3.HTTPProvider(rpc_url))
     if not w3.is_connected():
         raise ConnectionError(f"Failed to connect to RPC at {rpc_url}")

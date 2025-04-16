@@ -62,10 +62,11 @@ class Currency(StrEnum):
     eBTC = auto()
 
 
-class DRPCEndPoints(StrEnum):
+class RPCEndPoints(StrEnum):
     ETH = "https://eth.drpc.org"
     OPTIMISM = "https://optimism.drpc.org"
     BASE = "https://base.drpc.org"
     MODE = "https://mode.drpc.org"
     ARBITRUM = "https://arbitrum.drpc.org"
     BLAST = "https://blast.drpc.org"
+    LYRA = "https://rpc.lyra.finance"
