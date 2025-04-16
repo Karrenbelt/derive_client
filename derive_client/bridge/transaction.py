@@ -3,9 +3,9 @@ from web3 import Web3
 from web3.contract import Contract
 
 from derive_client.bridge.constants import DEPOSIT_GAS_LIMIT, MSG_GAS_LIMIT, PAYLOAD_SIZE
-from derive_client.bridge.enums import TxStatus
+from derive_client.bridge.enums import TxStatus, ChainID
 from derive_client.bridge.models import Address
-from derive_client.bridge.utils import sign_and_send_tx
+from derive_client.bridge.utils import sign_and_send_tx, exp_backoff_retry
 
 
 def ensure_balance(token_contract: Contract, owner: Address, amount: int):
@@ -112,3 +112,57 @@ def prepare_bridge_tx(
     )
 
     return tx
+
+
+def _prepare_mainnet_to_derive_tx(w3: Web3, account: Account, amount: int) -> dict:
+    """
+    Prepares a bridging transaction to move ETH from Ethereum mainnet to Derive.
+    This function uses fee estimation and simulates the tx.
+    """
+
+    # This bridges ETH from EOA -> EOA, *not* to the smart contract funding wallet.
+    # If the Derive-side recipient must be a smart contract, this must be changed.
+    raise NotImplementedError(
+        f"Bridging to a smart contract on Derive is not implemented. "
+        f"This transaction will send ETH to {account.address} on Derive. "
+        f"Implement contract recipient support before proceeding via `bridgeETHTo`."
+    )
+
+    if not w3.eth.chain_id == ChainID.ETH:
+        raise ValueError(f"Connected to chain ID {w3.eth.chain_id}, but expected Ethereum mainnet ({ChainID.ETH}).")
+
+    proxy_address = "0x61e44dc0dae6888b5a301887732217d5725b0bff"
+    bridge_abi = json.loads(L1_STANDARD_BRIDGE_ABI_PATH.read_text())
+    proxy_contract = get_contract(w3=w3, address=proxy_address, abi=bridge_abi)
+
+    balance = w3.eth.get_balance(account.address)
+    nonce = w3.eth.get_transaction_count(account.address)
+
+    @exp_backoff_retry
+    def simulate_tx():
+        fee_estimations = estimate_fees(w3, blocks=10, percentiles=[99])
+        max_fee = fee_estimations[0]['maxFeePerGas']
+        priority_fee = fee_estimations[0]['maxPriorityFeePerGas']
+
+        tx = proxy_contract.functions.bridgeETH(
+            MSG_GAS_LIMIT,  # _minGasLimit # Optimism
+            b"",  # _extraData
+        ).build_transaction(
+            {
+                "from": account.address,
+                "value": amount,
+                "nonce": nonce,
+                "maxFeePerGas": max_fee,
+                "maxPriorityFeePerGas": priority_fee,
+                "chainId": ChainID.ETH,
+            }
+        )
+        estimated_gas = w3.eth.estimate_gas(tx)
+        tx["gas"] = estimated_gas
+        required = estimated_gas * max_fee + amount
+        if balance < required:
+            raise RuntimeError(f"Insufficient funds: have {balance}, need {required} ({(balance/required*100):.2f}%")
+        w3.eth.call(tx)
+        return tx
+
+    return simulate_tx()
