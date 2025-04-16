@@ -31,15 +31,15 @@ from websocket import WebSocketConnectionClosedException, create_connection
 
 from derive_client._bridge import (
     TARGET_SPEED,
-    Address,
     BridgeClient,
-    ChainID,
-    Currency,
     get_prod_lyra_addresses,
     get_w3_connection,
 )
 from derive_client.constants import CONTRACTS, DEFAULT_REFERER, PUBLIC_HEADERS
-from derive_client.enums import (
+from derive_client.types import (
+    Address,
+    ChainID,
+    Currency,
     CollateralAsset,
     Environment,
     InstrumentType,

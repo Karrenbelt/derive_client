@@ -4,7 +4,7 @@ Constants for Lyra.
 
 from pathlib import Path
 
-from derive_client.enums import Environment
+from derive_client.types import Environment
 
 REPO_ROOT = Path(__file__).parent.parent
 

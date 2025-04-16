@@ -14,7 +14,7 @@ from web3 import Web3
 
 from derive_client.base_client import ApiException
 from derive_client.constants import CONTRACTS, DEFAULT_REFERER, TEST_PRIVATE_KEY
-from derive_client.enums import Environment, InstrumentType, OrderSide, OrderType, TimeInForce, UnderlyingCurrency
+from derive_client.types import Environment, InstrumentType, OrderSide, OrderType, TimeInForce, UnderlyingCurrency
 from derive_client.utils import get_logger
 from derive_client.ws_client import WsClient as BaseClient
 

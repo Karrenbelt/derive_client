@@ -11,8 +11,6 @@ from web3 import Web3
 from web3.contract import Contract
 
 from derive_client._bridge.constants import MSG_GAS_LIMIT, TARGET_SPEED
-from derive_client._bridge.enums import ChainID, RPCEndPoints, TxStatus
-from derive_client._bridge.models import Address, MintableTokenData, NonMintableTokenData
 from derive_client._bridge.transaction import (
     _prepare_mainnet_to_derive_tx,
     ensure_allowance,
@@ -22,6 +20,7 @@ from derive_client._bridge.transaction import (
 )
 from derive_client._bridge.utils import get_contract, get_erc20_contract, sign_and_send_tx
 from derive_client.constants import REPO_ROOT
+from derive_client.types import Address, ChainID, MintableTokenData, NonMintableTokenData, RPCEndPoints, TxStatus
 
 VAULT_ABI_PATH = REPO_ROOT / "data" / "socket_superbridge_vault.json"
 CONTROLLER_ABI_PATH = REPO_ROOT / "data" / "controller.json"

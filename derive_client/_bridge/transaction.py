@@ -3,9 +3,8 @@ from web3 import Web3
 from web3.contract import Contract
 
 from derive_client._bridge.constants import DEPOSIT_GAS_LIMIT, MSG_GAS_LIMIT, PAYLOAD_SIZE
-from derive_client._bridge.enums import ChainID, TxStatus
-from derive_client._bridge.models import Address
 from derive_client._bridge.utils import estimate_fees, exp_backoff_retry, sign_and_send_tx
+from derive_client.types import Address, ChainID, TxStatus
 
 
 def ensure_balance(token_contract: Contract, owner: Address, amount: int):

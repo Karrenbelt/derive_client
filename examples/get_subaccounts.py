@@ -8,7 +8,7 @@ from pathlib import Path
 
 import click
 
-from derive_client.enums import Environment
+from derive_client.types import Environment
 from derive_client.http_client import HttpClient as DeriveClient
 
 

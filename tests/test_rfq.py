@@ -7,7 +7,7 @@ from dataclasses import asdict, dataclass
 
 import pytest
 
-from derive_client.enums import OrderSide
+from derive_client.types import OrderSide
 
 LEG_1_NAME = 'ETH-20240329-2400-C'
 LEG_2_NAME = 'ETH-20240329-2600-C'

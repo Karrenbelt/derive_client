@@ -10,10 +10,11 @@ from dotenv import load_dotenv
 from rich import print
 
 from derive_client.analyser import PortfolioAnalyser
-from derive_client._bridge import ChainID, Currency
 from derive_client.derive import DeriveClient
-from derive_client.enums import (
+from derive_client.types import (
+    ChainID,
     CollateralAsset,
+    Currency,
     Environment,
     InstrumentType,
     OrderSide,

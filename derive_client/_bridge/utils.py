@@ -6,9 +6,8 @@ from web3 import Web3
 from web3.contract import Contract
 from web3.datastructures import AttributeDict
 
-from derive_client._bridge.enums import ChainID, RPCEndPoints
-from derive_client._bridge.models import LyraAddresses
 from derive_client.constants import REPO_ROOT
+from derive_client.types import ChainID, LyraAddresses, RPCEndPoints
 
 
 def get_prod_lyra_addresses() -> LyraAddresses:
