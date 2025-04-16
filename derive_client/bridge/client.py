@@ -13,7 +13,7 @@ from web3.contract import Contract
 from derive_client.bridge.constants import MSG_GAS_LIMIT
 from derive_client.bridge.enums import ChainID, TxStatus
 from derive_client.bridge.models import Address, NonMintableTokenData
-from derive_client.bridge.transaction import ensure_allowance, ensure_balance, prepare_bridge_tx
+from derive_client.bridge.transaction import ensure_allowance, ensure_balance, prepare_bridge_tx, prepare_mainnet_to_derive_tx
 from derive_client.bridge.utils import get_contract, get_erc20_contract, get_repo_root, sign_and_send_tx
 
 VAULT_ABI_PATH = get_repo_root() / "data" / "socket_superbridge_vault.json"
@@ -59,6 +59,22 @@ class BridgeClient:
         tx_receipt = sign_and_send_tx(self.w3, tx, private_key)
         if tx_receipt.status == TxStatus.SUCCESS:
             print("Deposit successful!")
+            return tx_receipt
+        else:
+            raise Exception("Deposit transaction reverted.")
+
+    def _bridge_mainnet_eth_to_derive(self, amount: int) -> dict:
+        """
+        Prepares, signs, and sends a transaction to bridge ETH from mainnet to Derive.
+        This is the "socket superbridge" method; not required when using the withdraw wrapper.
+        """
+
+        w3 = Web3(Web3.HTTPProvider(DRPCEndPoints.ETH))
+        tx = prepare_mainnet_to_derive_tx(w3=w3, account=self.account, amount=amount)
+        tx_receipt = sign_and_send_tx(w3=w3, tx=tx, private_key=self.account._private_key)
+
+        if tx_receipt.status == TxStatus.SUCCESS:
+            print("Bridge deposit successful!")
             return tx_receipt
         else:
             raise Exception("Deposit transaction reverted.")
