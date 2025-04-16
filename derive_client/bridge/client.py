@@ -10,13 +10,25 @@ from eth_account import Account
 from web3 import Web3
 from web3.contract import Contract
 
-from derive_client.bridge.constants import MSG_GAS_LIMIT
-from derive_client.bridge.enums import ChainID, TxStatus
-from derive_client.bridge.models import Address, NonMintableTokenData
-from derive_client.bridge.transaction import ensure_allowance, ensure_balance, prepare_bridge_tx, prepare_mainnet_to_derive_tx
+from derive_client.bridge.constants import MSG_GAS_LIMIT, TARGET_SPEED
+from derive_client.bridge.enums import ChainID, RPCEndPoints, TxStatus
+from derive_client.bridge.models import Address, MintableTokenData, NonMintableTokenData
+from derive_client.bridge.transaction import (
+    _prepare_mainnet_to_derive_tx,
+    ensure_allowance,
+    ensure_balance,
+    prepare_bridge_tx,
+    prepare_withdraw_wrapper_tx,
+)
 from derive_client.bridge.utils import get_contract, get_erc20_contract, get_repo_root, sign_and_send_tx
 
 VAULT_ABI_PATH = get_repo_root() / "data" / "socket_superbridge_vault.json"
+CONTROLLER_ABI_PATH = get_repo_root() / "data" / "controller.json"
+DEPOSIT_HOOK_ABI_PATH = get_repo_root() / "data" / "deposit_hook.json"
+LIGHT_ACCOUNT_ABI_PATH = get_repo_root() / "data" / "light_account.json"
+L1_CHUG_SPLASH_PROXY_ABI_PATH = get_repo_root() / "data" / "l1_chug_splash_proxy.json"
+L1_STANDARD_BRIDGE_ABI_PATH = get_repo_root() / "data" / "l1_standard_bridge.json"
+WITHDRAW_WRAPPER_V2_ABI_PATH = get_repo_root() / "data" / "withdraw_wrapper_v2.json"
 
 
 class BridgeClient:
@@ -25,6 +37,7 @@ class BridgeClient:
         self.account = account
         self.chain_id = chain_id
         self.bridge_contract: Contract | None = None
+        self.withdraw_wrapper_contract: Contract | None = None
 
     def load_bridge_contract(self, vault_address: str) -> None:
         """Instantiate the bridge contract."""
@@ -32,6 +45,11 @@ class BridgeClient:
         abi = json.loads(VAULT_ABI_PATH.read_text())
         address = self.w3.to_checksum_address(vault_address)
         self.bridge_contract = get_contract(w3=self.w3, address=address, abi=abi)
+
+    def load_withdraw_wrapper(self):
+        address = "0xea8E683D8C46ff05B871822a00461995F93df800"
+        abi = json.loads(WITHDRAW_WRAPPER_V2_ABI_PATH.read_text())
+        self.withdraw_wrapper_contract = get_contract(w3=self.w3, address=address, abi=abi)
 
     def deposit(
         self, amount: int, receiver: Address, connector: Address, token_data: NonMintableTokenData, private_key: str
@@ -69,8 +87,13 @@ class BridgeClient:
         This is the "socket superbridge" method; not required when using the withdraw wrapper.
         """
 
-        w3 = Web3(Web3.HTTPProvider(DRPCEndPoints.ETH))
-        tx = prepare_mainnet_to_derive_tx(w3=w3, account=self.account, amount=amount)
+        w3 = Web3(Web3.HTTPProvider(RPCEndPoints.ETH))
+
+        proxy_address = "0x61e44dc0dae6888b5a301887732217d5725b0bff"
+        bridge_abi = json.loads(L1_STANDARD_BRIDGE_ABI_PATH.read_text())
+        proxy_contract = get_contract(w3=w3, address=proxy_address, abi=bridge_abi)
+
+        tx = _prepare_mainnet_to_derive_tx(w3=w3, account=self.account, amount=amount, proxy_contract=proxy_contract)
         tx_receipt = sign_and_send_tx(w3=w3, tx=tx, private_key=self.account._private_key)
 
         if tx_receipt.status == TxStatus.SUCCESS:
@@ -78,3 +101,68 @@ class BridgeClient:
             return tx_receipt
         else:
             raise Exception("Deposit transaction reverted.")
+
+    def withdraw_with_wrapper(
+        self,
+        amount: int,
+        receiver: Address,
+        token_data: MintableTokenData,
+        wallet: Address,
+        private_key: str,
+    ):
+        """
+        Prepares, signs, and sends a withdrawal transaction using the withdraw wrapper.
+        """
+
+        if not self.w3.eth.chain_id == ChainID.LYRA:
+            raise ValueError(
+                f"Connected to chain ID {self.w3.eth.chain_id}, but expected Derive chain ({ChainID.LYRA})."
+            )
+
+        connector = token_data.connectors[self.chain_id][TARGET_SPEED]
+
+        # Get the token contract and Light Account contract instances.
+        token_contract = get_erc20_contract(w3=self.w3, token_address=token_data.MintableToken)
+        abi = json.loads(LIGHT_ACCOUNT_ABI_PATH.read_text())
+        light_account = get_contract(w3=self.w3, address=wallet, abi=abi)
+
+        abi = json.loads(CONTROLLER_ABI_PATH.read_text())
+        controller_contract = get_contract(w3=self.w3, address=token_data.Controller, abi=abi)
+        deposit_hook = controller_contract.functions.hook__().call()
+        if not deposit_hook == token_data.LyraTSAShareHandlerDepositHook:
+            raise ValueError("Controller deposit hook does not match expected address")
+
+        abi = json.loads(DEPOSIT_HOOK_ABI_PATH.read_text())
+        deposit_contract = get_contract(w3=self.w3, address=deposit_hook, abi=abi)
+        pool_id = deposit_contract.functions.connectorPoolIds(connector).call()
+        locked = deposit_contract.functions.poolLockedAmounts(pool_id).call()
+
+        if amount > locked:
+            raise RuntimeError(
+                f"Insufficient funds locked in pool: has {locked}, want {amount} ({(locked/amount*100):.2f}%)"
+            )
+
+        owner = light_account.functions.owner().call()
+        if not receiver == owner:
+            raise NotImplementedError("Withdraw to receiver other than wallet owner")
+
+        tx = prepare_withdraw_wrapper_tx(
+            w3=self.w3,
+            account=self.account,
+            wallet=wallet,
+            receiver=receiver,
+            token_contract=token_contract,
+            light_account=light_account,
+            withdraw_wrapper=self.withdraw_wrapper_contract,
+            controller_contract=controller_contract,
+            amount=amount,
+            connector=connector,
+            msg_gas_limit=MSG_GAS_LIMIT,
+        )
+
+        tx_receipt = sign_and_send_tx(w3=self.w3, tx=tx, private_key=private_key)
+        if tx_receipt.status == TxStatus.SUCCESS:
+            print(f"Bridge from Derive to {self.chain_id.name} successful!")
+            return tx_receipt
+        else:
+            raise Exception("Bridge transaction reverted.")
