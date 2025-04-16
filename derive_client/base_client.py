@@ -166,6 +166,30 @@ class BaseClient:
             private_key=self.signer._private_key,
         )
 
+    def withdraw_from_derive(self, chain_id: ChainID, currency: Currency, amount: int, receiver: Address):
+        """Deposit funds via socket superbridge to Derive chain smart contract funding account.
+
+        Parameters:
+            chain_id (ChainID): The chain you are bridging TO.
+            currency (Currency): The asset being bridged.
+            amount (int): The amount to withdraw, in Wei.
+            receiver (Address): The address to receive the funds.
+        """
+
+        w3 = get_w3_connection(chain_id=ChainID.LYRA)
+        lyra_addresses = get_prod_lyra_addresses()
+        token_data = lyra_addresses.chains[ChainID.LYRA][currency]
+
+        client = BridgeClient(w3=w3, account=self.signer, chain_id=chain_id)
+        client.load_withdraw_wrapper()
+        client.withdraw_with_wrapper(
+            amount=amount,
+            receiver=receiver,
+            token_data=token_data,
+            wallet=self.wallet,
+            private_key=self.signer._private_key,
+        )
+
     def fetch_instruments(
         self,
         expired=False,
