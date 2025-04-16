@@ -64,7 +64,7 @@ def sign_and_send_tx(w3: Web3, tx: dict, private_key: str) -> AttributeDict:
     return receipt
 
 
-def estimate_fees(w3, percentiles: list[int], blocks=20):
+def estimate_fees(w3, percentiles: list[int], blocks=20, default_tip=10_000):
     fee_history = w3.eth.fee_history(blocks, 'pending', percentiles)
     base_fees = fee_history['baseFeePerGas']
     rewards = fee_history['reward']
@@ -72,9 +72,12 @@ def estimate_fees(w3, percentiles: list[int], blocks=20):
     # Calculate average priority fees for each percentile
     avg_priority_fees = []
     for i in range(len(percentiles)):
-        total = sum(reward[i] for reward in rewards if len(reward) > i)
-        avg = total // len(rewards)
-        avg_priority_fees.append(avg)
+        nonzero_rewards = [r[i] for r in rewards if len(r) > i and r[i] > 0]
+        if nonzero_rewards:
+            estimated_tip = sum(nonzero_rewards) // len(nonzero_rewards)
+        else:
+            estimated_tip = default_tip
+        avg_priority_fees.append(estimated_tip)
 
     # Use the latest base fee
     latest_base_fee = base_fees[-1]
