@@ -7,7 +7,7 @@ from pathlib import Path
 import click
 
 from derive_client import DeriveClient
-from derive_client.enums import CollateralAsset, Environment
+from derive_client.data_types import CollateralAsset, Environment
 
 
 @click.command()

@@ -1,9 +1,17 @@
+"""Models used in the bridge module."""
+
+
 from dataclasses import dataclass
 
+from derive_action_signing.module_data import ModuleData
+from derive_action_signing.utils import decimal_to_big_int
 from eth_abi.abi import encode
-from lyra_v2_action_signing.module_data import ModuleData
-from lyra_v2_action_signing.utils import decimal_to_big_int
+from pydantic import BaseModel, ConfigDict
 from web3 import Web3
+
+from .enums import ChainID, Currency
+
+Address = str
 
 
 @dataclass
@@ -35,3 +43,26 @@ class CreateSubAccountData(ModuleData):
 
     def to_json(self):
         return {}
+
+
+class TokenData(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    isAppChain: bool
+    connectors: dict[ChainID, dict[str, str]]
+    LyraTSAShareHandlerDepositHook: Address | None = None
+    LyraTSADepositHook: Address | None = None
+
+
+class MintableTokenData(TokenData):
+    Controller: Address
+    MintableToken: Address
+
+
+class NonMintableTokenData(TokenData):
+    Vault: Address
+    NonMintableToken: Address
+
+
+class DeriveAddresses(BaseModel):
+    chains: dict[ChainID, dict[Currency, MintableTokenData | NonMintableTokenData]]

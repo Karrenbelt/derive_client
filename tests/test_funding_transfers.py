@@ -4,7 +4,7 @@ Tests for the DeriveClient deposit and withdrawal methods for subaccounts.
 
 import pytest
 
-from derive_client.enums import CollateralAsset
+from derive_client.data_types import CollateralAsset
 
 PM_SUBACCOUNT_ID = 31049
 SM_SUBACCOUNT_ID = 30769

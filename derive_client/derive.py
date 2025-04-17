@@ -1,12 +1,11 @@
 """
-Derive is a Python library for trading on derive v2
+Derive is a Python library for trading on Derive.
 """
 
 import pandas as pd
 from web3 import Web3
 
-from derive_client.base_client import BaseClient
-from derive_client.http_client import HttpClient
+from derive_client.clients import BaseClient, HttpClient
 
 # we set to show 4 decimal places
 pd.options.display.float_format = '{:,.4f}'.format
