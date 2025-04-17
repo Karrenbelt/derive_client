@@ -9,7 +9,7 @@ from pydantic import BaseModel
 from derive_client.data_types import Environment, UnderlyingCurrency
 
 
-class ContractAddresses(BaseModel):
+class ContractAddresses(BaseModel, frozen=True):
     ETH_PERP: str
     BTC_PERP: str
     ETH_OPTION: str
@@ -30,7 +30,7 @@ class ContractAddresses(BaseModel):
         return getattr(self, key)
 
 
-class EnvConfig(BaseModel):
+class EnvConfig(BaseModel, frozen=True):
     base_url: str
     ws_address: str
     action_typehash: str
