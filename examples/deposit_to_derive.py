@@ -7,13 +7,11 @@ import os
 import click
 from dotenv import load_dotenv
 
-from derive_client.bridge.enums import ChainID, Currency
-from derive_client.bridge.models import Address
+from derive_client.data_types import Address, ChainID, Currency, Environment
 from derive_client.derive import DeriveClient
-from tests.conftest import Environment
 
-ChainChoice = click.Choice([f"{c.name}" for c in ChainID])
-CurrencyChoice = click.Choice(map(str, Currency))
+ChainChoice = click.Choice(c.name for c in ChainID)
+CurrencyChoice = click.Choice(c.name for c in Currency)
 
 
 @click.command()
