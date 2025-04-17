@@ -26,5 +26,5 @@ class NonMintableTokenData(TokenData):
     NonMintableToken: Address
 
 
-class LyraAddresses(BaseModel):
+class DeriveAddresses(BaseModel):
     chains: dict[ChainID, dict[Currency, MintableTokenData | NonMintableTokenData]]

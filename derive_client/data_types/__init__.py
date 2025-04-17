@@ -17,7 +17,7 @@ from .enums import (
     TxStatus,
     UnderlyingCurrency,
 )
-from .models import Address, LyraAddresses, MintableTokenData, NonMintableTokenData
+from .models import Address, DeriveAddresses, MintableTokenData, NonMintableTokenData
 
 __all__ = [
     "TxStatus",
@@ -38,5 +38,5 @@ __all__ = [
     "Address",
     "MintableTokenData",
     "NonMintableTokenData",
-    "LyraAddresses",
+    "DeriveAddresses",
 ]

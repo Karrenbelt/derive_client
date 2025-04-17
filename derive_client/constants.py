@@ -1,5 +1,5 @@
 """
-Constants for Lyra.
+Constants for Derive (formerly Lyra).
 """
 
 from pathlib import Path

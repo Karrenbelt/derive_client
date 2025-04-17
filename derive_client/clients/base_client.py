@@ -48,7 +48,7 @@ from derive_client.data_types import (
     TimeInForce,
     UnderlyingCurrency,
 )
-from derive_client.utils import get_logger, get_prod_lyra_addresses, get_w3_connection
+from derive_client.utils import get_logger, get_prod_derive_addresses, get_w3_connection
 
 
 @dataclass
@@ -87,7 +87,7 @@ class ApiException(Exception):
 
 
 class BaseClient:
-    """Client for the derive dex."""
+    """Client for the Derive dex."""
 
     referral_code: str = None
 
@@ -153,8 +153,8 @@ class BaseClient:
         """
 
         w3 = get_w3_connection(chain_id=chain_id)
-        lyra_addresses = get_prod_lyra_addresses()
-        token_data = lyra_addresses.chains[chain_id][currency]
+        derive_addresses = get_prod_derive_addresses()
+        token_data = derive_addresses.chains[chain_id][currency]
         connector = token_data.connectors[ChainID.DERIVE][TARGET_SPEED]
 
         client = BridgeClient(self.env, w3=w3, account=self.signer, chain_id=chain_id)
@@ -178,8 +178,8 @@ class BaseClient:
         """
 
         w3 = get_w3_connection(chain_id=ChainID.DERIVE)
-        lyra_addresses = get_prod_lyra_addresses()
-        token_data = lyra_addresses.chains[ChainID.DERIVE][currency]
+        derive_addresses = get_prod_derive_addresses()
+        token_data = derive_addresses.chains[ChainID.DERIVE][currency]
 
         client = BridgeClient(self.env, w3=w3, account=self.signer, chain_id=chain_id)
         client.load_withdraw_wrapper()
