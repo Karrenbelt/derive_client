@@ -4,12 +4,12 @@ version = "0.2.15"
 description = ""
 authors = ["8baller <8baller@station.codes>"]
 readme = "README.md"
-packages = [{include = "derive_client"}]
+packages = [{ include = "derive_client" }]
 
 [tool.poetry.dependencies]
 python = ">=3.9,<3.12"
 requests = "^2"
-web3 = {version = ">=6,<8"}
+web3 = { version = ">=6,<8" }
 websocket-client = ">=0.32.0,<1"
 setuptools = ">=68.2.2,<80"
 rich-click = "^1.7.1"
@@ -21,7 +21,7 @@ pydantic = "^2.11.3"
 
 
 [tool.poetry.scripts]
-dc= "derive_client.cli:cli"
+drv = "derive_client.cli:cli"
 
 
 [tool.poetry.group.dev.dependencies]
@@ -43,7 +43,6 @@ mkdocs-autorefs = "^0.4.1"
 [build-system]
 requires = ["poetry-core"]
 build-backend = "poetry.core.masonry.api"
-
 
 
 [tool.isort]
