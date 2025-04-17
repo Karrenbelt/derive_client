@@ -17,7 +17,7 @@ from derive_client._bridge.transaction import (
     prepare_bridge_tx,
     prepare_withdraw_wrapper_tx,
 )
-from derive_client.constants import ABI_DATA_DIR, MSG_GAS_LIMIT, TARGET_SPEED, WITHDRAW_WRAPPER_V2_ADDRESS
+from derive_client.constants import ABI_DATA_DIR, MSG_GAS_LIMIT, TARGET_SPEED, WITHDRAW_WRAPPER_V2_ADDRESS, L1_CHUG_SPLASH_PROXY
 from derive_client.data_types import Address, ChainID, MintableTokenData, NonMintableTokenData, RPCEndPoints, TxStatus
 from derive_client.utils import get_contract, get_erc20_contract, sign_and_send_tx
 
@@ -88,9 +88,9 @@ class BridgeClient:
 
         w3 = Web3(Web3.HTTPProvider(RPCEndPoints.ETH))
 
-        proxy_address = "0x61e44dc0dae6888b5a301887732217d5725b0bff"
+        address = L1_CHUG_SPLASH_PROXY
         bridge_abi = json.loads(L1_STANDARD_BRIDGE_ABI_PATH.read_text())
-        proxy_contract = get_contract(w3=w3, address=proxy_address, abi=bridge_abi)
+        proxy_contract = get_contract(w3=w3, address=address, abi=bridge_abi)
 
         tx = _prepare_mainnet_to_derive_tx(w3=w3, account=self.account, amount=amount, proxy_contract=proxy_contract)
         tx_receipt = sign_and_send_tx(w3=w3, tx=tx, private_key=self.account._private_key)
