@@ -270,7 +270,7 @@ class BaseClient:
         }
 
         signed_action = self._generate_signed_action(
-            module_address=self.config.contracts.TRADE_MODULE_ADDRESS, module_data=module_data
+            module_address=self.config.contracts.TRADE_MODULE, module_data=module_data
         )
 
         order = {
@@ -347,7 +347,7 @@ class BaseClient:
             leg_sign = 1 if leg['direction'] == 'buy' else -1
             signed_amount = self.web3_client.to_wei(leg['amount'], 'ether') * leg_sign * dir_sign
             return [
-                self.config.contracts[f"{underlying_currency.name}_OPTION_ADDRESS"],
+                self.config.contracts[f"{underlying_currency.name}_OPTION"],
                 sub_id,
                 self.web3_client.to_wei(quote['price'], 'ether'),
                 signed_amount,
@@ -541,11 +541,11 @@ class BaseClient:
         """
         url = f"{self.config.base_url}/private/create_subaccount"
         if subaccount_type is SubaccountType.STANDARD:
-            contract_key = f"{subaccount_type.name}_RISK_MANAGER_ADDRESS"
+            contract_key = f"{subaccount_type.name}_RISK_MANAGEr"
         elif subaccount_type is SubaccountType.PORTFOLIO:
             if not collateral_asset:
                 raise Exception("Underlying currency must be provided for portfolio subaccounts")
-            contract_key = f"{underlying_currency.name}_{subaccount_type.name}_RISK_MANAGER_ADDRESS"
+            contract_key = f"{underlying_currency.name}_{subaccount_type.name}_RISK_MANAGER"
 
         signed_action = self._generate_signed_action(
             module_address=self.config.contracts[contract_key],
@@ -601,7 +601,7 @@ class BaseClient:
             signer=self.signer.address,
             signature_expiry_sec=MAX_INT_32,
             nonce=get_action_nonce(),
-            module_address=self.config.contracts.TRANSFER_MODULE_ADDRESS,
+            module_address=self.config.contracts.TRANSFER_MODULE,
             module_data=SenderTransferERC20ModuleData(
                 to_subaccount_id=to,
                 transfers=[transfer_details],
@@ -617,7 +617,7 @@ class BaseClient:
             signer=self.signer.address,
             signature_expiry_sec=MAX_INT_32,
             nonce=get_action_nonce(),
-            module_address=self.config.contracts.TRANSFER_MODULE_ADDRESS,
+            module_address=self.config.contracts.TRANSFER_MODULE,
             module_data=RecipientTransferERC20ModuleData(),
             DOMAIN_SEPARATOR=self.config.domain_separator,
             ACTION_TYPEHASH=self.config.action_typehash,
@@ -773,7 +773,7 @@ class BaseClient:
             signer=self.signer.address,
             signature_expiry_sec=MAX_INT_32,
             nonce=get_action_nonce(),
-            module_address=self.config.contracts.DEPOSIT_MODULE_ADDRESS,
+            module_address=self.config.contracts.DEPOSIT_MODULE,
             module_data=deposit_module_data,
             DOMAIN_SEPARATOR=self.config.domain_separator,
             ACTION_TYPEHASH=self.config.action_typehash,
@@ -852,7 +852,7 @@ class BaseClient:
             signer=self.signer.address,
             signature_expiry_sec=MAX_INT_32,
             nonce=get_action_nonce(),
-            module_address=self.config.contracts.WITHDRAWAL_MODULE_ADDRESS,
+            module_address=self.config.contracts.WITHDRAWAL_MODULE,
             module_data=module_data,
             DOMAIN_SEPARATOR=self.config.domain_separator,
             ACTION_TYPEHASH=self.config.action_typehash,

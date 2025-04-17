@@ -57,7 +57,7 @@ class BridgeClient:
         self.bridge_contract = get_contract(w3=self.w3, address=address, abi=abi)
 
     def load_withdraw_wrapper(self):
-        address = self.config.contracts.WITHDRAW_WRAPPER_V2_ADDRESS
+        address = self.config.contracts.WITHDRAW_WRAPPER_V2
         abi = json.loads(WITHDRAW_WRAPPER_V2_ABI_PATH.read_text())
         self.withdraw_wrapper_contract = get_contract(w3=self.w3, address=address, abi=abi)
 
