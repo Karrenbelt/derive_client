@@ -555,7 +555,7 @@ class BaseClient:
                 "margin_type": "SM" if subaccount_type is SubaccountType.STANDARD else "PM",
                 "create_account_details": CreateSubAccountDetails(
                     amount=amount,
-                    base_asset_address=self.config.contracts["CASH_ASSET"],
+                    base_asset_address=self.config.contracts.CASH_ASSET,
                     sub_asset_address=self.config.contracts[contract_key],
                 ),
             },
@@ -591,7 +591,7 @@ class BaseClient:
         """
         url = f"{self.config.base_url}/private/transfer_erc20"
         transfer_details = TransferERC20Details(
-            base_address=self.config.contracts["CASH_ASSET"],
+            base_address=self.config.contracts.CASH_ASSET,
             sub_id=0,
             amount=Decimal(amount),
         )
@@ -601,8 +601,7 @@ class BaseClient:
             signer=self.signer.address,
             signature_expiry_sec=MAX_INT_32,
             nonce=get_action_nonce(),
-            # module_address=TRANSFER_ERC20_MODULE_ADDRESS,
-            module_address=self.config.contracts["TRANSFER_MODULE_ADDRESS"],
+            module_address=self.config.contracts.TRANSFER_MODULE_ADDRESS,
             module_data=SenderTransferERC20ModuleData(
                 to_subaccount_id=to,
                 transfers=[transfer_details],
@@ -618,7 +617,7 @@ class BaseClient:
             signer=self.signer.address,
             signature_expiry_sec=MAX_INT_32,
             nonce=get_action_nonce(),
-            module_address=self.config.contracts["TRANSFER_MODULE_ADDRESS"],
+            module_address=self.config.contracts.TRANSFER_MODULE_ADDRESS,
             module_data=RecipientTransferERC20ModuleData(),
             DOMAIN_SEPARATOR=self.config.domain_separator,
             ACTION_TYPEHASH=self.config.action_typehash,
@@ -640,7 +639,7 @@ class BaseClient:
                 "signer": recipient_action.signer,
             },
             "transfer": {
-                "address": self.config.contracts["CASH_ASSET"],
+                "address": self.config.contracts.CASH_ASSET,
                 "amount": str(transfer_details.amount),
                 "sub_id": str(transfer_details.sub_id),
             },
@@ -774,7 +773,7 @@ class BaseClient:
             signer=self.signer.address,
             signature_expiry_sec=MAX_INT_32,
             nonce=get_action_nonce(),
-            module_address=self.config.contracts["DEPOSIT_MODULE_ADDRESS"],
+            module_address=self.config.contracts.DEPOSIT_MODULE_ADDRESS,
             module_data=deposit_module_data,
             DOMAIN_SEPARATOR=self.config.domain_separator,
             ACTION_TYPEHASH=self.config.action_typehash,
@@ -853,7 +852,7 @@ class BaseClient:
             signer=self.signer.address,
             signature_expiry_sec=MAX_INT_32,
             nonce=get_action_nonce(),
-            module_address=self.config.contracts["WITHDRAWAL_MODULE_ADDRESS"],
+            module_address=self.config.contracts.WITHDRAWAL_MODULE_ADDRESS,
             module_data=module_data,
             DOMAIN_SEPARATOR=self.config.domain_separator,
             ACTION_TYPEHASH=self.config.action_typehash,
