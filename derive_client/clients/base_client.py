@@ -10,23 +10,14 @@ import eth_abi
 import requests
 from derive_action_signing.module_data import (
     DepositModuleData,
-    ModuleData,
     RecipientTransferERC20ModuleData,
     SenderTransferERC20ModuleData,
     TradeModuleData,
     TransferERC20Details,
     WithdrawModuleData,
 )
-from derive_action_signing.signed_action import SignedAction, dataclass
-from derive_action_signing.utils import (
-    MAX_INT_32,
-    decimal_to_big_int,
-    get_action_nonce,
-    sign_rest_auth_header,
-    sign_ws_login,
-    utc_now_ms,
-)
-from eth_abi.abi import encode
+from derive_action_signing.signed_action import SignedAction
+from derive_action_signing.utils import MAX_INT_32, get_action_nonce, sign_rest_auth_header, sign_ws_login, utc_now_ms
 from rich import print
 from web3 import Web3
 from websocket import WebSocketConnectionClosedException, create_connection
@@ -37,6 +28,8 @@ from derive_client.data_types import (
     Address,
     ChainID,
     CollateralAsset,
+    CreateSubAccountData,
+    CreateSubAccountDetails,
     Currency,
     Environment,
     InstrumentType,
@@ -49,37 +42,6 @@ from derive_client.data_types import (
     UnderlyingCurrency,
 )
 from derive_client.utils import get_logger, get_prod_derive_addresses, get_w3_connection
-
-
-@dataclass
-class CreateSubAccountDetails:
-    amount: int
-    base_asset_address: str
-    sub_asset_address: str
-
-    def to_eth_tx_params(self):
-        return (
-            decimal_to_big_int(self.amount),
-            Web3.to_checksum_address(self.base_asset_address),
-            Web3.to_checksum_address(self.sub_asset_address),
-        )
-
-
-@dataclass
-class CreateSubAccountData(ModuleData):
-    amount: int
-    asset_name: str
-    margin_type: str
-    create_account_details: CreateSubAccountDetails
-
-    def to_abi_encoded(self):
-        return encode(
-            ['uint256', 'address', 'address'],
-            self.create_account_details.to_eth_tx_params(),
-        )
-
-    def to_json(self):
-        return {}
 
 
 class ApiException(Exception):
