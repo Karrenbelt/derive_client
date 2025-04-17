@@ -4,8 +4,9 @@ Constants for Lyra.
 
 from pathlib import Path
 
-from derive_client.data_types import Environment, UnderlyingCurrency
 from pydantic import BaseModel
+
+from derive_client.data_types import Environment, UnderlyingCurrency
 
 
 class ContractAddresses(BaseModel):
@@ -22,6 +23,8 @@ class ContractAddresses(BaseModel):
     DEPOSIT_MODULE_ADDRESS: str
     WITHDRAWAL_MODULE_ADDRESS: str
     TRANSFER_MODULE_ADDRESS: str
+    L1_CHUG_SPLASH_PROXY: str | None
+    WITHDRAW_WRAPPER_V2_ADDRESS: str | None
 
     def __getitem__(self, key):
         return getattr(self, key)
@@ -64,6 +67,8 @@ CONFIGS: dict[Environment, EnvConfig] = {
             DEPOSIT_MODULE_ADDRESS="0x43223Db33AdA0575D2E100829543f8B04A37a1ec",
             WITHDRAWAL_MODULE_ADDRESS="0xe850641C5207dc5E9423fB15f89ae6031A05fd92",
             TRANSFER_MODULE_ADDRESS="0x0CFC1a4a90741aB242cAfaCD798b409E12e68926",
+            L1_CHUG_SPLASH_PROXY=None,
+            WITHDRAW_WRAPPER_V2_ADDRESS=None,
         ),
     ),
     Environment.PROD: EnvConfig(
@@ -85,12 +90,13 @@ CONFIGS: dict[Environment, EnvConfig] = {
             DEPOSIT_MODULE_ADDRESS="0x9B3FE5E5a3bcEa5df4E08c41Ce89C4e3Ff01Ace3",
             WITHDRAWAL_MODULE_ADDRESS="0x9d0E8f5b25384C7310CB8C6aE32C8fbeb645d083",
             TRANSFER_MODULE_ADDRESS="0x01259207A40925b794C8ac320456F7F6c8FE2636",
+            L1_CHUG_SPLASH_PROXY="0x61e44dc0dae6888b5a301887732217d5725b0bff",
+            WITHDRAW_WRAPPER_V2_ADDRESS="0xea8E683D8C46ff05B871822a00461995F93df800",
         ),
     ),
 }
 
-L1_CHUG_SPLASH_PROXY = "0x61e44dc0dae6888b5a301887732217d5725b0bff"
-WITHDRAW_WRAPPER_V2_ADDRESS = "0xea8E683D8C46ff05B871822a00461995F93df800"
+
 DEFAULT_REFERER = "0x9135BA0f495244dc0A5F029b25CDE95157Db89AD"
 
 MSG_GAS_LIMIT = 100_000

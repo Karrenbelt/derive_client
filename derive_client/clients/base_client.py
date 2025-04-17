@@ -157,7 +157,7 @@ class BaseClient:
         token_data = lyra_addresses.chains[chain_id][currency]
         connector = token_data.connectors[ChainID.LYRA][TARGET_SPEED]
 
-        client = BridgeClient(w3=w3, account=self.signer, chain_id=chain_id)
+        client = BridgeClient(self.env, w3=w3, account=self.signer, chain_id=chain_id)
         client.load_bridge_contract(token_data.Vault)
         client.deposit(
             amount=amount,
@@ -181,7 +181,7 @@ class BaseClient:
         lyra_addresses = get_prod_lyra_addresses()
         token_data = lyra_addresses.chains[ChainID.LYRA][currency]
 
-        client = BridgeClient(w3=w3, account=self.signer, chain_id=chain_id)
+        client = BridgeClient(self.env, w3=w3, account=self.signer, chain_id=chain_id)
         client.load_withdraw_wrapper()
         client.withdraw_with_wrapper(
             amount=amount,

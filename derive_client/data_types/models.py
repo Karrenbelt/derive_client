@@ -2,7 +2,6 @@
 
 from pydantic import BaseModel, ConfigDict
 
-
 from .enums import ChainID, Currency
 
 Address = str

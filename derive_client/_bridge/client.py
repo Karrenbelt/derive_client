@@ -17,8 +17,16 @@ from derive_client._bridge.transaction import (
     prepare_bridge_tx,
     prepare_withdraw_wrapper_tx,
 )
-from derive_client.constants import ABI_DATA_DIR, MSG_GAS_LIMIT, TARGET_SPEED, WITHDRAW_WRAPPER_V2_ADDRESS, L1_CHUG_SPLASH_PROXY
-from derive_client.data_types import Address, ChainID, MintableTokenData, NonMintableTokenData, RPCEndPoints, TxStatus
+from derive_client.constants import ABI_DATA_DIR, CONFIGS, MSG_GAS_LIMIT, TARGET_SPEED
+from derive_client.data_types import (
+    Address,
+    ChainID,
+    Environment,
+    MintableTokenData,
+    NonMintableTokenData,
+    RPCEndPoints,
+    TxStatus,
+)
 from derive_client.utils import get_contract, get_erc20_contract, sign_and_send_tx
 
 VAULT_ABI_PATH = ABI_DATA_DIR / "socket_superbridge_vault.json"
@@ -31,7 +39,10 @@ WITHDRAW_WRAPPER_V2_ABI_PATH = ABI_DATA_DIR / "withdraw_wrapper_v2.json"
 
 
 class BridgeClient:
-    def __init__(self, w3: Web3, account: Account, chain_id: ChainID):
+    def __init__(self, env: Environment, w3: Web3, account: Account, chain_id: ChainID):
+        if not env == Environment.PROD:
+            raise RuntimeError(f"Bridging is not supported in the {env.name} environment.")
+        self.config = CONFIGS[env]
         self.w3 = w3
         self.account = account
         self.chain_id = chain_id
@@ -46,7 +57,7 @@ class BridgeClient:
         self.bridge_contract = get_contract(w3=self.w3, address=address, abi=abi)
 
     def load_withdraw_wrapper(self):
-        address = WITHDRAW_WRAPPER_V2_ADDRESS  # only in PROD
+        address = self.config.contracts.WITHDRAW_WRAPPER_V2_ADDRESS
         abi = json.loads(WITHDRAW_WRAPPER_V2_ABI_PATH.read_text())
         self.withdraw_wrapper_contract = get_contract(w3=self.w3, address=address, abi=abi)
 
@@ -88,7 +99,7 @@ class BridgeClient:
 
         w3 = Web3(Web3.HTTPProvider(RPCEndPoints.ETH))
 
-        address = L1_CHUG_SPLASH_PROXY
+        address = self.config.contracts.L1_CHUG_SPLASH_PROXY
         bridge_abi = json.loads(L1_STANDARD_BRIDGE_ABI_PATH.read_text())
         proxy_contract = get_contract(w3=w3, address=address, abi=bridge_abi)
 
