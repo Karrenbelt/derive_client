@@ -25,7 +25,7 @@ class TxStatus(IntEnum):
 class ChainID(IntEnum):
     ETH = 1
     OPTIMISM = 10
-    LYRA = 957
+    DERIVE = LYRA = 957
     BASE = 8453
     MODE = 34443
     ARBITRUM = 42161
@@ -69,7 +69,7 @@ class RPCEndPoints(StrEnum):
     MODE = "https://mode.drpc.org"
     ARBITRUM = "https://arbitrum.drpc.org"
     BLAST = "https://blast.drpc.org"
-    LYRA = "https://rpc.lyra.finance"
+    DERIVE = LYRA = "https://rpc.lyra.finance"
 
 
 class InstrumentType(Enum):
