@@ -3,7 +3,7 @@ from web3 import Web3
 from web3.contract import Contract
 
 from derive_client.constants import DEPOSIT_GAS_LIMIT, MSG_GAS_LIMIT, PAYLOAD_SIZE
-from derive_client.types import Address, ChainID, TxStatus
+from derive_client.data_types import Address, ChainID, TxStatus
 from derive_client.utils import estimate_fees, exp_backoff_retry, sign_and_send_tx
 
 

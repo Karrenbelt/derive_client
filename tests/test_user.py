@@ -7,7 +7,7 @@ from time import sleep
 
 import pytest
 
-from derive_client.types import OrderSide, OrderType
+from derive_client.data_types import OrderSide, OrderType
 
 
 @pytest.mark.skip(reason="This test is not meant to be run in CI")

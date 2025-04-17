@@ -31,7 +31,7 @@ from websocket import WebSocketConnectionClosedException, create_connection
 
 from derive_client._bridge import BridgeClient
 from derive_client.constants import CONTRACTS, DEFAULT_REFERER, PUBLIC_HEADERS, TARGET_SPEED
-from derive_client.types import (
+from derive_client.data_types import (
     Address,
     ChainID,
     CollateralAsset,
