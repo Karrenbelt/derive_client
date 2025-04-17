@@ -4,8 +4,8 @@ Sample for creating an order on the derive client.
 
 from rich import print
 
+from derive_client.data_types import Environment, InstrumentType, OrderSide, UnderlyingCurrency
 from derive_client.derive import DeriveClient
-from derive_client.custom_types import Environment, InstrumentType, OrderSide, UnderlyingCurrency
 from tests.conftest import TEST_PRIVATE_KEY, TEST_WALLET
 
 

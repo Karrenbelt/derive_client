@@ -7,8 +7,8 @@ import os
 import click
 from dotenv import load_dotenv
 
+from derive_client.data_types import Address, ChainID, Currency, Environment
 from derive_client.derive import DeriveClient
-from derive_client.custom_types import Address, ChainID, Currency, Environment
 
 ChainChoice = click.Choice([f"{c.name}" for c in ChainID])
 CurrencyChoice = click.Choice(map(str, Currency))

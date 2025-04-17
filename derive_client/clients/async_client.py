@@ -13,7 +13,7 @@ from derive_action_signing.utils import sign_ws_login, utc_now_ms
 from web3 import Web3
 
 from derive_client.constants import CONFIGS, DEFAULT_REFERER, TEST_PRIVATE_KEY
-from derive_client.custom_types import Environment, InstrumentType, OrderSide, OrderType, TimeInForce, UnderlyingCurrency
+from derive_client.data_types import Environment, InstrumentType, OrderSide, OrderType, TimeInForce, UnderlyingCurrency
 from derive_client.utils import get_logger
 
 from .base_client import ApiException

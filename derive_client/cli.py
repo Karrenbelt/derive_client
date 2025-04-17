@@ -10,8 +10,7 @@ from dotenv import load_dotenv
 from rich import print
 
 from derive_client.analyser import PortfolioAnalyser
-from derive_client.derive import DeriveClient
-from derive_client.custom_types import (
+from derive_client.data_types import (
     ChainID,
     CollateralAsset,
     Currency,
@@ -23,6 +22,7 @@ from derive_client.custom_types import (
     SubaccountType,
     UnderlyingCurrency,
 )
+from derive_client.derive import DeriveClient
 from derive_client.utils import get_logger
 
 click.rich_click.USE_RICH_MARKUP = True

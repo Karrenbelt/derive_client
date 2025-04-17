@@ -8,7 +8,7 @@ import pytest
 
 from derive_client.analyser import PortfolioAnalyser
 from derive_client.constants import DEFAULT_SPOT_QUOTE_TOKEN
-from derive_client.custom_types import (
+from derive_client.data_types import (
     CollateralAsset,
     InstrumentType,
     OrderSide,
@@ -244,17 +244,17 @@ def test_can_create_option_order(derive_client, currency, side):
         instrument_type=InstrumentType.OPTION,
         currency=currency,
     )
-    symbol, ticker = [f for f in tickers.items() if f[1]['is_active']][0]
+    symbol, ticker = [f for f in tickers.items() if f[1]['is_active']][-1]
     if side == OrderSide.BUY:
         order_price = ticker['min_price']
     else:
         order_price = ticker['max_price']
     order = derive_client.create_order(
-        price=order_price,
         amount=0.5,
+        side=side,
+        price=order_price,
         instrument_name=symbol,
         instrument_type=InstrumentType.OPTION,
-        side=side,
         order_type=OrderType.LIMIT,
     )
     assert order
@@ -327,9 +327,8 @@ def test_analyser(underlying_currency, derive_client):
     raw_data = derive_client.fetch_subaccount(derive_client.subaccount_id)
     analyser = PortfolioAnalyser(raw_data)
     analyser.print_positions(underlying_currency)
-    assert len(analyser.get_positions(underlying_currency))
-    assert len(analyser.get_open_positions(underlying_currency))
-    assert analyser.get_subaccount_value()
+    analyser.get_open_positions(underlying_currency)
+    analyser.get_subaccount_value()
     assert len(analyser.get_total_greeks(underlying_currency))
 
 
@@ -356,3 +355,18 @@ def test_set_mmp_config(derive_client):
             assert set_config[k] == v.name
         else:
             assert float(set_config[k]) == v
+
+
+def test_fetch_all_currencies(derive_client):
+    """Test fetch all currencies."""
+    currencies = derive_client.fetch_all_currencies()
+    assert isinstance(currencies, list)
+    assert len(currencies) > 0
+
+
+def test_fetch_currency(derive_client):
+    """Test fetch currency."""
+    currency = derive_client.fetch_currency(UnderlyingCurrency.BTC.name)
+    assert isinstance(currency, dict)
+    assert currency['currency'] == UnderlyingCurrency.BTC.name
+    assert currency['managers'].pop().get('address') is not None

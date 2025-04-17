@@ -4,9 +4,8 @@ Constants for Lyra.
 
 from pathlib import Path
 
+from derive_client.data_types import Environment, UnderlyingCurrency
 from pydantic import BaseModel
-
-from derive_client.custom_types import Environment
 
 
 class ContractAddresses(BaseModel):
@@ -21,6 +20,7 @@ class ContractAddresses(BaseModel):
     CASH_ASSET: str
     USDC_ASSET: str
     DEPOSIT_MODULE_ADDRESS: str
+    WITHDRAWAL_MODULE_ADDRESS: str
     TRANSFER_MODULE_ADDRESS: str
 
     def __getitem__(self, key):
@@ -62,6 +62,7 @@ CONFIGS: dict[Environment, EnvConfig] = {
             CASH_ASSET="0x6caf294DaC985ff653d5aE75b4FF8E0A66025928",
             USDC_ASSET="0xe80F2a02398BBf1ab2C9cc52caD1978159c215BD",
             DEPOSIT_MODULE_ADDRESS="0x43223Db33AdA0575D2E100829543f8B04A37a1ec",
+            WITHDRAWAL_MODULE_ADDRESS="0xe850641C5207dc5E9423fB15f89ae6031A05fd92",
             TRANSFER_MODULE_ADDRESS="0x0CFC1a4a90741aB242cAfaCD798b409E12e68926",
         ),
     ),
@@ -82,6 +83,7 @@ CONFIGS: dict[Environment, EnvConfig] = {
             CASH_ASSET="0x57B03E14d409ADC7fAb6CFc44b5886CAD2D5f02b",
             USDC_ASSET="0x6879287835A86F50f784313dBEd5E5cCC5bb8481",
             DEPOSIT_MODULE_ADDRESS="0x9B3FE5E5a3bcEa5df4E08c41Ce89C4e3Ff01Ace3",
+            WITHDRAWAL_MODULE_ADDRESS="0x9d0E8f5b25384C7310CB8C6aE32C8fbeb645d083",
             TRANSFER_MODULE_ADDRESS="0x01259207A40925b794C8ac320456F7F6c8FE2636",
         ),
     ),
@@ -93,3 +95,18 @@ MSG_GAS_LIMIT = 100_000
 DEPOSIT_GAS_LIMIT = 420_000
 PAYLOAD_SIZE = 161
 TARGET_SPEED = "FAST"
+
+
+TOKEN_DECIMALS = {
+    UnderlyingCurrency.ETH: 18,
+    UnderlyingCurrency.BTC: 8,
+    UnderlyingCurrency.USDC: 6,
+    UnderlyingCurrency.LBTC: 8,
+    UnderlyingCurrency.WEETH: 18,
+    UnderlyingCurrency.OP: 18,
+    UnderlyingCurrency.DRV: 18,
+    UnderlyingCurrency.rswETH: 18,
+    UnderlyingCurrency.rsETH: 18,
+    UnderlyingCurrency.DAI: 18,
+    UnderlyingCurrency.USDT: 6,
+}
