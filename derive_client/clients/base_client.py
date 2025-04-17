@@ -303,8 +303,8 @@ class BaseClient:
             nonce=get_action_nonce(),
             module_address=module_address,
             module_data=module_data_class(**module_data),
-            DOMAIN_SEPARATOR=self.config.domain_separator,
-            ACTION_TYPEHASH=self.config.action_typehash,
+            DOMAIN_SEPARATOR=self.config.DOMAIN_SEPARATOR,
+            ACTION_TYPEHASH=self.config.ACTION_TYPEHASH,
         )
         action.sign(self.signer._private_key)
         return action
@@ -606,8 +606,8 @@ class BaseClient:
                 to_subaccount_id=to,
                 transfers=[transfer_details],
             ),
-            DOMAIN_SEPARATOR=self.config.domain_separator,
-            ACTION_TYPEHASH=self.config.action_typehash,
+            DOMAIN_SEPARATOR=self.config.DOMAIN_SEPARATOR,
+            ACTION_TYPEHASH=self.config.ACTION_TYPEHASH,
         )
         sender_action.sign(self.signer.key)
 
@@ -619,8 +619,8 @@ class BaseClient:
             nonce=get_action_nonce(),
             module_address=self.config.contracts.TRANSFER_MODULE,
             module_data=RecipientTransferERC20ModuleData(),
-            DOMAIN_SEPARATOR=self.config.domain_separator,
-            ACTION_TYPEHASH=self.config.action_typehash,
+            DOMAIN_SEPARATOR=self.config.DOMAIN_SEPARATOR,
+            ACTION_TYPEHASH=self.config.ACTION_TYPEHASH,
         )
         recipient_action.sign(self.signer.key)
         payload = {
@@ -775,8 +775,8 @@ class BaseClient:
             nonce=get_action_nonce(),
             module_address=self.config.contracts.DEPOSIT_MODULE,
             module_data=deposit_module_data,
-            DOMAIN_SEPARATOR=self.config.domain_separator,
-            ACTION_TYPEHASH=self.config.action_typehash,
+            DOMAIN_SEPARATOR=self.config.DOMAIN_SEPARATOR,
+            ACTION_TYPEHASH=self.config.ACTION_TYPEHASH,
         )
         sender_action.sign(self.signer.key)
         payload = {
@@ -854,8 +854,8 @@ class BaseClient:
             nonce=get_action_nonce(),
             module_address=self.config.contracts.WITHDRAWAL_MODULE,
             module_data=module_data,
-            DOMAIN_SEPARATOR=self.config.domain_separator,
-            ACTION_TYPEHASH=self.config.action_typehash,
+            DOMAIN_SEPARATOR=self.config.DOMAIN_SEPARATOR,
+            ACTION_TYPEHASH=self.config.ACTION_TYPEHASH,
         )
         sender_action.sign(self.signer.key)
         payload = {
