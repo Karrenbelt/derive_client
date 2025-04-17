@@ -124,9 +124,9 @@ class BridgeClient:
         Prepares, signs, and sends a withdrawal transaction using the withdraw wrapper.
         """
 
-        if not self.w3.eth.chain_id == ChainID.LYRA:
+        if not self.w3.eth.chain_id == ChainID.DERIVE:
             raise ValueError(
-                f"Connected to chain ID {self.w3.eth.chain_id}, but expected Derive chain ({ChainID.LYRA})."
+                f"Connected to chain ID {self.w3.eth.chain_id}, but expected Derive chain ({ChainID.DERIVE})."
             )
 
         connector = token_data.connectors[self.chain_id][TARGET_SPEED]

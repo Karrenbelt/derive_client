@@ -155,7 +155,7 @@ class BaseClient:
         w3 = get_w3_connection(chain_id=chain_id)
         lyra_addresses = get_prod_lyra_addresses()
         token_data = lyra_addresses.chains[chain_id][currency]
-        connector = token_data.connectors[ChainID.LYRA][TARGET_SPEED]
+        connector = token_data.connectors[ChainID.DERIVE][TARGET_SPEED]
 
         client = BridgeClient(self.env, w3=w3, account=self.signer, chain_id=chain_id)
         client.load_bridge_contract(token_data.Vault)
@@ -177,9 +177,9 @@ class BaseClient:
             receiver (Address): The address to receive the funds.
         """
 
-        w3 = get_w3_connection(chain_id=ChainID.LYRA)
+        w3 = get_w3_connection(chain_id=ChainID.DERIVE)
         lyra_addresses = get_prod_lyra_addresses()
-        token_data = lyra_addresses.chains[ChainID.LYRA][currency]
+        token_data = lyra_addresses.chains[ChainID.DERIVE][currency]
 
         client = BridgeClient(self.env, w3=w3, account=self.signer, chain_id=chain_id)
         client.load_withdraw_wrapper()
