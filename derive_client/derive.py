@@ -1,5 +1,5 @@
 """
-Derive is a Python library for trading on derive v2
+Derive is a Python library for trading on Derive.
 """
 
 import pandas as pd

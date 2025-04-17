@@ -299,7 +299,7 @@ class AsyncClient(BaseClient):
         }
 
         signed_action = self._generate_signed_action(
-            module_address=self.config.contracts.TRADE_MODULE_ADDRESS, module_data=module_data
+            module_address=self.config.contracts.TRADE_MODULE, module_data=module_data
         )
 
         order = {

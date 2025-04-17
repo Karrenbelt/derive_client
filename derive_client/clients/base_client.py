@@ -10,23 +10,14 @@ import eth_abi
 import requests
 from derive_action_signing.module_data import (
     DepositModuleData,
-    ModuleData,
     RecipientTransferERC20ModuleData,
     SenderTransferERC20ModuleData,
     TradeModuleData,
     TransferERC20Details,
     WithdrawModuleData,
 )
-from derive_action_signing.signed_action import SignedAction, dataclass
-from derive_action_signing.utils import (
-    MAX_INT_32,
-    decimal_to_big_int,
-    get_action_nonce,
-    sign_rest_auth_header,
-    sign_ws_login,
-    utc_now_ms,
-)
-from eth_abi.abi import encode
+from derive_action_signing.signed_action import SignedAction
+from derive_action_signing.utils import MAX_INT_32, get_action_nonce, sign_rest_auth_header, sign_ws_login, utc_now_ms
 from rich import print
 from web3 import Web3
 from websocket import WebSocketConnectionClosedException, create_connection
@@ -37,6 +28,8 @@ from derive_client.data_types import (
     Address,
     ChainID,
     CollateralAsset,
+    CreateSubAccountData,
+    CreateSubAccountDetails,
     Currency,
     Environment,
     InstrumentType,
@@ -48,38 +41,7 @@ from derive_client.data_types import (
     TimeInForce,
     UnderlyingCurrency,
 )
-from derive_client.utils import get_logger, get_prod_lyra_addresses, get_w3_connection
-
-
-@dataclass
-class CreateSubAccountDetails:
-    amount: int
-    base_asset_address: str
-    sub_asset_address: str
-
-    def to_eth_tx_params(self):
-        return (
-            decimal_to_big_int(self.amount),
-            Web3.to_checksum_address(self.base_asset_address),
-            Web3.to_checksum_address(self.sub_asset_address),
-        )
-
-
-@dataclass
-class CreateSubAccountData(ModuleData):
-    amount: int
-    asset_name: str
-    margin_type: str
-    create_account_details: CreateSubAccountDetails
-
-    def to_abi_encoded(self):
-        return encode(
-            ['uint256', 'address', 'address'],
-            self.create_account_details.to_eth_tx_params(),
-        )
-
-    def to_json(self):
-        return {}
+from derive_client.utils import get_logger, get_prod_derive_addresses, get_w3_connection
 
 
 class ApiException(Exception):
@@ -87,7 +49,7 @@ class ApiException(Exception):
 
 
 class BaseClient:
-    """Client for the derive dex."""
+    """Client for the Derive dex."""
 
     referral_code: str = None
 
@@ -153,11 +115,11 @@ class BaseClient:
         """
 
         w3 = get_w3_connection(chain_id=chain_id)
-        lyra_addresses = get_prod_lyra_addresses()
-        token_data = lyra_addresses.chains[chain_id][currency]
-        connector = token_data.connectors[ChainID.LYRA][TARGET_SPEED]
+        derive_addresses = get_prod_derive_addresses()
+        token_data = derive_addresses.chains[chain_id][currency]
+        connector = token_data.connectors[ChainID.DERIVE][TARGET_SPEED]
 
-        client = BridgeClient(w3=w3, account=self.signer, chain_id=chain_id)
+        client = BridgeClient(self.env, w3=w3, account=self.signer, chain_id=chain_id)
         client.load_bridge_contract(token_data.Vault)
         client.deposit(
             amount=amount,
@@ -177,11 +139,11 @@ class BaseClient:
             receiver (Address): The address to receive the funds.
         """
 
-        w3 = get_w3_connection(chain_id=ChainID.LYRA)
-        lyra_addresses = get_prod_lyra_addresses()
-        token_data = lyra_addresses.chains[ChainID.LYRA][currency]
+        w3 = get_w3_connection(chain_id=ChainID.DERIVE)
+        derive_addresses = get_prod_derive_addresses()
+        token_data = derive_addresses.chains[ChainID.DERIVE][currency]
 
-        client = BridgeClient(w3=w3, account=self.signer, chain_id=chain_id)
+        client = BridgeClient(self.env, w3=w3, account=self.signer, chain_id=chain_id)
         client.load_withdraw_wrapper()
         client.withdraw_with_wrapper(
             amount=amount,
@@ -270,7 +232,7 @@ class BaseClient:
         }
 
         signed_action = self._generate_signed_action(
-            module_address=self.config.contracts.TRADE_MODULE_ADDRESS, module_data=module_data
+            module_address=self.config.contracts.TRADE_MODULE, module_data=module_data
         )
 
         order = {
@@ -303,8 +265,8 @@ class BaseClient:
             nonce=get_action_nonce(),
             module_address=module_address,
             module_data=module_data_class(**module_data),
-            DOMAIN_SEPARATOR=self.config.domain_separator,
-            ACTION_TYPEHASH=self.config.action_typehash,
+            DOMAIN_SEPARATOR=self.config.DOMAIN_SEPARATOR,
+            ACTION_TYPEHASH=self.config.ACTION_TYPEHASH,
         )
         action.sign(self.signer._private_key)
         return action
@@ -347,7 +309,7 @@ class BaseClient:
             leg_sign = 1 if leg['direction'] == 'buy' else -1
             signed_amount = self.web3_client.to_wei(leg['amount'], 'ether') * leg_sign * dir_sign
             return [
-                self.config.contracts[f"{underlying_currency.name}_OPTION_ADDRESS"],
+                self.config.contracts[f"{underlying_currency.name}_OPTION"],
                 sub_id,
                 self.web3_client.to_wei(quote['price'], 'ether'),
                 signed_amount,
@@ -541,11 +503,11 @@ class BaseClient:
         """
         url = f"{self.config.base_url}/private/create_subaccount"
         if subaccount_type is SubaccountType.STANDARD:
-            contract_key = f"{subaccount_type.name}_RISK_MANAGER_ADDRESS"
+            contract_key = f"{subaccount_type.name}_RISK_MANAGEr"
         elif subaccount_type is SubaccountType.PORTFOLIO:
             if not collateral_asset:
                 raise Exception("Underlying currency must be provided for portfolio subaccounts")
-            contract_key = f"{underlying_currency.name}_{subaccount_type.name}_RISK_MANAGER_ADDRESS"
+            contract_key = f"{underlying_currency.name}_{subaccount_type.name}_RISK_MANAGER"
 
         signed_action = self._generate_signed_action(
             module_address=self.config.contracts[contract_key],
@@ -601,13 +563,13 @@ class BaseClient:
             signer=self.signer.address,
             signature_expiry_sec=MAX_INT_32,
             nonce=get_action_nonce(),
-            module_address=self.config.contracts.TRANSFER_MODULE_ADDRESS,
+            module_address=self.config.contracts.TRANSFER_MODULE,
             module_data=SenderTransferERC20ModuleData(
                 to_subaccount_id=to,
                 transfers=[transfer_details],
             ),
-            DOMAIN_SEPARATOR=self.config.domain_separator,
-            ACTION_TYPEHASH=self.config.action_typehash,
+            DOMAIN_SEPARATOR=self.config.DOMAIN_SEPARATOR,
+            ACTION_TYPEHASH=self.config.ACTION_TYPEHASH,
         )
         sender_action.sign(self.signer.key)
 
@@ -617,10 +579,10 @@ class BaseClient:
             signer=self.signer.address,
             signature_expiry_sec=MAX_INT_32,
             nonce=get_action_nonce(),
-            module_address=self.config.contracts.TRANSFER_MODULE_ADDRESS,
+            module_address=self.config.contracts.TRANSFER_MODULE,
             module_data=RecipientTransferERC20ModuleData(),
-            DOMAIN_SEPARATOR=self.config.domain_separator,
-            ACTION_TYPEHASH=self.config.action_typehash,
+            DOMAIN_SEPARATOR=self.config.DOMAIN_SEPARATOR,
+            ACTION_TYPEHASH=self.config.ACTION_TYPEHASH,
         )
         recipient_action.sign(self.signer.key)
         payload = {
@@ -773,10 +735,10 @@ class BaseClient:
             signer=self.signer.address,
             signature_expiry_sec=MAX_INT_32,
             nonce=get_action_nonce(),
-            module_address=self.config.contracts.DEPOSIT_MODULE_ADDRESS,
+            module_address=self.config.contracts.DEPOSIT_MODULE,
             module_data=deposit_module_data,
-            DOMAIN_SEPARATOR=self.config.domain_separator,
-            ACTION_TYPEHASH=self.config.action_typehash,
+            DOMAIN_SEPARATOR=self.config.DOMAIN_SEPARATOR,
+            ACTION_TYPEHASH=self.config.ACTION_TYPEHASH,
         )
         sender_action.sign(self.signer.key)
         payload = {
@@ -852,10 +814,10 @@ class BaseClient:
             signer=self.signer.address,
             signature_expiry_sec=MAX_INT_32,
             nonce=get_action_nonce(),
-            module_address=self.config.contracts.WITHDRAWAL_MODULE_ADDRESS,
+            module_address=self.config.contracts.WITHDRAWAL_MODULE,
             module_data=module_data,
-            DOMAIN_SEPARATOR=self.config.domain_separator,
-            ACTION_TYPEHASH=self.config.action_typehash,
+            DOMAIN_SEPARATOR=self.config.DOMAIN_SEPARATOR,
+            ACTION_TYPEHASH=self.config.ACTION_TYPEHASH,
         )
         sender_action.sign(self.signer.key)
         payload = {
