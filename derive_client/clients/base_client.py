@@ -79,7 +79,6 @@ class BaseClient:
         self.logger = logger or get_logger()
         self.web3_client = Web3()
         self.signer = self.web3_client.eth.account.from_key(private_key)
-        print(f"Signer address: {self.signer.address}")
         self.wallet = self.signer.address if not wallet else wallet
         self.subaccount_id = subaccount_id
         self.subaccount_id = self.fetch_subaccounts()['subaccount_ids'][0] if not subaccount_id else subaccount_id
