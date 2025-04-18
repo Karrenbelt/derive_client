@@ -50,18 +50,17 @@ class TokenData(BaseModel):
     connectors: dict[ChainID, dict[str, str]]
     LyraTSAShareHandlerDepositHook: Address | None = None
     LyraTSADepositHook: Address | None = None
+    isNewBridge: bool
 
 
 class MintableTokenData(TokenData):
     Controller: Address
     MintableToken: Address
-    isNewBridge: bool
 
 
 class NonMintableTokenData(TokenData):
     Vault: Address
     NonMintableToken: Address
-    isNewBridge: bool
 
 
 class DeriveAddresses(BaseModel):
