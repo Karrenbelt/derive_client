@@ -2,6 +2,7 @@
 Example of how to withdraw USDC from a subaccount to the funding account.
 """
 
+import os
 from pathlib import Path
 
 import click
@@ -24,7 +25,10 @@ def main(signer_key_path, derive_sc_wallet):
         wallet=derive_sc_wallet,
         env=Environment.PROD,
     )
-    subaccount_id = 48206
+    subaccount_id = os.environ.get("SUBACCOUNT_ID")
+    if not subaccount_id:
+        click.echo("SUBACCOUNT_ID not found in environment variables.")
+        return
     client.subaccount_id = subaccount_id
     subaccounts = client.fetch_subaccounts()
     for subaccount in subaccounts:
