@@ -118,15 +118,17 @@ class BaseClient:
         derive_addresses = get_prod_derive_addresses()
         token_data = derive_addresses.chains[chain_id][currency]
         connector = token_data.connectors[ChainID.DERIVE][TARGET_SPEED]
-
+        amount = int(amount * 10 ** TOKEN_DECIMALS[UnderlyingCurrency(currency.name.lower())])
         client = BridgeClient(self.env, w3=w3, account=self.signer, chain_id=chain_id)
-        client.load_bridge_contract(token_data.Vault)
+
+        bridge_address: Address = token_data.Vault
+        client.load_bridge_contract(bridge_address, token_data.isNewBridge)
+        client.load_deposit_helper()
         client.deposit(
             amount=amount,
             receiver=receiver,
             connector=connector,
             token_data=token_data,
-            private_key=self.signer._private_key,
         )
 
     def withdraw_from_derive(self, chain_id: ChainID, currency: Currency, amount: int, receiver: Address):
@@ -142,6 +144,7 @@ class BaseClient:
         w3 = get_w3_connection(chain_id=ChainID.DERIVE)
         derive_addresses = get_prod_derive_addresses()
         token_data = derive_addresses.chains[ChainID.DERIVE][currency]
+        amount = int(amount * 10 ** TOKEN_DECIMALS[UnderlyingCurrency[currency.name]])
 
         client = BridgeClient(self.env, w3=w3, account=self.signer, chain_id=chain_id)
         client.load_withdraw_wrapper()

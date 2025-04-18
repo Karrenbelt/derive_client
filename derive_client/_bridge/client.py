@@ -14,10 +14,23 @@ from derive_client._bridge.transaction import (
     _prepare_mainnet_to_derive_tx,
     ensure_allowance,
     ensure_balance,
-    prepare_bridge_tx,
+    prepare_new_bridge_tx,
+    prepare_old_bridge_tx,
     prepare_withdraw_wrapper_tx,
 )
-from derive_client.constants import ABI_DATA_DIR, CONFIGS, MSG_GAS_LIMIT, TARGET_SPEED
+from derive_client.constants import (
+    CONFIGS,
+    CONTROLLER_ABI_PATH,
+    DEPOSIT_HELPER_ABI_PATH,
+    DEPOSIT_HOOK_ABI_PATH,
+    L1_STANDARD_BRIDGE_ABI_PATH,
+    LIGHT_ACCOUNT_ABI_PATH,
+    MSG_GAS_LIMIT,
+    NEW_VAULT_ABI_PATH,
+    OLD_VAULT_ABI_PATH,
+    TARGET_SPEED,
+    WITHDRAW_WRAPPER_V2_ABI_PATH,
+)
 from derive_client.data_types import (
     Address,
     ChainID,
@@ -28,14 +41,6 @@ from derive_client.data_types import (
     TxStatus,
 )
 from derive_client.utils import get_contract, get_erc20_contract, sign_and_send_tx
-
-VAULT_ABI_PATH = ABI_DATA_DIR / "socket_superbridge_vault.json"
-CONTROLLER_ABI_PATH = ABI_DATA_DIR / "controller.json"
-DEPOSIT_HOOK_ABI_PATH = ABI_DATA_DIR / "deposit_hook.json"
-LIGHT_ACCOUNT_ABI_PATH = ABI_DATA_DIR / "light_account.json"
-L1_CHUG_SPLASH_PROXY_ABI_PATH = ABI_DATA_DIR / "l1_chug_splash_proxy.json"
-L1_STANDARD_BRIDGE_ABI_PATH = ABI_DATA_DIR / "l1_standard_bridge.json"
-WITHDRAW_WRAPPER_V2_ABI_PATH = ABI_DATA_DIR / "withdraw_wrapper_v2.json"
 
 
 class BridgeClient:
@@ -49,10 +54,11 @@ class BridgeClient:
         self.bridge_contract: Contract | None = None
         self.withdraw_wrapper_contract: Contract | None = None
 
-    def load_bridge_contract(self, vault_address: str) -> None:
+    def load_bridge_contract(self, vault_address: str, is_new_bridge: bool) -> None:
         """Instantiate the bridge contract."""
 
-        abi = json.loads(VAULT_ABI_PATH.read_text())
+        path = NEW_VAULT_ABI_PATH if is_new_bridge else OLD_VAULT_ABI_PATH
+        abi = json.loads(path.read_text())
         address = self.w3.to_checksum_address(vault_address)
         self.bridge_contract = get_contract(w3=self.w3, address=address, abi=abi)
 
@@ -61,8 +67,13 @@ class BridgeClient:
         abi = json.loads(WITHDRAW_WRAPPER_V2_ABI_PATH.read_text())
         self.withdraw_wrapper_contract = get_contract(w3=self.w3, address=address, abi=abi)
 
+    def load_deposit_helper(self):
+        address = self.config.contracts.DEPOSIT_WRAPPER
+        abi = json.loads(DEPOSIT_HELPER_ABI_PATH.read_text())
+        self.deposit_helper = get_contract(w3=self.w3, address=address, abi=abi)
+
     def deposit(
-        self, amount: int, receiver: Address, connector: Address, token_data: NonMintableTokenData, private_key: str
+        self, amount: int, receiver: Address, connector: Address, token_data: NonMintableTokenData | MintableTokenData
     ):
         """
         Deposit funds by preparing, signing, and sending a bridging transaction.
@@ -71,7 +82,14 @@ class BridgeClient:
         token_contract = get_erc20_contract(self.w3, token_data.NonMintableToken)
 
         ensure_balance(token_contract, self.account.address, amount)
-        ensure_allowance(self.w3, token_contract, self.account.address, token_data.Vault, amount, private_key)
+        if token_data.isNewBridge:
+            spender = token_data.Vault
+        else:
+            spender = self.bridge_contract.address
+
+        ensure_allowance(self.w3, token_contract, self.account.address, spender, amount, self.account._private_key)
+
+        prepare_bridge_tx = prepare_new_bridge_tx if token_data.isNewBridge else prepare_old_bridge_tx
 
         tx = prepare_bridge_tx(
             w3=self.w3,
@@ -82,9 +100,11 @@ class BridgeClient:
             amount=amount,
             msg_gas_limit=MSG_GAS_LIMIT,
             connector=connector,
+            token_data=token_data,
+            deposit_helper=self.deposit_helper,
         )
 
-        tx_receipt = sign_and_send_tx(self.w3, tx, private_key)
+        tx_receipt = sign_and_send_tx(self.w3, tx, self.account._private_key)
         if tx_receipt.status == TxStatus.SUCCESS:
             print("Deposit successful!")
             return tx_receipt

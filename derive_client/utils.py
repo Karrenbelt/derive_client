@@ -7,6 +7,7 @@ import json
 import logging
 import sys
 import time
+from collections import defaultdict
 
 from rich.logging import RichHandler
 from web3 import Web3
@@ -45,11 +46,27 @@ def get_logger():
 def get_prod_derive_addresses() -> DeriveAddresses:
     """Fetch the socket superbridge JSON data."""
     prod_lyra_addresses = DATA_DIR / "prod_lyra_addresses.json"
-    return DeriveAddresses(chains=json.loads(prod_lyra_addresses.read_text()))
+    old_prod_lyra_addresses = DATA_DIR / "prod_lyra-old_addresses.json"
+    chains = defaultdict(dict, {})
+    for chain_id, data in json.loads(prod_lyra_addresses.read_text()).items():
+        chain_data = {}
+        for currency, data in data.items():
+            cur_data = data.copy()
+            cur_data['isNewBridge'] = True
+            chain_data[currency] = cur_data
+        chains[chain_id] = chain_data
+
+    for chain_id, data in json.loads(old_prod_lyra_addresses.read_text()).items():
+        current_chain_data = chains[chain_id]
+        for currency, data in data.items():
+            cur_data = data.copy()
+            cur_data['isNewBridge'] = False
+            current_chain_data[currency] = cur_data
+    return DeriveAddresses(chains=chains)
 
 
 def get_w3_connection(chain_id: ChainID) -> Web3:
-    rpc_url = RPCEndPoints[chain_id.name]
+    rpc_url = RPCEndPoints[chain_id.name].value
     w3 = Web3(Web3.HTTPProvider(rpc_url))
     if not w3.is_connected():
         raise ConnectionError(f"Failed to connect to RPC at {rpc_url}")

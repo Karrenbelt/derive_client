@@ -46,8 +46,6 @@ class CreateSubAccountData(ModuleData):
 
 
 class TokenData(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
     isAppChain: bool
     connectors: dict[ChainID, dict[str, str]]
     LyraTSAShareHandlerDepositHook: Address | None = None
@@ -57,12 +55,15 @@ class TokenData(BaseModel):
 class MintableTokenData(TokenData):
     Controller: Address
     MintableToken: Address
+    isNewBridge: bool
 
 
 class NonMintableTokenData(TokenData):
     Vault: Address
     NonMintableToken: Address
+    isNewBridge: bool
 
 
 class DeriveAddresses(BaseModel):
+    model_config = ConfigDict(arbitrary_types_allowed=True)
     chains: dict[ChainID, dict[Currency, MintableTokenData | NonMintableTokenData]]
