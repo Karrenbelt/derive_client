@@ -6,9 +6,9 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from derive_client.async_client import DeriveAsyncClient
+from derive_client.clients import AsyncClient
+from derive_client.data_types import Environment
 from derive_client.derive import DeriveClient
-from derive_client.enums import Environment
 from derive_client.utils import get_logger
 
 TEST_WALLET = "0x8772185a1516f0d61fC1c2524926BfC69F95d698"
@@ -27,7 +27,7 @@ def freeze_time(derive_client):
 @pytest.fixture
 def derive_client():
     derive_client = DeriveClient(
-        private_key=TEST_PRIVATE_KEY, wallet=TEST_WALLET, env=Environment.TEST, logger=get_logger()
+        wallet=TEST_WALLET, private_key=TEST_PRIVATE_KEY, env=Environment.TEST, logger=get_logger()
     )
     derive_client.subaccount_id = SUBACCOUNT_ID
     yield derive_client
@@ -35,18 +35,8 @@ def derive_client():
 
 
 @pytest.fixture
-def derive_client_2():
-    derive_client = DeriveClient(
-        wallet=TEST_WALLET, private_key=TEST_PRIVATE_KEY, env=Environment.TEST, logger=get_logger()
-    )
-    derive_client.subaccount_id = derive_client.fetch_subaccounts()[-1]['id']
-    yield derive_client
-    derive_client.cancel_all()
-
-
-@pytest.fixture
 async def derive_async_client():
-    derive_client = DeriveAsyncClient(
+    derive_client = AsyncClient(
         wallet=TEST_WALLET, private_key=TEST_PRIVATE_KEY, env=Environment.TEST, logger=get_logger()
     )
     derive_client.subaccount_id = SUBACCOUNT_ID

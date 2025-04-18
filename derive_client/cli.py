@@ -2,6 +2,7 @@
 Cli module in order to allow interaction.
 """
 import os
+import traceback
 from textwrap import dedent
 
 import pandas as pd
@@ -10,10 +11,10 @@ from dotenv import load_dotenv
 from rich import print
 
 from derive_client.analyser import PortfolioAnalyser
-from derive_client.bridge.enums import ChainID, Currency
-from derive_client.derive import DeriveClient
-from derive_client.enums import (
+from derive_client.data_types import (
+    ChainID,
     CollateralAsset,
+    Currency,
     Environment,
     InstrumentType,
     OrderSide,
@@ -22,6 +23,7 @@ from derive_client.enums import (
     SubaccountType,
     UnderlyingCurrency,
 )
+from derive_client.derive import DeriveClient
 from derive_client.utils import get_logger
 
 click.rich_click.USE_RICH_MARKUP = True
@@ -106,14 +108,14 @@ def bridge():
 @click.option(
     "--chain-id",
     "-c",
-    type=click.Choice(f"{c.name}" for c in ChainID),
+    type=click.Choice([c.name for c in ChainID]),
     required=True,
     help="The chain ID to bridge FROM.",
 )
 @click.option(
     "--currency",
     "-t",
-    type=click.Choice(f"{c.name}" for c in Currency),
+    type=click.Choice([c.name for c in Currency]),
     required=True,
     help="The token symbol (e.g. weETH) to bridge.",
 )
@@ -130,15 +132,56 @@ def deposit(ctx, chain_id, currency, amount):
     """
 
     chain_id = ChainID[chain_id]
-    currency = Currency(currency)
+    currency = Currency[currency]
 
     client = ctx.obj["client"]
-    wei_amount = client.web3_client.to_wei(amount, "ether")
 
     try:
-        client.deposit_to_derive(chain_id=chain_id, currency=currency, amount=wei_amount, receiver=client.wallet)
+        client.deposit_to_derive(chain_id=chain_id, currency=currency, amount=amount, receiver=client.wallet)
         print("[bold green]Deposit successful! Transaction receipt:[/bold green]")
     except Exception as err:
+        print(traceback.format_exc())
+        raise click.ClickException(f"Deposit failed: {err}")
+
+
+@bridge.command("withdraw")
+@click.option(
+    "--chain-id",
+    "-c",
+    type=click.Choice([c.name for c in ChainID]),
+    required=True,
+    help="The chain ID to bridge FROM.",
+)
+@click.option(
+    "--currency",
+    "-t",
+    type=click.Choice([c.name for c in Currency]),
+    required=True,
+    help="The token symbol (e.g. weETH) to bridge.",
+)
+@click.option(
+    "--amount", "-a", type=float, required=True, help="The amount to deposit in ETH (will be converted to Wei)."
+)
+@click.pass_context
+def withdraw(ctx, chain_id, currency, amount):
+    """
+    Withdraw funds from Derive funding account via the Withdraw Wrapper contract.
+
+    Example:
+        $ cli bridge withdraw --chain-id BASE --currency weETH --amount 0.001
+    """
+
+    chain_id = ChainID[chain_id]
+    currency = Currency[currency]
+
+    client: DeriveClient = ctx.obj["client"]
+    reciever = client.signer.address
+
+    try:
+        client.withdraw_from_derive(chain_id=chain_id, currency=currency, amount=amount, receiver=reciever)
+        print(f"[bold green]Withdrawal from {chain_id.name} successful![/bold green]")
+    except Exception as err:
+        print(traceback.format_exc())
         raise click.ClickException(f"Deposit failed: {err}")
 
 

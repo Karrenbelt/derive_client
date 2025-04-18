@@ -1,5 +1,5 @@
 """
-Example of bridging funds from Base to a Derive smart contract funding account
+Example of bridging funds from a Derive smart contract funding account to BASE
 """
 
 import os
@@ -16,12 +16,12 @@ CurrencyChoice = click.Choice(c.name for c in Currency)
 
 @click.command()
 @click.option("--chain-id", "-c", type=ChainChoice, required=True, help="The chain ID to bridge FROM.")
-@click.option("--receiver", "-r", type=Address, required=True, help="The Derive smart contract wallet.")
+@click.option("--wallet", "-r", type=Address, required=True, help="The Derive smart contract wallet.")
 @click.option("--currency", "-t", type=CurrencyChoice, required=True, help="The token symbol (e.g. weETH) to bridge.")
 @click.option("--amount", "-a", type=float, required=True, help="The amount to deposit in ETH.")
-def main(chain_id, receiver, currency, amount):
+def main(chain_id, wallet, currency, amount):
     """
-    Deposit asset from L1/L2 into Derive subaccount via Superbridge.
+    Withdraw asset from Derive to L1/L2 via the WithdrawWrapper.
     """
 
     load_dotenv()
@@ -31,11 +31,12 @@ def main(chain_id, receiver, currency, amount):
 
     client = DeriveClient(
         private_key=private_key,
-        wallet=receiver,
+        wallet=wallet,
         env=Environment.PROD,
     )
 
-    client.deposit_to_derive(chain_id=chain_id, receiver=receiver, currency=currency, amount=amount)
+    receiver = client.signer.address
+    client.withdraw_from_derive(chain_id=chain_id, receiver=receiver, currency=currency, amount=amount)
 
 
 if __name__ == "__main__":

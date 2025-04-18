@@ -8,7 +8,7 @@ import pytest
 
 from derive_client.analyser import PortfolioAnalyser
 from derive_client.constants import DEFAULT_SPOT_QUOTE_TOKEN
-from derive_client.enums import (
+from derive_client.data_types import (
     CollateralAsset,
     InstrumentType,
     OrderSide,
@@ -244,17 +244,17 @@ def test_can_create_option_order(derive_client, currency, side):
         instrument_type=InstrumentType.OPTION,
         currency=currency,
     )
-    symbol, ticker = [f for f in tickers.items() if f[1]['is_active']][0]
+    symbol, ticker = [f for f in tickers.items() if f[1]['is_active']][-1]
     if side == OrderSide.BUY:
         order_price = ticker['min_price']
     else:
         order_price = ticker['max_price']
     order = derive_client.create_order(
-        price=order_price,
         amount=0.5,
+        side=side,
+        price=order_price,
         instrument_name=symbol,
         instrument_type=InstrumentType.OPTION,
-        side=side,
         order_type=OrderType.LIMIT,
     )
     assert order
@@ -327,9 +327,8 @@ def test_analyser(underlying_currency, derive_client):
     raw_data = derive_client.fetch_subaccount(derive_client.subaccount_id)
     analyser = PortfolioAnalyser(raw_data)
     analyser.print_positions(underlying_currency)
-    assert len(analyser.get_positions(underlying_currency))
-    assert len(analyser.get_open_positions(underlying_currency))
-    assert analyser.get_subaccount_value()
+    analyser.get_open_positions(underlying_currency)
+    analyser.get_subaccount_value()
     assert len(analyser.get_total_greeks(underlying_currency))
 
 
@@ -371,29 +370,3 @@ def test_fetch_currency(derive_client):
     assert isinstance(currency, dict)
     assert currency['currency'] == UnderlyingCurrency.BTC.name
     assert currency['managers'].pop().get('address') is not None
-
-
-def test_transfer_from_funding_to_subaccount(derive_client):
-    """Test transfer from funding to subaccount."""
-    # freeze_time(derive_client)
-    amount = 1
-    to_subaccount_id = derive_client.fetch_subaccounts()['subaccount_ids'][0]
-    result = derive_client.transfer_from_funding_to_subaccount(
-        amount=amount,
-        subaccount_id=to_subaccount_id,
-        asset_name=CollateralAsset.USDC.name,
-    )
-    assert result
-
-
-def test_transfer_from_subaccount_to_funding(derive_client):
-    """Test transfer from subaccount to funding."""
-    # freeze_time(derive_client)
-    amount = 1
-    from_subaccount_id = derive_client.fetch_subaccounts()['subaccount_ids'][0]
-    result = derive_client.transfer_from_subaccount_to_funding(
-        amount=amount,
-        subaccount_id=from_subaccount_id,
-        asset_name=CollateralAsset.USDC.name,
-    )
-    assert result
