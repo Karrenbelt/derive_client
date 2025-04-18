@@ -180,10 +180,6 @@ class BridgeClient:
 
         self.load_controller(token_data=token_data)
 
-        params = {
-            "light_account": light_account,
-            "controller_contract": self.controller,
-        }
         if token_data.isNewBridge:
             deposit_hook = self.controller.functions.hook__().call()
             if not deposit_hook == token_data.LyraTSAShareHandlerDepositHook:
@@ -202,25 +198,9 @@ class BridgeClient:
             owner = light_account.functions.owner().call()
             if not receiver == owner:
                 raise NotImplementedError("Withdraw to receiver other than wallet owner")
-            params.update({"light_account": light_account})
         else:
-            breakpoint()
-            # deposit_hook = controller_contract.functions.token__().call()
-            # if not deposit_hook == token_data.LyraTSAShareHandlerDepositHook:
-            #     raise ValueError("Controller deposit hook does not match expected address")
-
-            # abi = json.loads(DEPOSIT_HOOK_ABI_PATH.read_text())
-            # deposit_contract = get_contract(w3=self.w3, address=deposit_hook, abi=abi)
-            # pool_id = deposit_contract.functions.connectorPoolIds(connector).call()
-            # locked = deposit_contract.functions.poolLockedAmounts(pool_id).call()
-
-            # if amount > locked:
-            #     raise RuntimeError(
-            #         f"Insufficient funds locked in pool: has {locked}, want {amount} ({(locked/amount*100):.2f}%)"
-            #     )
-
-            # raise NotImplementedError("Withdraw from old bridge not implemented")
-
+            # figure out how to check balances on the old bridge.
+            print("Old bridge not checking balances")
         tx = prepare_withdraw_wrapper_tx(
             w3=self.w3,
             account=self.account,
@@ -232,7 +212,8 @@ class BridgeClient:
             connector=connector,
             msg_gas_limit=MSG_GAS_LIMIT,
             is_new_bridge=token_data.isNewBridge,
-            **params,
+            controller_contract=self.controller,
+            light_account=light_account,
         )
 
         tx_receipt = sign_and_send_tx(w3=self.w3, tx=tx, private_key=private_key)
