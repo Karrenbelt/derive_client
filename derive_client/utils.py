@@ -50,18 +50,16 @@ def get_prod_derive_addresses() -> DeriveAddresses:
     chains = defaultdict(dict, {})
     for chain_id, data in json.loads(prod_lyra_addresses.read_text()).items():
         chain_data = {}
-        for currency, data in data.items():
-            cur_data = data.copy()
-            cur_data['isNewBridge'] = True
-            chain_data[currency] = cur_data
+        for currency, item in data.items():
+            item['isNewBridge'] = True
+            chain_data[currency] = item
         chains[chain_id] = chain_data
 
     for chain_id, data in json.loads(old_prod_lyra_addresses.read_text()).items():
         current_chain_data = chains[chain_id]
-        for currency, data in data.items():
-            cur_data = data.copy()
-            cur_data['isNewBridge'] = False
-            current_chain_data[currency] = cur_data
+        for currency, item in data.items():
+            item['isNewBridge'] = False
+            current_chain_data[currency] = item
     return DeriveAddresses(chains=chains)
 
 

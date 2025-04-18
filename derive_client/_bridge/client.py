@@ -79,17 +79,16 @@ class BridgeClient:
         Deposit funds by preparing, signing, and sending a bridging transaction.
         """
 
-        token_contract = get_erc20_contract(self.w3, token_data.NonMintableToken)
-
-        ensure_balance(token_contract, self.account.address, amount)
         if token_data.isNewBridge:
             spender = token_data.Vault
+            prepare_bridge_tx = prepare_new_bridge_tx
         else:
             spender = self.bridge_contract.address
+            prepare_bridge_tx = prepare_old_bridge_tx
 
+        token_contract = get_erc20_contract(self.w3, token_data.NonMintableToken)
+        ensure_balance(token_contract, self.account.address, amount)
         ensure_allowance(self.w3, token_contract, self.account.address, spender, amount, self.account._private_key)
-
-        prepare_bridge_tx = prepare_new_bridge_tx if token_data.isNewBridge else prepare_old_bridge_tx
 
         tx = prepare_bridge_tx(
             w3=self.w3,
