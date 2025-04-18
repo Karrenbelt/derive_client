@@ -174,7 +174,7 @@ def withdraw(ctx, chain_id, currency, amount):
     chain_id = ChainID[chain_id]
     currency = Currency[currency]
 
-    client = ctx.obj["client"]
+    client: DeriveClient = ctx.obj["client"]
     reciever = client.signer.address
 
     try:

@@ -107,6 +107,7 @@ DEPOSIT_GAS_LIMIT = 420_000
 PAYLOAD_SIZE = 161
 TARGET_SPEED = "FAST"
 
+DEFAULT_GAS_FUNDING_AMOUNT = int(0.0001 * 1e18)  # 0.0001 ETH
 
 TOKEN_DECIMALS = {
     UnderlyingCurrency.ETH: 18,
@@ -126,6 +127,7 @@ NEW_VAULT_ABI_PATH = ABI_DATA_DIR / "socket_superbridge_vault.json"
 OLD_VAULT_ABI_PATH = ABI_DATA_DIR / "socket_superbridge_vault_old.json"
 DEPOSIT_HELPER_ABI_PATH = ABI_DATA_DIR / "deposit_helper.json"
 CONTROLLER_ABI_PATH = ABI_DATA_DIR / "controller.json"
+CONTROLLER_V0_ABI_PATH = ABI_DATA_DIR / "controller_v0.json"
 DEPOSIT_HOOK_ABI_PATH = ABI_DATA_DIR / "deposit_hook.json"
 LIGHT_ACCOUNT_ABI_PATH = ABI_DATA_DIR / "light_account.json"
 L1_CHUG_SPLASH_PROXY_ABI_PATH = ABI_DATA_DIR / "l1_chug_splash_proxy.json"
