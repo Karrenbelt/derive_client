@@ -1,20 +1,6 @@
 """Enums used in the derive_client module."""
 
-import sys
-from enum import Enum, IntEnum, auto
-
-if sys.version_info < (3, 11):
-
-    class StrEnum(str, Enum):
-        @staticmethod
-        def _generate_next_value_(name, start, count, last_values):
-            return name.lower()
-
-        def __str__(self):
-            return self.value
-
-else:
-    from enum import StrEnum
+from enum import Enum, IntEnum
 
 
 class TxStatus(IntEnum):
@@ -40,29 +26,7 @@ class ChainID(IntEnum):
             return super()._missing_(value)
 
 
-class Currency(StrEnum):
-    @staticmethod
-    def _generate_next_value_(name: str, start: int, count: int, last_values: list[str]):
-        return name
-
-    weETH = auto()
-    rswETH = auto()
-    rsETH = auto()
-    USDe = auto()
-    deUSD = auto()
-    PYUSD = auto()
-    sUSDe = auto()
-    SolvBTC = auto()
-    SolvBTCBBN = auto()
-    LBTC = auto()
-    OP = auto()
-    DAI = auto()
-    sDAI = auto()
-    cbBTC = auto()
-    eBTC = auto()
-
-
-class RPCEndPoints(StrEnum):
+class RPCEndPoints(Enum):
     ETH = "https://eth.drpc.org"
     OPTIMISM = "https://optimism.drpc.org"
     BASE = "https://base.drpc.org"
@@ -94,6 +58,34 @@ class UnderlyingCurrency(Enum):
     rsETH = "rseth"
     DAI = "dai"
     USDT = "usdt"
+
+
+class Currency(Enum):
+    """Depositable currencies..."""
+
+    weETH = "weETH"
+    rswETH = "rswETH"
+    rsETH = "rsETH"
+    USDe = "USDe"
+    deUSD = "deUSD"
+    PYUSD = "PYUSD"
+    sUSDe = "sUSDe"
+    SolvBTC = "SolvBTC"
+    SolvBTCBBN = "SolvBTCBBN"
+    LBTC = "LBTC"
+    OP = "OP"
+    DAI = "DAI"
+    sDAI = "sDAI"
+    cbBTC = "cbBTC"
+    eBTC = "eBTC"
+    # old style deposits
+    WBTC = "WBTC"
+    WETH = "WETH"
+    USDC = "USDC"
+    USDT = "USDT"
+    SNX = "SNX"
+    wstETH = "wstETH"
+    USDCe = "USDC.e"
 
 
 class OrderSide(Enum):

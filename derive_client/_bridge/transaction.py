@@ -2,8 +2,8 @@ from eth_account import Account
 from web3 import Web3
 from web3.contract import Contract
 
-from derive_client.constants import DEPOSIT_GAS_LIMIT, MSG_GAS_LIMIT, PAYLOAD_SIZE
-from derive_client.data_types import Address, ChainID, TxStatus
+from derive_client.constants import DEFAULT_GAS_FUNDING_AMOUNT, DEPOSIT_GAS_LIMIT, MSG_GAS_LIMIT, PAYLOAD_SIZE
+from derive_client.data_types import Address, ChainID, MintableTokenData, NonMintableTokenData, TxStatus
 from derive_client.utils import estimate_fees, exp_backoff_retry, sign_and_send_tx
 
 
@@ -63,18 +63,24 @@ def increase_allowance(
         raise error
 
 
-def get_min_fees(w3: Web3, bridge_contract: Contract, connector: str) -> int:
+def get_min_fees(
+    w3: Web3, bridge_contract: Contract, connector: str, is_new_bridge: bool, is_withdraw: bool = False
+) -> int:
     """Get min fees"""
+    params = {
+        "connector_": Web3.to_checksum_address(connector),
+        "msgGasLimit_": MSG_GAS_LIMIT,
+    }
+    if is_new_bridge:
+        params["payloadSize_"] = PAYLOAD_SIZE
 
     total_fees = bridge_contract.functions.getMinFees(
-        connector_=Web3.to_checksum_address(connector),
-        msgGasLimit_=MSG_GAS_LIMIT,
-        payloadSize_=PAYLOAD_SIZE,
+        **params,
     ).call()
     return total_fees
 
 
-def prepare_bridge_tx(
+def prepare_new_bridge_tx(
     w3: Web3,
     chain_id: int,
     account: Account,
@@ -83,6 +89,7 @@ def prepare_bridge_tx(
     amount: int,
     msg_gas_limit: int,
     connector: str,
+    **kwargs,
 ) -> dict:
     """Build the function call for 'bridge'"""
 
@@ -95,9 +102,54 @@ def prepare_bridge_tx(
         options_=b"",
     )
 
-    fees = get_min_fees(w3=w3, bridge_contract=contract, connector=connector)
+    fees = get_min_fees(w3=w3, bridge_contract=contract, connector=connector, is_new_bridge=True)
     func.call({"from": account.address, "value": fees})
 
+    nonce = w3.eth.get_transaction_count(account.address)
+    tx = func.build_transaction(
+        {
+            "chainId": chain_id,
+            "from": account.address,
+            "nonce": nonce,
+            "gas": DEPOSIT_GAS_LIMIT,
+            "gasPrice": w3.eth.gas_price,
+            "value": fees + 1,
+        }
+    )
+
+    return tx
+
+
+def prepare_old_bridge_tx(
+    w3: Web3,
+    chain_id: int,
+    account: Account,
+    contract: Contract,
+    amount: int,
+    msg_gas_limit: int,
+    token_data: NonMintableTokenData | MintableTokenData,
+    connector: str,
+    deposit_helper: Contract,
+    **kwargs,
+) -> dict:
+    """Build the function call for 'bridge'"""
+
+    fees = get_min_fees(w3=w3, bridge_contract=contract, connector=connector, is_new_bridge=False)
+
+    balance = w3.eth.get_balance(account.address)
+    if balance < fees:
+        raise RuntimeError(f"Amount {amount} less than fee {fees} ({(amount/fees*100):.2f}%)")
+
+    func = deposit_helper.functions.depositToLyra(
+        token=w3.to_checksum_address(token_data.NonMintableToken),
+        socketVault=w3.to_checksum_address(token_data.Vault),
+        isSCW=True,
+        amount=amount,
+        gasLimit=msg_gas_limit,
+        connector=w3.to_checksum_address(connector),
+    )
+
+    func.call({"from": account.address, "value": fees})
     nonce = w3.eth.get_transaction_count(account.address)
     tx = func.build_transaction(
         {
@@ -126,6 +178,7 @@ def prepare_withdraw_wrapper_tx(
     amount: int,
     connector: str,
     msg_gas_limit: int = MSG_GAS_LIMIT,
+    is_new_bridge: bool = True,
 ) -> dict:
     """
     Prepares a withdrawal transaction using the withdraw wrapper on Derive.
@@ -133,9 +186,19 @@ def prepare_withdraw_wrapper_tx(
     via a batch execution on the provided Light Account.
     """
 
-    fees = get_min_fees(w3=w3, bridge_contract=controller_contract, connector=connector)
-    if amount < fees:
-        raise RuntimeError(f"Amount {amount} less than fee {fees} ({(amount/fees*100):.2f}%)")
+    fees = get_min_fees(
+        w3=w3,
+        bridge_contract=controller_contract,
+        connector=connector,
+        is_new_bridge=is_new_bridge,
+    )
+    if is_new_bridge:
+        if amount < fees:
+            raise RuntimeError(f"Amount {amount} less than fee {fees} ({(amount/fees*100):.2f}%)")
+    else:
+        balance = w3.eth.get_balance(account.address)
+        if balance < fees:
+            raise RuntimeError(f"Amount {amount} less than fee {fees} ({(amount/fees*100):.2f}%)")
 
     kwargs = {
         "token": token_contract.address,
@@ -175,22 +238,30 @@ def prepare_withdraw_wrapper_tx(
         estimated_gas = w3.eth.estimate_gas(tx)
         tx["gas"] = estimated_gas
 
-        required = estimated_gas * max_fee + amount
-        if balance < required:
-            raise RuntimeError(
-                f"Insufficient token balance: have {balance}, need {required} ({(balance/required*100):.2f}%)"
-            )
+        if is_new_bridge:
+            # pay the fees in the native token.
+            required = estimated_gas * max_fee + amount
+            if balance < required:
+                raise RuntimeError(
+                    f"Insufficient token balance: have {balance}, need {required} ({(balance/required*100):.2f}%)"
+                )
+        else:
+            required = amount
+            if balance < required:
+                raise RuntimeError(
+                    f"Insufficient token balance: have {balance}, need {required} ({(balance/required*100):.2f}%)"
+                )
         w3.eth.call(tx)
         return tx
 
     return simulate_tx()
 
 
-def _prepare_mainnet_to_derive_tx(
+def prepare_mainnet_to_derive_gas_tx(
     w3: Web3,
     account: Account,
-    amount: int,
     proxy_contract: Contract,
+    amount: int = DEFAULT_GAS_FUNDING_AMOUNT,
 ) -> dict:
     """
     Prepares a bridging transaction to move ETH from Ethereum mainnet to Derive.
@@ -199,11 +270,6 @@ def _prepare_mainnet_to_derive_tx(
 
     # This bridges ETH from EOA -> EOA, *not* to the smart contract funding wallet.
     # If the Derive-side recipient must be a smart contract, this must be changed.
-    raise NotImplementedError(
-        f"Bridging to a smart contract on Derive is not implemented. "
-        f"This transaction will send ETH to {account.address} on Derive. "
-        f"Implement contract recipient support before proceeding via `bridgeETHTo`."
-    )
 
     if not w3.eth.chain_id == ChainID.ETH:
         raise ValueError(f"Connected to chain ID {w3.eth.chain_id}, but expected Ethereum mainnet ({ChainID.ETH}).")

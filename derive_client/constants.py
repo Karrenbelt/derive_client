@@ -25,6 +25,7 @@ class ContractAddresses(BaseModel, frozen=True):
     TRANSFER_MODULE: str
     L1_CHUG_SPLASH_PROXY: str | None
     WITHDRAW_WRAPPER_V2: str | None
+    DEPOSIT_WRAPPER: str | None
 
     def __getitem__(self, key):
         return getattr(self, key)
@@ -38,8 +39,8 @@ class EnvConfig(BaseModel, frozen=True):
     contracts: ContractAddresses
 
 
-REPO_ROOT = Path(__file__).parent.parent
-DATA_DIR = REPO_ROOT / "data"
+PKG_ROOT = Path(__file__).parent
+DATA_DIR = PKG_ROOT / "data"
 ABI_DATA_DIR = DATA_DIR / "abi"
 
 PUBLIC_HEADERS = {"accept": "application/json", "content-type": "application/json"}
@@ -69,6 +70,7 @@ CONFIGS: dict[Environment, EnvConfig] = {
             TRANSFER_MODULE="0x0CFC1a4a90741aB242cAfaCD798b409E12e68926",
             L1_CHUG_SPLASH_PROXY=None,
             WITHDRAW_WRAPPER_V2=None,
+            DEPOSIT_WRAPPER=None,
         ),
     ),
     Environment.PROD: EnvConfig(
@@ -92,6 +94,7 @@ CONFIGS: dict[Environment, EnvConfig] = {
             TRANSFER_MODULE="0x01259207A40925b794C8ac320456F7F6c8FE2636",
             L1_CHUG_SPLASH_PROXY="0x61e44dc0dae6888b5a301887732217d5725b0bff",
             WITHDRAW_WRAPPER_V2="0xea8E683D8C46ff05B871822a00461995F93df800",
+            DEPOSIT_WRAPPER="0x9628bba16db41ea7fe1fd84f9ce53bc27c63f59b",
         ),
     ),
 }
@@ -104,6 +107,7 @@ DEPOSIT_GAS_LIMIT = 420_000
 PAYLOAD_SIZE = 161
 TARGET_SPEED = "FAST"
 
+DEFAULT_GAS_FUNDING_AMOUNT = int(0.0001 * 1e18)  # 0.0001 ETH
 
 TOKEN_DECIMALS = {
     UnderlyingCurrency.ETH: 18,
@@ -118,3 +122,14 @@ TOKEN_DECIMALS = {
     UnderlyingCurrency.DAI: 18,
     UnderlyingCurrency.USDT: 6,
 }
+
+NEW_VAULT_ABI_PATH = ABI_DATA_DIR / "socket_superbridge_vault.json"
+OLD_VAULT_ABI_PATH = ABI_DATA_DIR / "socket_superbridge_vault_old.json"
+DEPOSIT_HELPER_ABI_PATH = ABI_DATA_DIR / "deposit_helper.json"
+CONTROLLER_ABI_PATH = ABI_DATA_DIR / "controller.json"
+CONTROLLER_V0_ABI_PATH = ABI_DATA_DIR / "controller_v0.json"
+DEPOSIT_HOOK_ABI_PATH = ABI_DATA_DIR / "deposit_hook.json"
+LIGHT_ACCOUNT_ABI_PATH = ABI_DATA_DIR / "light_account.json"
+L1_CHUG_SPLASH_PROXY_ABI_PATH = ABI_DATA_DIR / "l1_chug_splash_proxy.json"
+L1_STANDARD_BRIDGE_ABI_PATH = ABI_DATA_DIR / "l1_standard_bridge.json"
+WITHDRAW_WRAPPER_V2_ABI_PATH = ABI_DATA_DIR / "withdraw_wrapper_v2.json"
