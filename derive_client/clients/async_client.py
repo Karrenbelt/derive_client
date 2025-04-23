@@ -285,8 +285,8 @@ class AsyncClient(BaseClient):
         instruments = await self._internal_map_instrument(instrument_type, underlying_currency)
         instrument = instruments[instrument_name]
 
-        rounded_price = Decimal(price).quantize(Decimal(instrument['tick_size']), rounding=ROUND_DOWN)
-        rounded_amount = Decimal(amount).quantize(Decimal(instrument['amount_step']), rounding=ROUND_DOWN)
+        rounded_price = Decimal(price).quantize(Decimal(instrument['tick_size']), )
+        rounded_amount = Decimal(amount).quantize(Decimal(instrument['amount_step']), )
 
         module_data = {
             "asset_address": instrument['base_asset_address'],
