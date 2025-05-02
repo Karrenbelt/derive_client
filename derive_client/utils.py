@@ -10,6 +10,7 @@ import time
 from collections import defaultdict
 
 from rich.logging import RichHandler
+from hexbytes import HexBytes
 from web3 import Web3
 from web3.contract import Contract
 from web3.datastructures import AttributeDict
@@ -95,14 +96,12 @@ def wait_for_tx_receipt(w3: Web3, tx_hash: str, timeout=120, poll_interval=1) ->
         time.sleep(poll_interval)
 
 
-def sign_and_send_tx(w3: Web3, tx: dict, private_key: str) -> AttributeDict:
+def sign_and_send_tx(w3: Web3, tx: dict, private_key: str) -> HexBytes:
     signed_tx = w3.eth.account.sign_transaction(tx, private_key=private_key)
     print(f"signed_tx: {signed_tx}")
     tx_hash = w3.eth.send_raw_transaction(signed_tx.raw_transaction)
     print(f"tx_hash: 0x{tx_hash.hex()}")
-    receipt = wait_for_tx_receipt(w3, tx_hash)
-    print(f"tx_receipt: {receipt}")
-    return receipt
+    return tx_hash
 
 
 def estimate_fees(w3, percentiles: list[int], blocks=20, default_tip=10_000):
