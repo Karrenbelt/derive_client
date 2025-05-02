@@ -85,3 +85,13 @@ class TxResult(BaseModel):
     @property
     def is_failed(self) -> bool:
         return self.exception is not None and not self.is_timed_out()
+
+
+class BridgeResult(BaseModel):
+    source_chain: ChainID
+    target_chain: ChainID
+    source_token: Currency
+    target_token: Currency
+    amount: int
+    receiver: Address
+    tx_result: TxResult
