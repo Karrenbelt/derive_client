@@ -16,7 +16,7 @@ from web3.contract import Contract
 from web3.datastructures import AttributeDict
 
 from derive_client.constants import ABI_DATA_DIR, DATA_DIR
-from derive_client.data_types import ChainID, DeriveAddresses, RPCEndPoints
+from derive_client.data_types import ChainID, DeriveAddresses, RPCEndPoints, TxResult
 
 
 def get_logger():
@@ -102,6 +102,43 @@ def sign_and_send_tx(w3: Web3, tx: dict, private_key: str) -> HexBytes:
     tx_hash = w3.eth.send_raw_transaction(signed_tx.raw_transaction)
     print(f"tx_hash: 0x{tx_hash.hex()}")
     return tx_hash
+
+
+def send_and_confirm_tx(
+    w3: Web3,
+    tx: dict,
+    private_key: str,
+    *,
+    action: str  # e.g. "approve()", "deposit()", "withdraw()"
+) -> TxResult:
+    tx_result = TxResult(tx_hash="", receipt=None, exception=None)
+
+    try:
+        tx_hash = sign_and_send_tx(w3=w3, tx=tx, private_key=private_key)
+        tx_result.tx_hash = tx_hash.hex()
+    except Exception as send_err:
+        print(f"❌ Failed to send tx for {action}, error: {send_err!r}")
+        tx_result.exception = send_err
+        return tx_result
+
+    try:
+        tx_receipt = wait_for_tx_receipt(w3=w3, tx_hash=tx_hash)
+        tx_result.tx_receipt = tx_receipt
+    except TimeoutError as timeout_err:
+        print(f"⏱️  Timeout waiting for tx receipt of {tx_hash.hex()}")
+        tx_result.exception = timeout_err
+        return tx_result
+    except Exception as wait_err:
+        print(f"⚠️  Error while waiting for tx receipt of {tx_hash.hex()}: {wait_err!r}")
+        tx_result.exception = wait_err
+        return tx_result
+
+    if tx_receipt.status == TxStatus.SUCCESS:
+        print(f"✅ {action} succeeded for tx {tx_hash.hex()}")
+    else:
+        print(f"❌ {action} reverted for tx {tx_hash.hex()}")
+
+    return tx_result
 
 
 def estimate_fees(w3, percentiles: list[int], blocks=20, default_tip=10_000):
