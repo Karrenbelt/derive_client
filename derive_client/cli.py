@@ -23,7 +23,6 @@ from derive_client.data_types import (
     SubaccountType,
     UnderlyingCurrency,
     TxStatus,
-    TxResult,
 )
 from derive_client.derive import DeriveClient
 from derive_client.utils import get_logger
@@ -139,9 +138,9 @@ def deposit(ctx, chain_id, currency, amount):
     client = ctx.obj["client"]
     receiver = client.wallet
 
-    tx_result = client.deposit_to_derive(chain_id=chain_id, currency=currency, amount=amount, receiver=receiver)
+    bridge_result = client.deposit_to_derive(chain_id=chain_id, currency=currency, amount=amount, receiver=receiver)
 
-    match tx_result.status:
+    match bridge_result.tx_result.status:
         case TxStatus.SUCCESS:
             print(f"[bold green]Deposit from {chain_id.name} to Derive successful![/bold green]")
         case TxStatus.FAILED:
@@ -149,7 +148,7 @@ def deposit(ctx, chain_id, currency, amount):
         case TxStatus.PENDING:
             print(f"[yellow]Deposit from {chain_id.name} to Derive is pending...[/yellow]")
         case _:
-            raise click.ClickException(f"Exception attempting to deposit:\n{tx_result}")
+            raise click.ClickException(f"Exception attempting to deposit:\n{bridge_result}")
 
 
 @bridge.command("withdraw")
@@ -185,9 +184,9 @@ def withdraw(ctx, chain_id, currency, amount):
     client: DeriveClient = ctx.obj["client"]
     receiver = client.signer.address
 
-    tx_result = client.withdraw_from_derive(chain_id=chain_id, currency=currency, amount=amount, receiver=receiver)
+    bridge_result = client.withdraw_from_derive(chain_id=chain_id, currency=currency, amount=amount, receiver=receiver)
 
-    match tx_result.status:
+    match bridge_result.tx_result.status:
         case TxStatus.SUCCESS:
             print(f"[bold green]Withdrawal from Derive to {chain_id.name} successful![/bold green]")
         case TxStatus.FAILED:
@@ -195,7 +194,7 @@ def withdraw(ctx, chain_id, currency, amount):
         case TxStatus.PENDING:
             print(f"[yellow]Withdrawal from Derive to {chain_id.name} is pending...[/yellow]")
         case _:
-            raise click.ClickException(f"Exception attempting to withdraw:\n{tx_result}")
+            raise click.ClickException(f"Exception attempting to withdraw:\n{bridge_result}")
 
 
 @cli.group("instruments")

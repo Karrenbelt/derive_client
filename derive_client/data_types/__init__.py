@@ -25,11 +25,13 @@ from .models import (
     MintableTokenData,
     NonMintableTokenData,
     TxResult,
+    BridgeResult,
 )
 
 __all__ = [
     "TxStatus",
     "TxResult",
+    "BridgeResult",
     "ChainID",
     "Currency",
     "RPCEndPoints",

@@ -41,6 +41,7 @@ from derive_client.data_types import (
     TimeInForce,
     UnderlyingCurrency,
     TxResult,
+    BridgeResult,
 )
 from derive_client.utils import get_logger, get_prod_derive_addresses, get_w3_connection
 
@@ -104,7 +105,7 @@ class BaseClient:
             raise Exception(result_code["error"])
         return True
 
-    def deposit_to_derive(self, chain_id: ChainID, currency: Currency, amount: int, receiver: Address) -> TxResult:
+    def deposit_to_derive(self, chain_id: ChainID, currency: Currency, amount: int, receiver: Address) -> BridgeResult:
         """Deposit funds via socket superbridge to Derive chain smart contract funding account.
 
         Parameters:
@@ -122,14 +123,24 @@ class BaseClient:
         client = BridgeClient(self.env, w3=w3, account=self.signer, chain_id=chain_id)
         client.load_bridge_contract(token_data.Vault, token_data.isNewBridge)
         client.load_deposit_helper()
-        return client.deposit(
+        tx_result = client.deposit(
             amount=amount,
             receiver=receiver,
             connector=connector,
             token_data=token_data,
         )
 
-    def withdraw_from_derive(self, chain_id: ChainID, currency: Currency, amount: int, receiver: Address) -> TxResult:
+        return BridgeResult(
+            source_chain=chain_id,
+            target_chain=ChainID.DERIVE,
+            source_token=currency,
+            target_token=currency,
+            amount=amount,
+            receiver=receiver,
+            tx_result=tx_result,
+        )
+
+    def withdraw_from_derive(self, chain_id: ChainID, currency: Currency, amount: int, receiver: Address) -> BridgeResult:
         """Deposit funds via socket superbridge to Derive chain smart contract funding account.
 
         Parameters:
@@ -145,12 +156,22 @@ class BaseClient:
         amount = int(amount * 10 ** TOKEN_DECIMALS[UnderlyingCurrency(currency.name.lower())])
         client = BridgeClient(self.env, w3=w3, account=self.signer, chain_id=chain_id)
         client.load_withdraw_wrapper()
-        return client.withdraw_with_wrapper(
+        tx_result = client.withdraw_with_wrapper(
             amount=amount,
             receiver=receiver,
             token_data=token_data,
             wallet=self.wallet,
             private_key=self.signer._private_key,
+        )
+
+        return BridgeResult(
+            source_chain=ChainID.DERIVE,
+            target_chain=chain_id,
+            source_token=currency,
+            target_token=currency,
+            amount=amount,
+            receiver=receiver,
+            tx_result=tx_result,
         )
 
     def fetch_instruments(
