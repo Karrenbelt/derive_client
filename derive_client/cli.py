@@ -22,6 +22,8 @@ from derive_client.data_types import (
     OrderType,
     SubaccountType,
     UnderlyingCurrency,
+    TxStatus,
+    TxResult,
 )
 from derive_client.derive import DeriveClient
 from derive_client.utils import get_logger
@@ -135,13 +137,19 @@ def deposit(ctx, chain_id, currency, amount):
     currency = Currency[currency]
 
     client = ctx.obj["client"]
+    receiver = client.wallet
 
-    try:
-        client.deposit_to_derive(chain_id=chain_id, currency=currency, amount=amount, receiver=client.wallet)
-        print("[bold green]Deposit successful! Transaction receipt:[/bold green]")
-    except Exception as err:
-        print(traceback.format_exc())
-        raise click.ClickException(f"Deposit failed: {err}")
+    tx_result = client.deposit_to_derive(chain_id=chain_id, currency=currency, amount=amount, receiver=receiver)
+
+    match tx_result.status:
+        case TxStatus.SUCCESS:
+            print(f"[bold green]Deposit from {chain_id.name} to Derive successful![/bold green]")
+        case TxStatus.FAILED:
+            print(f"[bold red]Deposit from {chain_id.name} to Derive failed.[/bold red]")
+        case TxStatus.PENDING:
+            print(f"[yellow]Deposit from {chain_id.name} to Derive is pending...[/yellow]")
+        case _:
+            raise click.ClickException(f"Exception attempting to deposit:\n{tx_result}")
 
 
 @bridge.command("withdraw")
@@ -175,14 +183,19 @@ def withdraw(ctx, chain_id, currency, amount):
     currency = Currency[currency]
 
     client: DeriveClient = ctx.obj["client"]
-    reciever = client.signer.address
+    receiver = client.signer.address
 
-    try:
-        client.withdraw_from_derive(chain_id=chain_id, currency=currency, amount=amount, receiver=reciever)
-        print(f"[bold green]Withdrawal from {chain_id.name} successful![/bold green]")
-    except Exception as err:
-        print(traceback.format_exc())
-        raise click.ClickException(f"Deposit failed: {err}")
+    tx_result = client.withdraw_from_derive(chain_id=chain_id, currency=currency, amount=amount, receiver=receiver)
+
+    match tx_result.status:
+        case TxStatus.SUCCESS:
+            print(f"[bold green]Withdrawal from Derive to {chain_id.name} successful![/bold green]")
+        case TxStatus.FAILED:
+            print(f"[bold red]Withdrawal from Derive to {chain_id.name} failed.[/bold red]")
+        case TxStatus.PENDING:
+            print(f"[yellow]Withdrawal from Derive to {chain_id.name} is pending...[/yellow]")
+        case _:
+            raise click.ClickException(f"Exception attempting to withdraw:\n{tx_result}")
 
 
 @cli.group("instruments")
