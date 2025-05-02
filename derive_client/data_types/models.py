@@ -10,7 +10,8 @@ from pydantic import BaseModel, ConfigDict
 from web3 import Web3
 from web3.datastructures import AttributeDict
 
-from .enums import ChainID, Currency
+from .enums import ChainID, Currency, TxStatus
+
 
 Address = str
 
@@ -69,25 +70,23 @@ class DeriveAddresses(BaseModel):
     chains: dict[ChainID, dict[Currency, MintableTokenData | NonMintableTokenData]]
 
 
-class TxResult(BaseModel):
+@dataclass
+class TxResult:
     tx_hash: str
-    receipt: AttributeDict | None
+    tx_receipt: AttributeDict | None
     exception: Exception | None
 
     @property
-    def is_pending(self) -> bool:
-        return self.receipt is None and self.exception is None
-
-    @property
-    def is_timed_out(self) -> bool:
-        return isinstance(self.exception, TimeoutError)
-
-    @property
-    def is_failed(self) -> bool:
-        return self.exception is not None and not self.is_timed_out()
+    def status(self) -> TxStatus:
+        if self.tx_receipt is not None:
+            return TxStatus(int(self.tx_receipt.status))  # ∈ {0, 1} (EIP-658)
+        if isinstance(self.exception, TimeoutError):
+            return TxStatus.PENDING
+        return TxStatus.ERROR
 
 
-class BridgeResult(BaseModel):
+@dataclass
+class BridgeResult:
     source_chain: ChainID
     target_chain: ChainID
     source_token: Currency
