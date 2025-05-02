@@ -9,14 +9,14 @@ import sys
 import time
 from collections import defaultdict
 
-from rich.logging import RichHandler
 from hexbytes import HexBytes
+from rich.logging import RichHandler
 from web3 import Web3
 from web3.contract import Contract
 from web3.datastructures import AttributeDict
 
 from derive_client.constants import ABI_DATA_DIR, DATA_DIR
-from derive_client.data_types import ChainID, DeriveAddresses, RPCEndPoints, TxStatus, TxResult
+from derive_client.data_types import ChainID, DeriveAddresses, RPCEndPoints, TxResult, TxStatus
 
 
 def get_logger():
@@ -105,11 +105,7 @@ def sign_and_send_tx(w3: Web3, tx: dict, private_key: str) -> HexBytes:
 
 
 def send_and_confirm_tx(
-    w3: Web3,
-    tx: dict,
-    private_key: str,
-    *,
-    action: str  # e.g. "approve()", "deposit()", "withdraw()"
+    w3: Web3, tx: dict, private_key: str, *, action: str  # e.g. "approve()", "deposit()", "withdraw()"
 ) -> TxResult:
     tx_result = TxResult(tx_hash="", tx_receipt=None, exception=None)
 

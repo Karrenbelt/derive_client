@@ -2,7 +2,6 @@
 Cli module in order to allow interaction.
 """
 import os
-import traceback
 from textwrap import dedent
 
 import pandas as pd
@@ -21,8 +20,8 @@ from derive_client.data_types import (
     OrderStatus,
     OrderType,
     SubaccountType,
-    UnderlyingCurrency,
     TxStatus,
+    UnderlyingCurrency,
 )
 from derive_client.derive import DeriveClient
 from derive_client.utils import get_logger

@@ -26,6 +26,7 @@ from derive_client._bridge import BridgeClient
 from derive_client.constants import CONFIGS, DEFAULT_REFERER, PUBLIC_HEADERS, TARGET_SPEED, TOKEN_DECIMALS
 from derive_client.data_types import (
     Address,
+    BridgeResult,
     ChainID,
     CollateralAsset,
     CreateSubAccountData,
@@ -40,8 +41,6 @@ from derive_client.data_types import (
     SubaccountType,
     TimeInForce,
     UnderlyingCurrency,
-    TxResult,
-    BridgeResult,
 )
 from derive_client.utils import get_logger, get_prod_derive_addresses, get_w3_connection
 
@@ -140,7 +139,9 @@ class BaseClient:
             tx_result=tx_result,
         )
 
-    def withdraw_from_derive(self, chain_id: ChainID, currency: Currency, amount: int, receiver: Address) -> BridgeResult:
+    def withdraw_from_derive(
+        self, chain_id: ChainID, currency: Currency, amount: int, receiver: Address
+    ) -> BridgeResult:
         """Deposit funds via socket superbridge to Derive chain smart contract funding account.
 
         Parameters:

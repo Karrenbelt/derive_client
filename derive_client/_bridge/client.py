@@ -41,7 +41,6 @@ from derive_client.data_types import (
     MintableTokenData,
     NonMintableTokenData,
     RPCEndPoints,
-    TxStatus,
     TxResult,
 )
 from derive_client.utils import get_contract, get_erc20_contract, send_and_confirm_tx

@@ -12,7 +12,6 @@ from web3.datastructures import AttributeDict
 
 from .enums import ChainID, Currency, TxStatus
 
-
 Address = str
 
 

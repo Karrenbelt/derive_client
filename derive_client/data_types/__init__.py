@@ -19,13 +19,13 @@ from .enums import (
 )
 from .models import (
     Address,
+    BridgeResult,
     CreateSubAccountData,
     CreateSubAccountDetails,
     DeriveAddresses,
     MintableTokenData,
     NonMintableTokenData,
     TxResult,
-    BridgeResult,
 )
 
 __all__ = [
