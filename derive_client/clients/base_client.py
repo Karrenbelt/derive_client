@@ -70,7 +70,7 @@ class BaseClient:
         env: Environment,
         logger=None,
         verbose=False,
-        subaccount_id=0,
+        subaccount_id=None,
         referral_code=None,
     ):
         self.verbose = verbose
@@ -80,9 +80,20 @@ class BaseClient:
         self.web3_client = Web3()
         self.signer = self.web3_client.eth.account.from_key(private_key)
         self.wallet = self.signer.address if not wallet else wallet
-        self.subaccount_id = subaccount_id
-        self.subaccount_id = self.fetch_subaccounts()['subaccount_ids'][0] if not subaccount_id else subaccount_id
+        if subaccount_id is None:
+            subaccount_id = self._get_first_subaccount_id()
+        self.subaccount_id = int(subaccount_id)
         self.referral_code = referral_code
+
+    def _get_first_subaccount_id(self) -> int:
+        self.logger.debug("No subaccount_id provided, fetching from API…")
+        subaccounts = self.fetch_subaccounts()
+        self.logger.info(f"Subaccounts retrieved: {subaccounts!r}")
+        if not (subaccount_ids := subaccounts.get("subaccount_ids", [])):
+            raise ValueError("No subaccounts found. Please create one on Derive first.")
+        subaccount_id = subaccount_ids[0]
+        self.logger.info(f"Selected subaccount_id: {subaccount_id}")
+        return subaccount_id
 
     def connect_ws(self):
         ws = create_connection(self.config.ws_address, enable_multithread=True, timeout=60)
