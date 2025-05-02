@@ -120,7 +120,7 @@ class BridgeClient:
             deposit_helper=self.deposit_helper,
         )
 
-        tx_result = send_and_confirm_tx(w3=self.w3, tx=tx, private_key=self.account._private_key)
+        tx_result = send_and_confirm_tx(w3=self.w3, tx=tx, private_key=self.account._private_key, action="bridge()")
         return tx_result
 
     def bridge_mainnet_eth_to_derive(self, amount: int) -> TxResult:
@@ -136,7 +136,7 @@ class BridgeClient:
         proxy_contract = get_contract(w3=w3, address=address, abi=bridge_abi)
 
         tx = prepare_mainnet_to_derive_gas_tx(w3=w3, account=self.account, amount=amount, proxy_contract=proxy_contract)
-        tx_result = send_and_confirm_tx(w3=w3, tx=tx, private_key=self.account._private_key)
+        tx_result = send_and_confirm_tx(w3=w3, tx=tx, private_key=self.account._private_key, action="bridgeETH()")
         return tx_result
 
     def withdraw_with_wrapper(
@@ -208,5 +208,5 @@ class BridgeClient:
             light_account=light_account,
         )
 
-        tx_result = send_and_confirm_tx(w3=self.w3, tx=tx, private_key=private_key)
+        tx_result = send_and_confirm_tx(w3=self.w3, tx=tx, private_key=private_key, action="executeBatch()")
         return tx_result

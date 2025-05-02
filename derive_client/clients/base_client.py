@@ -40,6 +40,7 @@ from derive_client.data_types import (
     SubaccountType,
     TimeInForce,
     UnderlyingCurrency,
+    TxResult,
 )
 from derive_client.utils import get_logger, get_prod_derive_addresses, get_w3_connection
 
@@ -103,7 +104,7 @@ class BaseClient:
             raise Exception(result_code["error"])
         return True
 
-    def deposit_to_derive(self, chain_id: ChainID, currency: Currency, amount: int, receiver: Address):
+    def deposit_to_derive(self, chain_id: ChainID, currency: Currency, amount: int, receiver: Address) -> TxResult:
         """Deposit funds via socket superbridge to Derive chain smart contract funding account.
 
         Parameters:
@@ -121,14 +122,14 @@ class BaseClient:
         client = BridgeClient(self.env, w3=w3, account=self.signer, chain_id=chain_id)
         client.load_bridge_contract(token_data.Vault, token_data.isNewBridge)
         client.load_deposit_helper()
-        client.deposit(
+        return client.deposit(
             amount=amount,
             receiver=receiver,
             connector=connector,
             token_data=token_data,
         )
 
-    def withdraw_from_derive(self, chain_id: ChainID, currency: Currency, amount: int, receiver: Address):
+    def withdraw_from_derive(self, chain_id: ChainID, currency: Currency, amount: int, receiver: Address) -> TxResult:
         """Deposit funds via socket superbridge to Derive chain smart contract funding account.
 
         Parameters:
@@ -144,7 +145,7 @@ class BaseClient:
         amount = int(amount * 10 ** TOKEN_DECIMALS[UnderlyingCurrency(currency.name.lower())])
         client = BridgeClient(self.env, w3=w3, account=self.signer, chain_id=chain_id)
         client.load_withdraw_wrapper()
-        client.withdraw_with_wrapper(
+        return client.withdraw_with_wrapper(
             amount=amount,
             receiver=receiver,
             token_data=token_data,

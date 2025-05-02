@@ -16,7 +16,7 @@ from web3.contract import Contract
 from web3.datastructures import AttributeDict
 
 from derive_client.constants import ABI_DATA_DIR, DATA_DIR
-from derive_client.data_types import ChainID, DeriveAddresses, RPCEndPoints, TxResult
+from derive_client.data_types import ChainID, DeriveAddresses, RPCEndPoints, TxStatus, TxResult
 
 
 def get_logger():
@@ -111,7 +111,7 @@ def send_and_confirm_tx(
     *,
     action: str  # e.g. "approve()", "deposit()", "withdraw()"
 ) -> TxResult:
-    tx_result = TxResult(tx_hash="", receipt=None, exception=None)
+    tx_result = TxResult(tx_hash="", tx_receipt=None, exception=None)
 
     try:
         tx_hash = sign_and_send_tx(w3=w3, tx=tx, private_key=private_key)
