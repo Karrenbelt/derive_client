@@ -137,9 +137,9 @@ def deposit(ctx, chain_id, currency, amount):
     client = ctx.obj["client"]
     receiver = client.wallet
 
-    bridge_result = client.deposit_to_derive(chain_id=chain_id, currency=currency, amount=amount, receiver=receiver)
+    tx_result = client.deposit_to_derive(chain_id=chain_id, currency=currency, amount=amount, receiver=receiver)
 
-    match bridge_result.tx_result.status:
+    match tx_result.status:
         case TxStatus.SUCCESS:
             print(f"[bold green]Deposit from {chain_id.name} to Derive successful![/bold green]")
         case TxStatus.FAILED:
@@ -147,7 +147,7 @@ def deposit(ctx, chain_id, currency, amount):
         case TxStatus.PENDING:
             print(f"[yellow]Deposit from {chain_id.name} to Derive is pending...[/yellow]")
         case _:
-            raise click.ClickException(f"Exception attempting to deposit:\n{bridge_result}")
+            raise click.ClickException(f"Exception attempting to deposit:\n{tx_result}")
 
 
 @bridge.command("withdraw")
@@ -183,9 +183,9 @@ def withdraw(ctx, chain_id, currency, amount):
     client: DeriveClient = ctx.obj["client"]
     receiver = client.signer.address
 
-    bridge_result = client.withdraw_from_derive(chain_id=chain_id, currency=currency, amount=amount, receiver=receiver)
+    tx_result = client.withdraw_from_derive(chain_id=chain_id, currency=currency, amount=amount, receiver=receiver)
 
-    match bridge_result.tx_result.status:
+    match tx_result.status:
         case TxStatus.SUCCESS:
             print(f"[bold green]Withdrawal from Derive to {chain_id.name} successful![/bold green]")
         case TxStatus.FAILED:
@@ -193,7 +193,7 @@ def withdraw(ctx, chain_id, currency, amount):
         case TxStatus.PENDING:
             print(f"[yellow]Withdrawal from Derive to {chain_id.name} is pending...[/yellow]")
         case _:
-            raise click.ClickException(f"Exception attempting to withdraw:\n{bridge_result}")
+            raise click.ClickException(f"Exception attempting to withdraw:\n{tx_result}")
 
 
 @cli.group("instruments")

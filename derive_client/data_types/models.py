@@ -82,14 +82,3 @@ class TxResult:
         if isinstance(self.exception, TimeoutError):
             return TxStatus.PENDING
         return TxStatus.ERROR
-
-
-@dataclass
-class BridgeResult:
-    source_chain: ChainID
-    target_chain: ChainID
-    source_token: Currency
-    target_token: Currency
-    amount: int
-    receiver: Address
-    tx_result: TxResult
