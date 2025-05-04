@@ -8,8 +8,9 @@ from derive_action_signing.utils import decimal_to_big_int
 from eth_abi.abi import encode
 from pydantic import BaseModel, ConfigDict
 from web3 import Web3
+from web3.datastructures import AttributeDict
 
-from .enums import ChainID, Currency
+from .enums import ChainID, Currency, TxStatus
 
 Address = str
 
@@ -66,3 +67,18 @@ class NonMintableTokenData(TokenData):
 class DeriveAddresses(BaseModel):
     model_config = ConfigDict(arbitrary_types_allowed=True)
     chains: dict[ChainID, dict[Currency, MintableTokenData | NonMintableTokenData]]
+
+
+@dataclass
+class TxResult:
+    tx_hash: str
+    tx_receipt: AttributeDict | None
+    exception: Exception | None
+
+    @property
+    def status(self) -> TxStatus:
+        if self.tx_receipt is not None:
+            return TxStatus(int(self.tx_receipt.status))  # ∈ {0, 1} (EIP-658)
+        if isinstance(self.exception, TimeoutError):
+            return TxStatus.PENDING
+        return TxStatus.ERROR

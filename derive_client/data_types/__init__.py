@@ -24,10 +24,12 @@ from .models import (
     DeriveAddresses,
     MintableTokenData,
     NonMintableTokenData,
+    TxResult,
 )
 
 __all__ = [
     "TxStatus",
+    "TxResult",
     "ChainID",
     "Currency",
     "RPCEndPoints",
