@@ -59,7 +59,7 @@ skip_gitignore = true
 [tool.black]
 line-length = 120
 skip-string-normalization = true
-target-version = ['py310']
+target-version = ['py310' 'py311', 'py312', 'py313']
 include = '\.pyi?$'
 exclude = '''
 /(
