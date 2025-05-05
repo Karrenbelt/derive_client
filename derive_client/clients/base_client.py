@@ -223,7 +223,6 @@ class BaseClient:
         amount_step = instrument['amount_step']
         rounded_amount = Decimal(str(amount)).quantize(Decimal(str(amount_step)))
 
-
         price_step = instrument['tick_size']
         rounded_price = Decimal(str(price)).quantize(Decimal(str(price_step)))
 

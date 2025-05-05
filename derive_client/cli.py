@@ -636,7 +636,7 @@ def cancel_all_orders(ctx):
 def create_order(ctx, instrument_name, side, price, amount, order_type, instrument_type):
     """Create order."""
     print("Creating order")
-    client: DeriveClient  = ctx.obj["client"]
+    client: DeriveClient = ctx.obj["client"]
     result = client.create_order(
         instrument_name=instrument_name,
         side=OrderSide(side),
