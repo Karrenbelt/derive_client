@@ -83,7 +83,7 @@ class BaseClient:
         self.logger = logger or get_logger()
         self.web3_client = Web3()
         self.signer = self.web3_client.eth.account.from_key(private_key)
-        self.wallet = self.signer.address if not wallet else wallet
+        self.wallet = wallet
         if subaccount_id is None:
             subaccount_id = self._get_first_subaccount_id()
         self.subaccount_id = int(subaccount_id)
