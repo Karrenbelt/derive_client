@@ -1,15 +1,15 @@
 """
 Base Client for the derive dex.
 """
+
 import json
 import random
 from decimal import Decimal
-from time import sleep
 from logging import Logger
+from time import sleep
 
 import eth_abi
 import requests
-from pydantic import validate_arguments
 from derive_action_signing.module_data import (
     DepositModuleData,
     RecipientTransferERC20ModuleData,
@@ -20,12 +20,20 @@ from derive_action_signing.module_data import (
 )
 from derive_action_signing.signed_action import SignedAction
 from derive_action_signing.utils import MAX_INT_32, get_action_nonce, sign_rest_auth_header, sign_ws_login, utc_now_ms
+from pydantic import validate_arguments
 from rich import print
 from web3 import Web3
 from websocket import WebSocketConnectionClosedException, create_connection
 
 from derive_client._bridge import BridgeClient
-from derive_client.constants import CONFIGS, DEFAULT_REFERER, PUBLIC_HEADERS, TARGET_SPEED, TOKEN_DECIMALS, LIGHT_ACCOUNT_ABI_PATH
+from derive_client.constants import (
+    CONFIGS,
+    DEFAULT_REFERER,
+    LIGHT_ACCOUNT_ABI_PATH,
+    PUBLIC_HEADERS,
+    TARGET_SPEED,
+    TOKEN_DECIMALS,
+)
 from derive_client.data_types import (
     Address,
     ChainID,
@@ -90,12 +98,14 @@ class BaseClient:
     def _verify_wallet(self, wallet: Address) -> Address:
         w3 = get_w3_connection(ChainID.DERIVE)
         if not w3.eth.get_code(wallet):
-            raise ValueError(f"{wallet} appears to be an EOA (no bytecode). Expected a smart-contract wallet on Derive.")
+            msg = f"{wallet} appears to be an EOA (no bytecode). Expected a smart-contract wallet on Derive."
+            raise ValueError(msg)
         abi = json.loads(LIGHT_ACCOUNT_ABI_PATH.read_text())
         contract = w3.eth.contract(address=wallet, abi=abi)
         owner = contract.functions.owner().call()
         if not owner == self.signer.address:
-            raise ValueError(f"Smart Contract wallet owner mismatch: on-chain owner={owner}, signer={self.signer.address}")
+            msg = f"Smart Contract wallet owner mismatch: on-chain owner={owner}, signer={self.signer.address}"
+            raise ValueError(msg)
         return wallet
 
     def _determine_subaccount_id(self, subaccount_id: int | None) -> int:

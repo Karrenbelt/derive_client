@@ -1,20 +1,17 @@
 """Models used in the bridge module."""
 
-
 from dataclasses import dataclass
 
 from derive_action_signing.module_data import ModuleData
 from derive_action_signing.utils import decimal_to_big_int
 from eth_abi.abi import encode
-from pydantic import BaseModel, ConfigDict
+from eth_utils import is_address, to_checksum_address
+from pydantic import BaseModel, ConfigDict, GetCoreSchemaHandler, GetJsonSchemaHandler
+from pydantic_core import core_schema
 from web3 import Web3
 from web3.datastructures import AttributeDict
 
 from .enums import ChainID, Currency, TxStatus
-
-from pydantic_core import core_schema
-from pydantic import GetCoreSchemaHandler, GetJsonSchemaHandler
-from eth_utils import to_checksum_address, is_address
 
 
 class Address(str):
