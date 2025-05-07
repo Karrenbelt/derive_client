@@ -5,9 +5,11 @@ import json
 import random
 from decimal import Decimal
 from time import sleep
+from logging import Logger
 
 import eth_abi
 import requests
+from pydantic import validate_arguments
 from derive_action_signing.module_data import (
     DepositModuleData,
     RecipientTransferERC20ModuleData,
@@ -64,15 +66,16 @@ class BaseClient:
             session_key_or_wallet_private_key=self.signer._private_key,
         )
 
+    @validate_arguments(config=dict(arbitrary_types_allowed=True))
     def __init__(
         self,
-        wallet: str,
+        wallet: Address,
         private_key: str,
         env: Environment,
-        logger=None,
-        verbose=False,
-        subaccount_id=None,
-        referral_code=None,
+        logger: Logger | None = None,
+        verbose: bool = False,
+        subaccount_id: int | None = None,
+        referral_code: Address | None = None,
     ):
         self.verbose = verbose
         self.env = env
@@ -191,7 +194,7 @@ class BaseClient:
         payload = {"wallet": self.wallet}
         return self._send_request(url, json=payload)
 
-    def fetch_subaccount(self, subaccount_id):
+    def fetch_subaccount(self, subaccount_id: int):
         """
         Returns information for a given subaccount
         """
@@ -209,7 +212,7 @@ class BaseClient:
     def create_order(
         self,
         price,
-        amount,
+        amount: int,
         instrument_name: str,
         reduce_only=False,
         instrument_type: InstrumentType = InstrumentType.PERP,
@@ -504,7 +507,7 @@ class BaseClient:
 
     def create_subaccount(
         self,
-        amount=0,
+        amount: int = 0,
         subaccount_type: SubaccountType = SubaccountType.STANDARD,
         collateral_asset: CollateralAsset = CollateralAsset.USDC,
         underlying_currency: UnderlyingCurrency = UnderlyingCurrency.ETH,
@@ -629,7 +632,7 @@ class BaseClient:
 
     def set_mmp_config(
         self,
-        subaccount_id,
+        subaccount_id: int,
         currency: UnderlyingCurrency,
         mmp_frozen_time: int,
         mmp_interval: int,
@@ -775,7 +778,7 @@ class BaseClient:
             json=payload,
         )
 
-    def get_manager_for_subaccount(self, subaccount_id, asset_name):
+    def get_manager_for_subaccount(self, subaccount_id: int, asset_name):
         """
         Look up the manager for a subaccount
 
