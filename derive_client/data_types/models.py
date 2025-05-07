@@ -12,7 +12,25 @@ from web3.datastructures import AttributeDict
 
 from .enums import ChainID, Currency, TxStatus
 
-Address = str
+from pydantic_core import core_schema
+from pydantic import GetCoreSchemaHandler, GetJsonSchemaHandler
+from eth_utils import to_checksum_address, is_address
+
+
+class Address(str):
+    @classmethod
+    def __get_pydantic_core_schema__(cls, _source, _handler: GetCoreSchemaHandler) -> core_schema.CoreSchema:
+        return core_schema.no_info_before_validator_function(cls._validate, core_schema.str_schema())
+
+    @classmethod
+    def __get_pydantic_json_schema__(cls, _schema, _handler: GetJsonSchemaHandler) -> dict:
+        return {"type": "string", "format": "ethereum-address"}
+
+    @classmethod
+    def _validate(cls, v: str) -> str:
+        if not is_address(v):
+            raise ValueError(f"Invalid Ethereum address: {v}")
+        return to_checksum_address(v)
 
 
 @dataclass
