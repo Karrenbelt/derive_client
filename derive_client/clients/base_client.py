@@ -25,7 +25,7 @@ from web3 import Web3
 from websocket import WebSocketConnectionClosedException, create_connection
 
 from derive_client._bridge import BridgeClient
-from derive_client.constants import CONFIGS, DEFAULT_REFERER, PUBLIC_HEADERS, TARGET_SPEED, TOKEN_DECIMALS
+from derive_client.constants import CONFIGS, DEFAULT_REFERER, PUBLIC_HEADERS, TARGET_SPEED, TOKEN_DECIMALS, LIGHT_ACCOUNT_ABI_PATH
 from derive_client.data_types import (
     Address,
     ChainID,
@@ -83,11 +83,22 @@ class BaseClient:
         self.logger = logger or get_logger()
         self.web3_client = Web3()
         self.signer = self.web3_client.eth.account.from_key(private_key)
-        self.wallet = wallet
+        self.wallet = self._verify_wallet(wallet)
         if subaccount_id is None:
             subaccount_id = self._get_first_subaccount_id()
         self.subaccount_id = int(subaccount_id)
         self.referral_code = referral_code
+
+    def _verify_wallet(self, wallet: Address) -> Address:
+        w3 = get_w3_connection(ChainID.DERIVE)
+        if not w3.eth.get_code(wallet):
+            raise ValueError(f"{wallet} appears to be an EOA (no bytecode). Expected a smart-contract wallet on Derive.")
+        abi = json.loads(LIGHT_ACCOUNT_ABI_PATH.read_text())
+        contract = w3.eth.contract(address=wallet, abi=abi)
+        owner = contract.functions.owner().call()
+        if not owner == self.signer.address:
+            raise ValueError(f"Smart Contract wallet owner mismatch: on-chain owner={owner}, signer={self.signer.address}")
+        return wallet
 
     def _get_first_subaccount_id(self) -> int:
         self.logger.debug("No subaccount_id provided, fetching from API…")
