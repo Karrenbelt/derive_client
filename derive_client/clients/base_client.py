@@ -84,9 +84,7 @@ class BaseClient:
         self.web3_client = Web3()
         self.signer = self.web3_client.eth.account.from_key(private_key)
         self.wallet = self._verify_wallet(wallet)
-        if subaccount_id is None:
-            subaccount_id = self._get_first_subaccount_id()
-        self.subaccount_id = int(subaccount_id)
+        self.subaccount_id = self._determine_subaccount_id(subaccount_id)
         self.referral_code = referral_code
 
     def _verify_wallet(self, wallet: Address) -> Address:
@@ -100,13 +98,13 @@ class BaseClient:
             raise ValueError(f"Smart Contract wallet owner mismatch: on-chain owner={owner}, signer={self.signer.address}")
         return wallet
 
-    def _get_first_subaccount_id(self) -> int:
-        self.logger.debug("No subaccount_id provided, fetching from API…")
+    def _determine_subaccount_id(self, subaccount_id: int | None) -> int:
         subaccounts = self.fetch_subaccounts()
-        self.logger.info(f"Subaccounts retrieved: {subaccounts!r}")
         if not (subaccount_ids := subaccounts.get("subaccount_ids", [])):
-            raise ValueError("No subaccounts found. Please create one on Derive first.")
-        subaccount_id = subaccount_ids[0]
+            raise ValueError(f"No subaccounts found for {self.wallet}. Please create one on Derive first.")
+        if subaccount_id is not None and subaccount_id not in subaccount_ids:
+            raise ValueError(f"Provided subaccount {subaccount_id} not among retrieved aubaccounts: {subaccounts!r}")
+        subaccount_id = subaccount_id or subaccount_ids[0]
         self.logger.info(f"Selected subaccount_id: {subaccount_id}")
         return subaccount_id
 
