@@ -38,6 +38,12 @@ class RPCEndPoints(Enum):
     DERIVE = LYRA = "https://rpc.lyra.finance"
 
 
+class SessionKeyScope(Enum):
+    ADMIN = "admin"
+    ACCOUNT = "account"
+    READ_ONLY = "read_only"
+
+
 class InstrumentType(Enum):
     """Instrument types."""
 

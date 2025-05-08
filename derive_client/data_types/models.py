@@ -11,7 +11,7 @@ from pydantic_core import core_schema
 from web3 import Web3
 from web3.datastructures import AttributeDict
 
-from .enums import ChainID, Currency, TxStatus
+from .enums import ChainID, Currency, TxStatus, SessionKeyScope
 
 
 class Address(str):
@@ -82,6 +82,14 @@ class NonMintableTokenData(TokenData):
 class DeriveAddresses(BaseModel):
     model_config = ConfigDict(arbitrary_types_allowed=True)
     chains: dict[ChainID, dict[Currency, MintableTokenData | NonMintableTokenData]]
+
+
+class SessionKey(BaseModel):
+    public_session_key: Address
+    expiry_sec: int
+    ip_whitelist: list
+    label: str
+    scope: SessionKeyScope
 
 
 @dataclass
