@@ -11,7 +11,7 @@ from pydantic_core import core_schema
 from web3 import Web3
 from web3.datastructures import AttributeDict
 
-from .enums import ChainID, Currency, TxStatus, SessionKeyScope, MarginType, MainnetCurrency
+from .enums import ChainID, Currency, MainnetCurrency, MarginType, SessionKeyScope, TxStatus
 
 
 class Address(str):

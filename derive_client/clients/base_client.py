@@ -26,14 +26,7 @@ from web3 import Web3
 from websocket import WebSocketConnectionClosedException, create_connection
 
 from derive_client._bridge import BridgeClient
-from derive_client.constants import (
-    CONFIGS,
-    DEFAULT_REFERER,
-    LIGHT_ACCOUNT_ABI_PATH,
-    PUBLIC_HEADERS,
-    TARGET_SPEED,
-    TOKEN_DECIMALS,
-)
+from derive_client.constants import CONFIGS, DEFAULT_REFERER, PUBLIC_HEADERS, TARGET_SPEED, TOKEN_DECIMALS
 from derive_client.data_types import (
     Address,
     ChainID,
@@ -43,18 +36,18 @@ from derive_client.data_types import (
     Currency,
     Environment,
     InstrumentType,
+    MainnetCurrency,
+    ManagerAddress,
+    MarginType,
     OrderSide,
     OrderStatus,
     OrderType,
     RfqStatus,
+    SessionKey,
     SubaccountType,
     TimeInForce,
     TxResult,
-    MarginType,
-    MainnetCurrency,
     UnderlyingCurrency,
-    SessionKey,
-    ManagerAddress,
 )
 from derive_client.utils import get_logger, get_prod_derive_addresses, get_w3_connection
 
@@ -103,7 +96,7 @@ class BaseClient:
     def _verify_wallet(self, wallet: Address):
         w3 = Web3(Web3.HTTPProvider(self.config.rpc_endpoint))
         if not w3.is_connected():
-            raise ConnectionError(f"Failed to connect to RPC at {rpc_url}")
+            raise ConnectionError(f"Failed to connect to RPC at {self.config.rpc_endpoint}")
         if not w3.eth.get_code(wallet):
             msg = f"{wallet} appears to be an EOA (no bytecode). Expected a smart-contract wallet on Derive."
             raise ValueError(msg)
@@ -290,6 +283,7 @@ class BaseClient:
             "referral_code": DEFAULT_REFERER if not self.referral_code else self.referral_code,
             **signed_action.to_json(),
         }
+        # breakpoint()
         response = self.submit_order(order)
         return response
 
