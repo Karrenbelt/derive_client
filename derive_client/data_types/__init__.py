@@ -16,6 +16,8 @@ from .enums import (
     TimeInForce,
     TxStatus,
     UnderlyingCurrency,
+    MarginType,
+    MainnetCurrency,
 )
 from .models import (
     Address,
@@ -26,6 +28,7 @@ from .models import (
     NonMintableTokenData,
     TxResult,
     SessionKey,
+    ManagerAddress,
 )
 
 __all__ = [

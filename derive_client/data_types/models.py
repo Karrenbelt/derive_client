@@ -11,7 +11,7 @@ from pydantic_core import core_schema
 from web3 import Web3
 from web3.datastructures import AttributeDict
 
-from .enums import ChainID, Currency, TxStatus, SessionKeyScope
+from .enums import ChainID, Currency, TxStatus, SessionKeyScope, MarginType, MainnetCurrency
 
 
 class Address(str):
@@ -90,6 +90,12 @@ class SessionKey(BaseModel):
     ip_whitelist: list
     label: str
     scope: SessionKeyScope
+
+
+class ManagerAddress(BaseModel):
+    address: Address
+    margin_type: MarginType
+    currency: MainnetCurrency | None
 
 
 @dataclass
