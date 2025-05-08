@@ -96,7 +96,6 @@ def test_create_sm_subaccount(derive_client):
         ("ETH-PERP", OrderSide.SELL, 10000, InstrumentType.PERP),
     ],
 )
-@pytest.mark.skip("'Order confirmation timeout' on v2-action-signing-python/examples/order.py")
 def test_create_order(derive_client, instrument_name, side, price, instrument_type):
     """
     Test the DeriveClient class.
@@ -182,7 +181,6 @@ def test_fetch_orders(derive_client):
     assert orders
 
 
-@pytest.mark.skip("'Order confirmation timeout' on v2-action-signing-python/examples/order.py")
 def test_cancel_order(derive_client):
     """
     Test the DeriveClient class.
@@ -199,7 +197,6 @@ def test_cancel_order(derive_client):
     assert result['order_id'] == order_id
 
 
-@pytest.mark.skip("'Order confirmation timeout' on v2-action-signing-python/examples/order.py")
 def test_cancel_all_orders(derive_client):
     """Test all open orders are cancelled."""
     derive_client.create_order(
