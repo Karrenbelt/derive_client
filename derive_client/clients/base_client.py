@@ -51,6 +51,7 @@ from derive_client.data_types import (
     TimeInForce,
     TxResult,
     UnderlyingCurrency,
+    SessionKey,
 )
 from derive_client.utils import get_logger, get_prod_derive_addresses, get_w3_connection
 
@@ -91,22 +92,22 @@ class BaseClient:
         self.logger = logger or get_logger()
         self.web3_client = Web3()
         self.signer = self.web3_client.eth.account.from_key(private_key)
-        self.wallet = self._verify_wallet(wallet)
+        self.wallet = wallet
+        self._verify_wallet(wallet)
         self.subaccount_id = self._determine_subaccount_id(subaccount_id)
         self.referral_code = referral_code
 
-    def _verify_wallet(self, wallet: Address) -> Address:
-        w3 = get_w3_connection(ChainID.DERIVE)
+    def _verify_wallet(self, wallet: Address):
+        w3 = Web3(Web3.HTTPProvider(self.config.rpc_endpoint))
+        if not w3.is_connected():
+            raise ConnectionError(f"Failed to connect to RPC at {rpc_url}")
         if not w3.eth.get_code(wallet):
             msg = f"{wallet} appears to be an EOA (no bytecode). Expected a smart-contract wallet on Derive."
             raise ValueError(msg)
-        abi = json.loads(LIGHT_ACCOUNT_ABI_PATH.read_text())
-        contract = w3.eth.contract(address=wallet, abi=abi)
-        owner = contract.functions.owner().call()
-        if not owner == self.signer.address:
-            msg = f"Smart Contract wallet owner mismatch: on-chain owner={owner}, signer={self.signer.address}"
+        session_keys = self._get_session_keys(wallet)
+        if not any(self.signer.address == s.public_session_key for s in session_keys):
+            msg = f"{self.signer.address} is not among registered session keys for wallet {wallet}."
             raise ValueError(msg)
-        return wallet
 
     def _determine_subaccount_id(self, subaccount_id: int | None) -> int:
         subaccounts = self.fetch_subaccounts()
@@ -204,6 +205,15 @@ class BaseClient:
             "currency": currency.name,
         }
         return self._send_request(url, json=payload, headers=PUBLIC_HEADERS)
+
+    def _get_session_keys(self, wallet: Address) -> list[SessionKey]:
+        url = f"{self.config.base_url}/private/session_keys"
+        payload = {"wallet": wallet}
+        session_keys = self._send_request(url, json=payload)
+        if not (public_session_keys := session_keys.get("public_session_keys")):
+            msg = f"No session keys registered for this wallet: {wallet}"
+            raise ValueError(msg)
+        return list(map(lambda kwargs: SessionKey(**kwargs), public_session_keys))
 
     def fetch_subaccounts(self):
         """
