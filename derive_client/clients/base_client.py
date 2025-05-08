@@ -50,8 +50,11 @@ from derive_client.data_types import (
     SubaccountType,
     TimeInForce,
     TxResult,
+    MarginType,
+    MainnetCurrency,
     UnderlyingCurrency,
     SessionKey,
+    ManagerAddress,
 )
 from derive_client.utils import get_logger, get_prod_derive_addresses, get_w3_connection
 
@@ -818,24 +821,25 @@ class BaseClient:
         deposit_currency = UnderlyingCurrency[asset_name]
         currency = self.fetch_currency(asset_name)
         underlying_address = currency['protocol_asset_addresses']['spot']
-        manager_addresses = currency['managers']
+        managers = list(map(lambda kwargs: ManagerAddress(**kwargs), currency['managers']))
+        manager_by_type = {}
+        for manager in managers:
+            manager_by_type.setdefault((manager.margin_type, manager.currency), []).append(manager)
 
-        if len(manager_addresses) == 1:
-            manager_address = manager_addresses[0].get('address')
-        else:
-            to_account = self.fetch_subaccount(subaccount_id)
-            account_type = (
-                SubaccountType.STANDARD if to_account.get("margin_type") == "SM" else SubaccountType.PORTFOLIO
-            )
-            account_currency = UnderlyingCurrency[to_account.get("currency")]
-            index = (
-                0 if account_type is SubaccountType.STANDARD else 1 if account_currency is UnderlyingCurrency.ETH else 2
-            )
-            manager_address = manager_addresses[index].get('address')
+        to_account = self.fetch_subaccount(subaccount_id)
+        account_currency = MainnetCurrency[to_account.get("currency")]
+        margin_type = MarginType[to_account.get("margin_type")]
 
-        if not manager_address or not underlying_address:
+        def get_unique_manager(margin_type, currency):
+            matches = manager_by_type.get((margin_type, currency), [])
+            if len(matches) != 1:
+                raise ValueError(f"Expected exactly one ManagerAddress for {(margin_type, currency)}, found {matches}")
+            return matches[0]
+
+        manager = get_unique_manager(margin_type, account_currency)
+        if not manager.address or not underlying_address:
             raise Exception(f"Unable to find manager address or underlying address for {asset_name}")
-        return manager_address, underlying_address, TOKEN_DECIMALS[deposit_currency]
+        return manager.address, underlying_address, TOKEN_DECIMALS[deposit_currency]
 
     def transfer_from_subaccount_to_funding(self, amount: int, asset_name: str, subaccount_id: int):
         """
