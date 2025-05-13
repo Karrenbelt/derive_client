@@ -41,9 +41,9 @@ from derive_client.data_types import (
     MintableTokenData,
     NonMintableTokenData,
     RPCEndPoints,
-    TxStatus,
+    TxResult,
 )
-from derive_client.utils import get_contract, get_erc20_contract, sign_and_send_tx
+from derive_client.utils import get_contract, get_erc20_contract, send_and_confirm_tx
 
 
 class BridgeClient:
@@ -90,7 +90,7 @@ class BridgeClient:
 
     def deposit(
         self, amount: int, receiver: Address, connector: Address, token_data: NonMintableTokenData | MintableTokenData
-    ):
+    ) -> TxResult:
         """
         Deposit funds by preparing, signing, and sending a bridging transaction.
         """
@@ -119,14 +119,10 @@ class BridgeClient:
             deposit_helper=self.deposit_helper,
         )
 
-        tx_receipt = sign_and_send_tx(self.w3, tx, self.account._private_key)
-        if tx_receipt.status == TxStatus.SUCCESS:
-            print("Deposit successful!")
-            return tx_receipt
-        else:
-            raise Exception("Deposit transaction reverted.")
+        tx_result = send_and_confirm_tx(w3=self.w3, tx=tx, private_key=self.account._private_key, action="bridge()")
+        return tx_result
 
-    def bridge_mainnet_eth_to_derive(self, amount: int) -> dict:
+    def bridge_mainnet_eth_to_derive(self, amount: int) -> TxResult:
         """
         Prepares, signs, and sends a transaction to bridge ETH from mainnet to Derive.
         This is the "socket superbridge" method; not required when using the withdraw wrapper.
@@ -139,13 +135,8 @@ class BridgeClient:
         proxy_contract = get_contract(w3=w3, address=address, abi=bridge_abi)
 
         tx = prepare_mainnet_to_derive_gas_tx(w3=w3, account=self.account, amount=amount, proxy_contract=proxy_contract)
-        tx_receipt = sign_and_send_tx(w3=w3, tx=tx, private_key=self.account._private_key)
-
-        if tx_receipt.status == TxStatus.SUCCESS:
-            print("Bridge deposit successful!")
-            return tx_receipt
-        else:
-            raise Exception("Deposit transaction reverted.")
+        tx_result = send_and_confirm_tx(w3=w3, tx=tx, private_key=self.account._private_key, action="bridgeETH()")
+        return tx_result
 
     def withdraw_with_wrapper(
         self,
@@ -154,7 +145,7 @@ class BridgeClient:
         token_data: MintableTokenData,
         wallet: Address,
         private_key: str,
-    ):
+    ) -> TxResult:
         """
         Checks if sufficent gas is available in derive, if not funds the wallet.
         Prepares, signs, and sends a withdrawal transaction using the withdraw wrapper.
@@ -216,9 +207,5 @@ class BridgeClient:
             light_account=light_account,
         )
 
-        tx_receipt = sign_and_send_tx(w3=self.w3, tx=tx, private_key=private_key)
-        if tx_receipt.status == TxStatus.SUCCESS:
-            print(f"Bridge from Derive to {self.chain_id.name} successful!")
-            return tx_receipt
-        else:
-            raise Exception("Bridge transaction reverted.")
+        tx_result = send_and_confirm_tx(w3=self.w3, tx=tx, private_key=private_key, action="executeBatch()")
+        return tx_result

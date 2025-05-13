@@ -4,7 +4,7 @@ from web3.contract import Contract
 
 from derive_client.constants import DEFAULT_GAS_FUNDING_AMOUNT, DEPOSIT_GAS_LIMIT, MSG_GAS_LIMIT, PAYLOAD_SIZE
 from derive_client.data_types import Address, ChainID, MintableTokenData, NonMintableTokenData, TxStatus
-from derive_client.utils import estimate_fees, exp_backoff_retry, sign_and_send_tx
+from derive_client.utils import estimate_fees, exp_backoff_retry, send_and_confirm_tx
 
 
 def ensure_balance(token_contract: Contract, owner: Address, amount: int):
@@ -52,15 +52,9 @@ def increase_allowance(
             "gasPrice": w3.eth.gas_price,
         }
     )
-
-    try:
-        tx_receipt = sign_and_send_tx(w3, tx=tx, private_key=private_key)
-        if tx_receipt.status == TxStatus.SUCCESS:
-            print("Transaction succeeded!")
-        else:
-            raise Exception("Transaction reverted.")
-    except Exception as error:
-        raise error
+    tx_result = send_and_confirm_tx(w3=w3, tx=tx, private_key=private_key, action="approve()")
+    if tx_result.status != TxStatus.SUCCESS:
+        raise RuntimeError("approve() failed")
 
 
 def get_min_fees(

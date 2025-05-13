@@ -4,8 +4,10 @@ from enum import Enum, IntEnum
 
 
 class TxStatus(IntEnum):
-    FAILED = 0
-    SUCCESS = 1
+    FAILED = 0  # confirmed and status == 0 (on-chain revert)
+    SUCCESS = 1  # confirmed and status == 1
+    PENDING = 2  # not yet confirmed, no receipt
+    ERROR = 3  # local error, e.g. connection, invalid tx
 
 
 class ChainID(IntEnum):
@@ -34,6 +36,23 @@ class RPCEndPoints(Enum):
     ARBITRUM = "https://arbitrum.drpc.org"
     BLAST = "https://blast.drpc.org"
     DERIVE = LYRA = "https://rpc.lyra.finance"
+
+
+class SessionKeyScope(Enum):
+    ADMIN = "admin"
+    ACCOUNT = "account"
+    READ_ONLY = "read_only"
+
+
+class MainnetCurrency(Enum):
+    BTC = "BTC"
+    ETH = "ETH"
+
+
+class MarginType(Enum):
+    SM = "SM"
+    PM = "PM"
+    PM2 = "PM2"
 
 
 class InstrumentType(Enum):
