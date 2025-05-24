@@ -827,7 +827,10 @@ class BaseClient:
             manager_by_type.setdefault((manager.margin_type, manager.currency), []).append(manager)
 
         to_account = self.fetch_subaccount(subaccount_id)
-        account_currency = MainnetCurrency[to_account.get("currency")]
+        account_currency = None
+        if to_account.get("currency") != "all":
+            account_currency = MainnetCurrency[to_account.get("currency")]
+
         margin_type = MarginType[to_account.get("margin_type")]
 
         def get_unique_manager(margin_type, currency):
