@@ -9,13 +9,20 @@ import click
 from dotenv import load_dotenv
 
 from derive_client import DeriveClient
-from derive_client.data_types import CollateralAsset, Environment
+from derive_client.data_types import Environment, UnderlyingCurrency
 
 
 @click.command()
-@click.option('--signer-key-path', required=True, help='Path to signer key file')
-@click.option('--derive-sc-wallet', required=True, help='Derive SC wallet address')
-def main(signer_key_path, derive_sc_wallet):
+@click.option("--signer-key-path", required=True, help="Path to signer key file")
+@click.option("--derive-sc-wallet", required=True, help="Derive SC wallet address")
+@click.option(
+    "--asset",
+    type=click.Choice([c.name for c in UnderlyingCurrency]),
+    default=UnderlyingCurrency.USDC.name,
+    required=True,
+    help="The asset to transfer",
+)
+def main(signer_key_path, derive_sc_wallet, asset: str):
     key_file = Path(signer_key_path)
     if not key_file.exists():
         click.echo(f"Signer key file not found: {signer_key_path}")
@@ -33,18 +40,19 @@ def main(signer_key_path, derive_sc_wallet):
         env=Environment.PROD,
         subaccount_id=subaccount_id,
     )
+    asset_name = UnderlyingCurrency[asset].name
 
-    if click.confirm("Withdraw USDC from subaccount to funding account?", default=False):
+    if click.confirm(f"Withdraw {asset_name} from subaccount to funding account?", default=False):
         to_funding_req = client.transfer_from_subaccount_to_funding(
             subaccount_id=client.subaccount_id,
-            asset_name=CollateralAsset.USDC.name,
+            asset_name=asset_name,
             amount=0.1,
         )
         print(f"Transfer from subaccount {client.subaccount_id} to funding account: {to_funding_req}")
-    elif click.confirm("Withdraw USDC from funding account to subaccount?", default=False):
+    elif click.confirm(f"Withdraw {asset_name} from funding account to subaccount?", default=False):
         to_subaccount_req = client.transfer_from_funding_to_subaccount(
             subaccount_id=subaccount_id,
-            asset_name=CollateralAsset.USDC.name,
+            asset_name=asset_name,
             amount=0.1,
         )
         print(f"Transfer from funding account to subaccount {client.subaccount_id}: {to_subaccount_req}")
@@ -52,5 +60,5 @@ def main(signer_key_path, derive_sc_wallet):
         print("No transfer action selected.")
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()
