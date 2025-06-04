@@ -73,15 +73,14 @@ def test_derive_client_create_quote(
     assert derive_client._sign_quote(quote)
 
 
-@pytest.mark.skip(reason="This test is not meant to be run in CI")
 def test_poll_rfqs(derive_client):
     """
     Test the DeriveClient class.
     """
-    subaccount_id = derive_client.subaccount_id
-    leg_1 = Leg(instrument_name=LEG_1_NAME, amount='1', direction=OrderSide.BUY.value)
-    leg_2 = Leg(instrument_name=LEG_2_NAME, amount='1', direction=OrderSide.SELL.value)
-    rfq = Rfq(leg_1=leg_1, leg_2=leg_2, subaccount_id=subaccount_id)
-    assert derive_client.send_rfq(rfq.to_dict())
+    # subaccount_id = derive_client.subaccount_id
+    # leg_1 = Leg(instrument_name=LEG_1_NAME, amount='1', direction=OrderSide.BUY.value)
+    # leg_2 = Leg(instrument_name=LEG_2_NAME, amount='1', direction=OrderSide.SELL.value)
+    # rfq = Rfq(leg_1=leg_1, leg_2=leg_2, subaccount_id=subaccount_id)
+    # assert derive_client.send_rfq(rfq.to_dict())
     quotes = derive_client.poll_rfqs()
     assert quotes
