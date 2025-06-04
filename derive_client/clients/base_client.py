@@ -707,7 +707,10 @@ class BaseClient:
             "subaccount_id": self.subaccount_id,
             "status": RfqStatus.OPEN.value,
         }
-        return self._send_request(url, params=params)
+        return self._send_request(
+            url,
+            json=params,
+        )
 
     def send_quote(self, quote):
         """Send a quote."""
