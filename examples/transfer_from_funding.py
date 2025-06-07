@@ -9,7 +9,7 @@ import click
 from dotenv import load_dotenv
 
 from derive_client import DeriveClient
-from derive_client.data_types import Environment, UnderlyingCurrency
+from derive_client.data_types import Currency, Environment
 
 
 @click.command()
@@ -17,8 +17,8 @@ from derive_client.data_types import Environment, UnderlyingCurrency
 @click.option("--derive-sc-wallet", required=True, help="Derive SC wallet address")
 @click.option(
     "--asset",
-    type=click.Choice([c.name for c in UnderlyingCurrency]),
-    default=UnderlyingCurrency.USDC.name,
+    type=click.Choice([c.name for c in Currency]),
+    default=Currency.USDC.name,
     required=True,
     help="The asset to transfer",
 )
@@ -50,7 +50,8 @@ def main(signer_key_path, derive_sc_wallet, asset: str, amount: float):
         env=Environment.PROD,
         subaccount_id=subaccount_id,
     )
-    asset_name = UnderlyingCurrency[asset].name
+
+    asset_name = Currency[asset].name
 
     if click.confirm(f"Withdraw {asset_name} from subaccount to funding account?", default=False):
         to_funding_req = client.transfer_from_subaccount_to_funding(

@@ -1,6 +1,7 @@
 import json
+
 from derive_client.constants import DATA_DIR
-from derive_client.data_types import Currency, ChainID
+from derive_client.data_types import ChainID, Currency
 
 prod_lyra_addresses = DATA_DIR / "prod_lyra_addresses.json"
 
