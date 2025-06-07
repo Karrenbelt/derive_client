@@ -11,6 +11,11 @@ from dotenv import load_dotenv
 from derive_client import DeriveClient
 from derive_client.data_types import Currency, Environment
 
+directions = {
+    "transfer_from_subaccount_to_funding": "Withdraw from subaccount to funding account",
+    "transfer_from_funding_to_subaccount": "Transfer from funding account to subaccount",
+}
+
 
 @click.command()
 @click.option("--signer-key-path", required=True, help="Path to signer key file")
@@ -29,7 +34,19 @@ from derive_client.data_types import Currency, Environment
     required=True,
     help="The amount to transfer",
 )
-def main(signer_key_path, derive_sc_wallet, currency: str, amount: float):
+@click.option(
+    "--function",
+    type=click.Choice(directions.keys()),
+    help="Function to execute: transfer_subaccount_to_funding or transfer_funding_to_subaccount",
+    default="transfer_from_subaccount_to_funding",
+)
+@click.option(
+    "--auto-confirm",
+    is_flag=True,
+    default=False,
+    help="Confirm the transfer automatically without prompting",
+)
+def main(signer_key_path, derive_sc_wallet, currency: str, amount: float, function: str, auto_confirm: bool):
     """
     python examples/transfer_from_funding.py --signer-key-path ethereum_private_key.txt --derive-sc-wallet="0x0000000000000000000000000000000000000000" --currency "DRV"
     """  # noqa: E501
@@ -52,32 +69,34 @@ def main(signer_key_path, derive_sc_wallet, currency: str, amount: float):
         subaccount_id=subaccount_id,
     )
 
-    if click.confirm(
-        f"Withdraw {amount} of {currency} from subaccount to funding account?",
-        default=False,
+    click.echo(f"Using subaccount ID: {client.subaccount_id}")
+    click.echo(f"Using currency: {currency.name}")
+    click.echo(f"Using amount: {amount}")
+    click.echo(f"Using function: {function}")
+
+    func = getattr(client, function, None)
+    if func is None:
+        click.echo(f"Function {function} not found in DeriveClient.")
+        return
+    if auto_confirm:
+        click.echo(f"Auto-confirming transfer of {amount} {currency.name}.")
+    else:
+        click.echo(f"Transfer function: {function} will be executed manually.")
+    if not auto_confirm and not click.confirm(
+        f"Do you want to proceed with the transfer of {amount} {currency.name}?",
+        default=True,
     ):
-        to_funding_req = client.transfer_from_subaccount_to_funding(
+        click.echo("Transfer cancelled.")
+        return
+    try:
+        response = func(
             subaccount_id=client.subaccount_id,
             asset_name=currency.name,
             amount=amount,
         )
-        print(
-            f"Transfer from subaccount {client.subaccount_id} to funding account: {to_funding_req}"
-        )
-    elif click.confirm(
-        f"Transfer {amount} {currency} from funding account to subaccount?",
-        default=False,
-    ):
-        to_subaccount_req = client.transfer_from_funding_to_subaccount(
-            subaccount_id=subaccount_id,
-            asset_name=currency.name,
-            amount=amount,
-        )
-        print(
-            f"Transfer from funding account to subaccount {client.subaccount_id}: {to_subaccount_req}"
-        )
-    else:
-        print("No transfer action selected.")
+        click.echo(f"Transfer response: {response}")
+    except Exception as e:
+        click.echo(f"An error occurred during the transfer: {e}")
 
 
 if __name__ == "__main__":
