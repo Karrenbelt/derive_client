@@ -77,6 +77,7 @@ class UnderlyingCurrency(Enum):
     rsETH = "rseth"
     DAI = "dai"
     USDT = "usdt"
+    OLAS = "olas"
 
 
 class Currency(Enum):
