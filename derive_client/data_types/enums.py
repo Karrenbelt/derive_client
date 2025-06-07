@@ -80,7 +80,7 @@ class UnderlyingCurrency(Enum):
 
 
 class Currency(Enum):
-    """Depositable currencies..."""
+    """Depositable currencies"""
 
     weETH = "weETH"
     rswETH = "rswETH"
@@ -97,6 +97,12 @@ class Currency(Enum):
     sDAI = "sDAI"
     cbBTC = "cbBTC"
     eBTC = "eBTC"
+    AAVE = "AAVE"
+    OLAS = "OLAS"
+
+    # not in prod_lyra_addresses.json
+    DRV = "DRV"
+
     # old style deposits
     WBTC = "WBTC"
     WETH = "WETH"
