@@ -16,11 +16,11 @@ from derive_client.data_types import Currency, Environment
 @click.option("--signer-key-path", required=True, help="Path to signer key file")
 @click.option("--derive-sc-wallet", required=True, help="Derive SC wallet address")
 @click.option(
-    "--asset",
+    "--currency",
     type=click.Choice([c.name for c in Currency]),
     default=Currency.USDC.name,
     required=True,
-    help="The asset to transfer",
+    help="The currency to transfer",
 )
 @click.option(
     "--amount",
@@ -29,9 +29,9 @@ from derive_client.data_types import Currency, Environment
     required=True,
     help="The amount to transfer",
 )
-def main(signer_key_path, derive_sc_wallet, asset: str, amount: float):
+def main(signer_key_path, derive_sc_wallet, currency: str, amount: float):
     """
-    python examples/transfer_from_funding.py --signer-key-path ethereum_private_key.txt --derive-sc-wallet="0x0000000000000000000000000000000000000000" --asset "DRV"
+    python examples/transfer_from_funding.py --signer-key-path ethereum_private_key.txt --derive-sc-wallet="0x0000000000000000000000000000000000000000" --currency "DRV"
     """  # noqa: E501
     key_file = Path(signer_key_path)
     if not key_file.exists():
@@ -44,6 +44,7 @@ def main(signer_key_path, derive_sc_wallet, asset: str, amount: float):
         click.echo("SUBACCOUNT_ID not found in environment variables.")
         return
 
+    currency = Currency[currency]
     client = DeriveClient(
         private_key=key_file.read_text(),
         wallet=derive_sc_wallet,
@@ -51,22 +52,30 @@ def main(signer_key_path, derive_sc_wallet, asset: str, amount: float):
         subaccount_id=subaccount_id,
     )
 
-    asset_name = Currency[asset].name
-
-    if click.confirm(f"Withdraw {asset_name} from subaccount to funding account?", default=False):
+    if click.confirm(
+        f"Withdraw {amount} of {currency} from subaccount to funding account?",
+        default=False,
+    ):
         to_funding_req = client.transfer_from_subaccount_to_funding(
             subaccount_id=client.subaccount_id,
-            asset_name=asset_name,
+            asset_name=currency.name,
             amount=amount,
         )
-        print(f"Transfer from subaccount {client.subaccount_id} to funding account: {to_funding_req}")
-    elif click.confirm(f"Withdraw {asset_name} from funding account to subaccount?", default=False):
+        print(
+            f"Transfer from subaccount {client.subaccount_id} to funding account: {to_funding_req}"
+        )
+    elif click.confirm(
+        f"Transfer {amount} {currency} from funding account to subaccount?",
+        default=False,
+    ):
         to_subaccount_req = client.transfer_from_funding_to_subaccount(
             subaccount_id=subaccount_id,
-            asset_name=asset_name,
+            asset_name=currency.name,
             amount=amount,
         )
-        print(f"Transfer from funding account to subaccount {client.subaccount_id}: {to_subaccount_req}")
+        print(
+            f"Transfer from funding account to subaccount {client.subaccount_id}: {to_subaccount_req}"
+        )
     else:
         print("No transfer action selected.")
 

@@ -108,9 +108,9 @@ class Currency(Enum):
     WETH = "WETH"
     USDC = "USDC"
     USDT = "USDT"
-    SNX = "SNX"
     wstETH = "wstETH"
     USDCe = "USDC.e"
+    SNX = "SNX"
 
 
 class OrderSide(Enum):
