@@ -767,12 +767,13 @@ class BaseClient:
         if not manager_address or not underlying_address:
             raise Exception(f"Unable to find manager address or underlying address for {asset_name}")
 
+        currency = UnderlyingCurrency[asset_name.upper()]
         deposit_module_data = DepositModuleData(
             amount=str(amount),
             asset=underlying_address,
             manager=manager_address,
             decimals=decimals,
-            asset_name=asset_name,
+            asset_name=currency.name,
         )
 
         sender_action = SignedAction(
@@ -789,7 +790,7 @@ class BaseClient:
         sender_action.sign(self.signer.key)
         payload = {
             "amount": str(amount),
-            "asset_name": asset_name,
+            "asset_name": currency.name,
             "is_atomic_signing": False,
             "nonce": sender_action.nonce,
             "signature": sender_action.signature,
@@ -818,8 +819,8 @@ class BaseClient:
         If SM, use the standard manager address
         If PM, use the appropriate manager address based on the currency of the subaccount
         """
-        deposit_currency = UnderlyingCurrency[asset_name]
-        currency = self.fetch_currency(asset_name)
+        deposit_currency = UnderlyingCurrency[asset_name.upper()]
+        currency = self.fetch_currency(asset_name.upper())
         underlying_address = currency['protocol_asset_addresses']['spot']
         managers = list(map(lambda kwargs: ManagerAddress(**kwargs), currency['managers']))
         manager_by_type = {}
@@ -852,11 +853,12 @@ class BaseClient:
         if not manager_address or not underlying_address:
             raise Exception(f"Unable to find manager address or underlying address for {asset_name}")
 
+        currency = UnderlyingCurrency[asset_name.upper()]
         module_data = WithdrawModuleData(
             amount=str(amount),
             asset=underlying_address,
             decimals=decimals,
-            asset_name=asset_name,
+            asset_name=currency.name,
         )
         sender_action = SignedAction(
             subaccount_id=subaccount_id,
@@ -873,7 +875,7 @@ class BaseClient:
         payload = {
             "is_atomic_signing": False,
             "amount": str(amount),
-            "asset_name": asset_name,
+            "asset_name": currency.name,
             "nonce": sender_action.nonce,
             "signature": sender_action.signature,
             "signature_expiry_sec": sender_action.signature_expiry_sec,

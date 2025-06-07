@@ -127,6 +127,8 @@ TOKEN_DECIMALS = {
     UnderlyingCurrency.rsETH: 18,
     UnderlyingCurrency.DAI: 18,
     UnderlyingCurrency.USDT: 6,
+    UnderlyingCurrency.OLAS: 18,
+    UnderlyingCurrency.DRV: 18,
 }
 
 NEW_VAULT_ABI_PATH = ABI_DATA_DIR / "socket_superbridge_vault.json"
