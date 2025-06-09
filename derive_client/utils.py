@@ -8,15 +8,19 @@ import logging
 import sys
 import time
 from collections import defaultdict
+from typing import Sequence
 
+import requests
 from hexbytes import HexBytes
+from requests.adapters import HTTPAdapter
 from rich.logging import RichHandler
+from urllib3.util.retry import Retry
 from web3 import Web3
 from web3.contract import Contract
 from web3.datastructures import AttributeDict
 
 from derive_client.constants import ABI_DATA_DIR, DATA_DIR
-from derive_client.data_types import ChainID, DeriveAddresses, RPCEndPoints, TxResult, TxStatus
+from derive_client.data_types import ChainID, DeriveAddresses, MintableTokenData, RPCEndPoints, TxResult, TxStatus
 
 
 def get_logger():
@@ -52,14 +56,14 @@ def get_prod_derive_addresses() -> DeriveAddresses:
     for chain_id, data in json.loads(prod_lyra_addresses.read_text()).items():
         chain_data = {}
         for currency, item in data.items():
-            item['isNewBridge'] = True
+            item["isNewBridge"] = True
             chain_data[currency] = item
         chains[chain_id] = chain_data
 
     for chain_id, data in json.loads(old_prod_lyra_addresses.read_text()).items():
         current_chain_data = chains[chain_id]
         for currency, item in data.items():
-            item['isNewBridge'] = False
+            item["isNewBridge"] = False
             current_chain_data[currency] = item
     return DeriveAddresses(chains=chains)
 
@@ -105,7 +109,11 @@ def sign_and_send_tx(w3: Web3, tx: dict, private_key: str) -> HexBytes:
 
 
 def send_and_confirm_tx(
-    w3: Web3, tx: dict, private_key: str, *, action: str  # e.g. "approve()", "deposit()", "withdraw()"
+    w3: Web3,
+    tx: dict,
+    private_key: str,
+    *,
+    action: str,  # e.g. "approve()", "deposit()", "withdraw()"
 ) -> TxResult:
     tx_result = TxResult(tx_hash="", tx_receipt=None, exception=None)
 
@@ -138,9 +146,9 @@ def send_and_confirm_tx(
 
 
 def estimate_fees(w3, percentiles: list[int], blocks=20, default_tip=10_000):
-    fee_history = w3.eth.fee_history(blocks, 'pending', percentiles)
-    base_fees = fee_history['baseFeePerGas']
-    rewards = fee_history['reward']
+    fee_history = w3.eth.fee_history(blocks, "pending", percentiles)
+    base_fees = fee_history["baseFeePerGas"]
+    rewards = fee_history["reward"]
 
     # Calculate average priority fees for each percentile
     avg_priority_fees = []
@@ -159,7 +167,7 @@ def estimate_fees(w3, percentiles: list[int], blocks=20, default_tip=10_000):
     fee_estimations = []
     for priority_fee in avg_priority_fees:
         max_fee = latest_base_fee + priority_fee
-        fee_estimations.append({'maxFeePerGas': max_fee, 'maxPriorityFeePerGas': priority_fee})
+        fee_estimations.append({"maxFeePerGas": max_fee, "maxPriorityFeePerGas": priority_fee})
 
     return fee_estimations
 
@@ -182,3 +190,106 @@ def exp_backoff_retry(func=None, *, attempts=3, initial_delay=1, exceptions=(Exc
                 delay *= 2
 
     return wrapper
+
+
+@functools.lru_cache
+def get_retry_session(
+    total_retries: int = 5,
+    backoff_factor: float = 1.0,
+    status_forcelist: Sequence[int] = (429, 500, 502, 503, 504),
+    allowed_methods: Sequence[str] = (
+        "GET",
+        "POST",
+        "PUT",
+        "DELETE",
+        "HEAD",
+        "OPTIONS",
+    ),
+    raise_on_status: bool = False,
+) -> requests.Session:
+    session = requests.Session()
+    retry = Retry(
+        total=total_retries,
+        read=total_retries,
+        connect=total_retries,
+        backoff_factor=backoff_factor,
+        status_forcelist=list(status_forcelist),
+        allowed_methods=list(allowed_methods),
+        respect_retry_after_header=True,
+        raise_on_status=raise_on_status,
+    )
+    adapter = HTTPAdapter(max_retries=retry)
+    session.mount("http://", adapter)
+    session.mount("https://", adapter)
+
+    logger = get_logger()
+    logger.setLevel(logging.DEBUG)
+
+    def log_response(r, *args, **kwargs):
+        logger.info(f"Response {r.request.method} {r.url} (status {r.status_code})")
+
+    session.hooks["response"] = [log_response]
+    return session
+
+
+def get_abi(network_id, contract_address):
+    ABI_DATA_URL = "https://abidata.net"
+    url = f"{ABI_DATA_URL}/{contract_address}"
+    if network_id != "ethereum":
+        url = url + f"/?network={network_id}"
+
+    session = get_retry_session()
+    response = session.get(url, timeout=10)
+    response.raise_for_status()
+    return response.json()
+
+
+if __name__ == "__main__":
+    chain_id_to_network_id = {
+        ChainID.ETH: "ethereum",
+        ChainID.OPTIMISM: "optimism",
+        ChainID.ARBITRUM: "arbitrum",
+        ChainID.BASE: "base",
+    }
+
+    prod_addresses = get_prod_derive_addresses()
+
+    chain_addresses = {}
+    for chain_id, currencies in prod_addresses.chains.items():
+        contract_addresses = []
+        for currency, token_data in currencies.items():
+            if isinstance(token_data, MintableTokenData):
+                contract_addresses.append(token_data.Controller)
+                contract_addresses.append(token_data.MintableToken)
+            else:  # NonMintableTokenData
+                contract_addresses.append(token_data.Vault)
+                contract_addresses.append(token_data.NonMintableToken)
+
+            if token_data.LyraTSADepositHook is not None:
+                contract_addresses.append(token_data.LyraTSADepositHook)
+            if token_data.LyraTSAShareHandlerDepositHook is not None:
+                contract_addresses.append(token_data.LyraTSAShareHandlerDepositHook)
+            for connector_chain_id, connectors in token_data.connectors.items():
+                contract_addresses.append(connectors["FAST"])
+        chain_addresses[chain_id] = contract_addresses
+
+    failures = []
+    abi_path = ABI_DATA_DIR.parent / "abis"
+    for chain_id, addresses in chain_addresses.items():
+        if (network_id := chain_id_to_network_id.get(chain_id)) is None:
+            print(f"Network not supported by abidata.net: {chain_id.name}")
+            continue
+        for address in addresses:
+            try:
+                abi = get_abi(network_id=network_id, contract_address=address)
+            except Exception as e:
+                failures.append(f"{network_id}: {address}: {e}")
+                continue
+            contract_abi_path = abi_path / network_id / f"{address}.json"
+            contract_abi_path.parent.mkdir(exist_ok=True, parents=True)
+            contract_abi_path.write_text(json.dumps(abi, indent=4))
+
+    if failures:
+        logger = get_logger()
+        unattained = "\n".join(failures)
+        logger.error(f"Failed to fetch:\n{unattained}")
