@@ -19,10 +19,9 @@ eth-account = ">=0.13"
 derive-action-signing = "^0.0.11"
 pydantic = "^2.11.3"
 
-
 [tool.poetry.scripts]
 drv = "derive_client.cli:cli"
-
+fetch-drv-abis = "derive_client.utils.abi:download_prod_address_abis"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^7.4.2"
