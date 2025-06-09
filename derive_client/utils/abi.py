@@ -9,25 +9,26 @@ from derive_client.utils.prod_addresses import get_prod_derive_addresses
 from derive_client.utils.retry import get_retry_session
 from derive_client.utils.w3 import get_w3_connection
 
+TIMEOUT = 10
 EIP1967_SLOT = (int.from_bytes(Web3.keccak(text="eip1967.proxy.implementation")[:32], "big") - 1).to_bytes(32, "big")
 
-CHAIN_ID_TO_NETWORK_ID = {
-    ChainID.ETH: "ethereum",
-    ChainID.OPTIMISM: "optimism",
-    ChainID.ARBITRUM: "arbitrum",
-    ChainID.BASE: "base",
+
+CHAIN_ID_TO_URL = {
+    ChainID.ETH: "https://abidata.net/{address}",
+    ChainID.OPTIMISM: "https://abidata.net/{address}?network=optimism",
+    ChainID.ARBITRUM: "https://abidata.net/{address}?network=arbitrum",
+    ChainID.BASE: "https://abidata.net/{address}?network=base",
+    ChainID.DERIVE: "https://explorer.derive.xyz/api?module=contract&action=getabi&address={address}",
 }
 
 
-def _get_abi(network_id, contract_address):
-    ABI_DATA_URL = "https://abidata.net"
-    url = f"{ABI_DATA_URL}/{contract_address}"
-    if network_id != "ethereum":
-        url = url + f"/?network={network_id}"
-
+def _get_abi(chain_id, contract_address: str):
+    url = CHAIN_ID_TO_URL[chain_id].format(address=contract_address)
     session = get_retry_session()
-    response = session.get(url, timeout=10)
+    response = session.get(url, timeout=TIMEOUT)
     response.raise_for_status()
+    if chain_id == ChainID.DERIVE:
+        return response.json()["result"]
     return response.json()["abi"]
 
 
@@ -79,7 +80,7 @@ def download_prod_address_abis():
         proxy_mapping = {}
         w3 = get_w3_connection(chain_id=chain_id)
 
-        if (network_id := CHAIN_ID_TO_NETWORK_ID.get(chain_id)) is None:
+        if chain_id not in CHAIN_ID_TO_URL:
             logger.info(f"Network not supported by abidata.net: {chain_id.name}")
             continue
 
@@ -90,16 +91,16 @@ def download_prod_address_abis():
                 addresses.append(impl_address)
                 proxy_mapping[address] = impl_address
             try:
-                abi = _get_abi(network_id=network_id, contract_address=address)
+                abi = _get_abi(chain_id=chain_id, contract_address=address)
             except Exception as e:
-                failures.append(f"{network_id}: {address}: {e}")
+                failures.append(f"{chain_id.name}: {address}: {e}")
                 continue
 
-            contract_abi_path = abi_path / network_id / f"{address}.json"
+            contract_abi_path = abi_path / chain_id.name.lower() / f"{address}.json"
             contract_abi_path.parent.mkdir(exist_ok=True, parents=True)
             contract_abi_path.write_text(json.dumps(abi, indent=4))
 
-        proxy_mapping_path = abi_path / network_id / "proxy_mapping.json"
+        proxy_mapping_path = abi_path / chain_id.name.lower() / "proxy_mapping.json"
         proxy_mapping_path.write_text(json.dumps(proxy_mapping, indent=4))
 
     if failures:
