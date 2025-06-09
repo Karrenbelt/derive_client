@@ -28,7 +28,7 @@ def _get_abi(chain_id, contract_address: str):
     response = session.get(url, timeout=TIMEOUT)
     response.raise_for_status()
     if chain_id == ChainID.DERIVE:
-        return response.json()["result"]
+        return json.loads(response.json()["result"])
     return response.json()["abi"]
 
 
