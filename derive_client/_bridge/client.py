@@ -242,9 +242,10 @@ class BridgeClient:
         controller = _load_controller_contract(w3=self.w3, token_data=token_data)
         if token_data.isNewBridge:
             deposit_hook = controller.functions.hook__().call()
+            expected_hook = token_data.LyraTSAShareHandlerDepositHook
             if not deposit_hook == token_data.LyraTSAShareHandlerDepositHook:
                 raise ValueError(
-                    f"Controller deposit hook {deposit_hook} does not match expected address {token_data.LyraTSAShareHandlerDepositHook}"
+                    f"Controller deposit hook {deposit_hook} does not match expected address {expected_hook}"
                 )
             deposit_contract = _load_deposit_contract(w3=self.w3, token_data=token_data)
             pool_id = deposit_contract.functions.connectorPoolIds(connector).call()
