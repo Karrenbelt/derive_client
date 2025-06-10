@@ -3,7 +3,7 @@ from web3 import Web3
 from web3.contract import Contract
 
 from derive_client.constants import DEFAULT_GAS_FUNDING_AMOUNT, MSG_GAS_LIMIT
-from derive_client.data_types import Address, ChainID, MintableTokenData, NonMintableTokenData, TxStatus
+from derive_client.data_types import Address, ChainID, TxStatus
 from derive_client.utils import build_standard_transaction, estimate_fees, exp_backoff_retry, send_and_confirm_tx
 
 
@@ -47,99 +47,6 @@ def increase_allowance(
     tx_result = send_and_confirm_tx(w3=w3, tx=tx, private_key=private_key, action="approve()")
     if tx_result.status != TxStatus.SUCCESS:
         raise RuntimeError("approve() failed")
-
-
-def prepare_new_bridge_tx(
-    w3: Web3,
-    account: Account,
-    vault_contract: Contract,
-    receiver: str,
-    amount: int,
-    msg_gas_limit: int,
-    connector: str,
-    fees: int,
-    **kwargs,
-) -> dict:
-    """Build the function call for 'bridge'"""
-
-    func = vault_contract.functions.bridge(
-        receiver_=w3.to_checksum_address(receiver),
-        amount_=amount,
-        msgGasLimit_=msg_gas_limit,
-        connector_=w3.to_checksum_address(connector),
-        extraData_=b"",
-        options_=b"",
-    )
-
-    return build_standard_transaction(func=func, account=account, w3=w3, value=fees + 1)
-
-
-def prepare_old_bridge_tx(
-    w3: Web3,
-    account: Account,
-    vault_contract: Contract,
-    amount: int,
-    msg_gas_limit: int,
-    token_data: NonMintableTokenData | MintableTokenData,
-    connector: str,
-    deposit_helper: Contract,
-    fees: int,
-    **kwargs,
-) -> dict:
-    """Build the function call for 'bridge'"""
-
-    func = deposit_helper.functions.depositToLyra(
-        token=w3.to_checksum_address(token_data.NonMintableToken),
-        socketVault=w3.to_checksum_address(token_data.Vault),
-        isSCW=True,
-        amount=amount,
-        gasLimit=msg_gas_limit,
-        connector=w3.to_checksum_address(connector),
-    )
-
-    return build_standard_transaction(func=func, account=account, w3=w3, value=fees + 1)
-
-
-def prepare_withdraw_wrapper_tx(
-    w3: Web3,
-    account: Account,
-    wallet: Address,
-    receiver: str,
-    token_contract: Contract,
-    light_account: Contract,
-    withdraw_wrapper: Contract,
-    controller_contract: Contract,
-    amount: int,
-    connector: str,
-    msg_gas_limit: int = MSG_GAS_LIMIT,
-    is_new_bridge: bool = True,
-) -> dict:
-    """
-    Prepares a withdrawal transaction using the withdraw wrapper on Derive.
-    This function builds and simulates a transaction that calls `withdrawToChain`
-    via a batch execution on the provided Light Account.
-    """
-
-    kwargs = {
-        "token": token_contract.address,
-        "amount": amount,
-        "recipient": receiver,
-        "socketController": controller_contract.address,
-        "connector": connector,
-        "gasLimit": msg_gas_limit,
-    }
-
-    # Encode the token approval and withdrawToChain for the withdraw wrapper.
-    approve_data = token_contract.encodeABI(fn_name="approve", args=[withdraw_wrapper.address, amount])
-    bridge_data = withdraw_wrapper.encodeABI(fn_name="withdrawToChain", args=list(kwargs.values()))
-
-    # Build the batch execution call via the Light Account.
-    func = light_account.functions.executeBatch(
-        dest=[token_contract.address, withdraw_wrapper.address],
-        func=[approve_data, bridge_data],
-    )
-
-    return build_standard_transaction(func=func, account=account, w3=w3, value=0)
 
 
 def prepare_mainnet_to_derive_gas_tx(

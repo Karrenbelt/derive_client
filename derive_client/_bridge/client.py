@@ -10,14 +10,7 @@ from eth_account import Account
 from web3 import Web3
 from web3.contract import Contract
 
-from derive_client._bridge.transaction import (
-    ensure_allowance,
-    ensure_balance,
-    prepare_mainnet_to_derive_gas_tx,
-    prepare_new_bridge_tx,
-    prepare_old_bridge_tx,
-    prepare_withdraw_wrapper_tx,
-)
+from derive_client._bridge.transaction import ensure_allowance, ensure_balance, prepare_mainnet_to_derive_gas_tx
 from derive_client.constants import (
     CONFIGS,
     CONTROLLER_ABI_PATH,
@@ -44,7 +37,7 @@ from derive_client.data_types import (
     RPCEndPoints,
     TxResult,
 )
-from derive_client.utils import get_contract, get_erc20_contract, send_and_confirm_tx
+from derive_client.utils import build_standard_transaction, get_contract, get_erc20_contract, send_and_confirm_tx
 
 
 def _load_vault_contract(w3: Web3, token_data: NonMintableTokenData) -> Contract:
@@ -92,7 +85,7 @@ class BridgeClient:
         self.config = CONFIGS[env]
         self.w3 = w3
         self.account = account
-        self.withdraw_wrapper_contract = self._load_withdraw_wrapper()
+        self.withdraw_wrapper = self._load_withdraw_wrapper()
         self.deposit_helper = self._load_deposit_helper()
 
     def _load_deposit_helper(self) -> Contract:
@@ -115,16 +108,7 @@ class BridgeClient:
         Deposit funds by preparing, signing, and sending a bridging transaction.
         """
 
-        connector = token_data.connectors[ChainID.DERIVE][TARGET_SPEED]
-        vault_contract = _load_vault_contract(w3=self.w3, token_data=token_data)
-
-        if token_data.isNewBridge:
-            prepare_bridge_tx = prepare_new_bridge_tx
-            spender = vault_contract.address
-        else:
-            prepare_bridge_tx = prepare_old_bridge_tx
-            spender = self.deposit_helper.address
-
+        spender = token_data.Vault if token_data.isNewBridge else self.deposit_helper.address
         token_contract = get_erc20_contract(self.w3, token_data.NonMintableToken)
         ensure_balance(token_contract, self.account.address, amount)
         ensure_allowance(
@@ -135,22 +119,74 @@ class BridgeClient:
             amount=amount,
             private_key=self.account._private_key,
         )
-        fees = _get_min_fees(bridge_contract=vault_contract, connector=connector, token_data=token_data)
 
-        tx = prepare_bridge_tx(
-            w3=self.w3,
-            account=self.account,
-            vault_contract=vault_contract,
-            receiver=receiver,
-            amount=amount,
-            msg_gas_limit=MSG_GAS_LIMIT,
-            connector=connector,
-            token_data=token_data,
-            deposit_helper=self.deposit_helper,
-            fees=fees,
-        )
+        if token_data.isNewBridge:
+            tx = self._prepare_new_style_deposit(token_data, amount, receiver)
+        else:
+            tx = self._prepare_old_style_deposit(token_data, amount)
 
         tx_result = send_and_confirm_tx(w3=self.w3, tx=tx, private_key=self.account._private_key, action="bridge()")
+        return tx_result
+
+    def withdraw_with_wrapper(
+        self,
+        amount: int,
+        receiver: Address,
+        token_data: MintableTokenData,
+        wallet: Address,
+        private_key: str,
+        target_chain: str,
+    ) -> TxResult:
+        """
+        Checks if sufficent gas is available in derive, if not funds the wallet.
+        Prepares, signs, and sends a withdrawal transaction using the withdraw wrapper.
+        """
+
+        if not self.w3.eth.chain_id == ChainID.DERIVE:
+            raise ValueError(
+                f"Connected to chain ID {self.w3.eth.chain_id}, but expected Derive chain ({ChainID.DERIVE})."
+            )
+
+        derive_w3 = Web3(Web3.HTTPProvider(RPCEndPoints.DERIVE.value))
+        balance_of_owner = derive_w3.eth.get_balance(self.account.address)
+        if balance_of_owner < DEPOSIT_GAS_LIMIT:
+            print(f"Funding Derive EOA wallet with {DEFAULT_GAS_FUNDING_AMOUNT} ETH")
+            self.bridge_mainnet_eth_to_derive(DEFAULT_GAS_FUNDING_AMOUNT)
+
+        connector = token_data.connectors[target_chain][TARGET_SPEED]
+
+        # Get the token contract and Light Account contract instances.
+        token_contract = get_erc20_contract(self.w3, token_data.MintableToken)
+        light_account = _load_light_account(w3=self.w3, wallet=wallet)
+
+        owner = light_account.functions.owner().call()
+        if not receiver == owner:
+            raise NotImplementedError(f"Withdraw to receiver {receiver} other than wallet owner {owner}")
+
+        self._check_bridge_funds(token_data, connector, amount)
+
+        kwargs = {
+            "token": token_contract.address,
+            "amount": amount,
+            "recipient": receiver,
+            "socketController": token_data.Controller,
+            "connector": connector,
+            "gasLimit": MSG_GAS_LIMIT,
+        }
+
+        # Encode the token approval and withdrawToChain for the withdraw wrapper.
+        approve_data = token_contract.encodeABI(fn_name="approve", args=[self.withdraw_wrapper.address, amount])
+        bridge_data = self.withdraw_wrapper.encodeABI(fn_name="withdrawToChain", args=list(kwargs.values()))
+
+        # Build the batch execution call via the Light Account.
+        func = light_account.functions.executeBatch(
+            dest=[token_contract.address, self.withdraw_wrapper.address],
+            func=[approve_data, bridge_data],
+        )
+
+        tx = build_standard_transaction(func=func, account=self.account, w3=self.w3, value=0)
+
+        tx_result = send_and_confirm_tx(w3=self.w3, tx=tx, private_key=private_key, action="executeBatch()")
         return tx_result
 
     def bridge_mainnet_eth_to_derive(self, amount: int) -> TxResult:
@@ -169,47 +205,47 @@ class BridgeClient:
         tx_result = send_and_confirm_tx(w3=w3, tx=tx, private_key=self.account._private_key, action="bridgeETH()")
         return tx_result
 
-    def withdraw_with_wrapper(
+    def _prepare_new_style_deposit(
         self,
+        token_data: NonMintableTokenData,
         amount: int,
         receiver: Address,
-        token_data: MintableTokenData,
-        wallet: Address,
-        private_key: str,
-        target_chain: str,
-    ) -> TxResult:
-        """
-        Checks if sufficent gas is available in derive, if not funds the wallet.
-        Prepares, signs, and sends a withdrawal transaction using the withdraw wrapper.
-        """
+    ) -> dict:
+        vault_contract = _load_vault_contract(w3=self.w3, token_data=token_data)
+        connector = token_data.connectors[ChainID.DERIVE][TARGET_SPEED]
+        fees = _get_min_fees(bridge_contract=vault_contract, connector=connector, token_data=token_data)
+        func = vault_contract.functions.bridge(
+            receiver_=receiver,
+            amount_=amount,
+            msgGasLimit_=MSG_GAS_LIMIT,
+            connector_=connector,
+            extraData_=b"",
+            options_=b"",
+        )
+        return build_standard_transaction(func=func, account=self.account, w3=self.w3, value=fees + 1)
 
-        derive_w3 = Web3(Web3.HTTPProvider(RPCEndPoints.DERIVE.value))
-        balance_of_owner = derive_w3.eth.get_balance(self.account.address)
-        if balance_of_owner < DEPOSIT_GAS_LIMIT:
-            print(f"Funding Derive wallet with {DEFAULT_GAS_FUNDING_AMOUNT} ETH")
-            self.bridge_mainnet_eth_to_derive(DEFAULT_GAS_FUNDING_AMOUNT)
+    def _prepare_old_style_deposit(self, token_data: NonMintableTokenData, amount: int) -> dict:
+        vault_contract = _load_vault_contract(w3=self.w3, token_data=token_data)
+        connector = token_data.connectors[ChainID.DERIVE][TARGET_SPEED]
+        fees = _get_min_fees(bridge_contract=vault_contract, connector=connector, token_data=token_data)
+        func = self.deposit_helper.functions.depositToLyra(
+            token=token_data.NonMintableToken,
+            socketVault=token_data.Vault,
+            isSCW=True,
+            amount=amount,
+            gasLimit=MSG_GAS_LIMIT,
+            connector=connector,
+        )
+        return build_standard_transaction(func=func, account=self.account, w3=self.w3, value=fees + 1)
 
-        if not self.w3.eth.chain_id == ChainID.DERIVE:
-            raise ValueError(
-                f"Connected to chain ID {self.w3.eth.chain_id}, but expected Derive chain ({ChainID.DERIVE})."
-            )
-
-        connector = token_data.connectors[target_chain][TARGET_SPEED]
-
-        # Get the token contract and Light Account contract instances.
-        token_contract = get_erc20_contract(self.w3, token_data.MintableToken)
+    def _check_bridge_funds(self, token_data, connector: Address, amount: int):
         controller = _load_controller_contract(w3=self.w3, token_data=token_data)
-        light_account = _load_light_account(w3=self.w3, wallet=wallet)
-
-        owner = light_account.functions.owner().call()
-        if not receiver == owner:
-            raise NotImplementedError(f"Withdraw to receiver {receiver} other than wallet owner {owner}")
-
         if token_data.isNewBridge:
             deposit_hook = controller.functions.hook__().call()
             if not deposit_hook == token_data.LyraTSAShareHandlerDepositHook:
-                raise ValueError("Controller deposit hook does not match expected address")
-
+                raise ValueError(
+                    f"Controller deposit hook {deposit_hook} does not match expected address {token_data.LyraTSAShareHandlerDepositHook}"
+                )
             deposit_contract = _load_deposit_contract(w3=self.w3, token_data=token_data)
             pool_id = deposit_contract.functions.connectorPoolIds(connector).call()
             locked = deposit_contract.functions.poolLockedAmounts(pool_id).call()
@@ -221,21 +257,3 @@ class BridgeClient:
             raise RuntimeError(
                 f"Insufficient funds locked in pool: has {locked}, want {amount} ({(locked / amount * 100):.2f}%)"
             )
-
-        tx = prepare_withdraw_wrapper_tx(
-            w3=self.w3,
-            account=self.account,
-            wallet=wallet,
-            receiver=receiver,
-            token_contract=token_contract,
-            withdraw_wrapper=self.withdraw_wrapper_contract,
-            amount=amount,
-            connector=connector,
-            msg_gas_limit=MSG_GAS_LIMIT,
-            is_new_bridge=token_data.isNewBridge,
-            controller_contract=controller,
-            light_account=light_account,
-        )
-
-        tx_result = send_and_confirm_tx(w3=self.w3, tx=tx, private_key=private_key, action="executeBatch()")
-        return tx_result
