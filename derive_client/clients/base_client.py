@@ -20,7 +20,7 @@ from derive_action_signing.module_data import (
 )
 from derive_action_signing.signed_action import SignedAction
 from derive_action_signing.utils import MAX_INT_32, get_action_nonce, sign_rest_auth_header, sign_ws_login, utc_now_ms
-from pydantic import validate_arguments
+from pydantic import validate_call
 from rich import print
 from web3 import Web3
 from websocket import WebSocketConnectionClosedException, create_connection
@@ -71,7 +71,7 @@ class BaseClient:
             session_key_or_wallet_private_key=self.signer._private_key,
         )
 
-    @validate_arguments(config=dict(arbitrary_types_allowed=True))
+    @validate_call(config=dict(arbitrary_types_allowed=True))
     def __init__(
         self,
         wallet: Address,
@@ -134,6 +134,7 @@ class BaseClient:
             raise Exception(result_code["error"])
         return True
 
+    @validate_call
     def deposit_to_derive(self, chain_id: ChainID, currency: Currency, amount: int, receiver: Address) -> TxResult:
         """Deposit funds via socket superbridge to Derive chain smart contract funding account.
 
@@ -146,8 +147,8 @@ class BaseClient:
 
         w3 = get_w3_connection(chain_id=chain_id)
         derive_addresses = get_prod_derive_addresses()
-        token_data = derive_addresses.chains[chain_id][Currency[currency]]
-        amount = int(amount * 10 ** TOKEN_DECIMALS[UnderlyingCurrency[currency]])
+        token_data = derive_addresses.chains[chain_id][currency]
+        amount = int(amount * 10 ** TOKEN_DECIMALS[UnderlyingCurrency[currency.name]])
         client = BridgeClient(self.env, w3=w3, account=self.signer)
         return client.deposit(
             amount=amount,
@@ -155,6 +156,7 @@ class BaseClient:
             token_data=token_data,
         )
 
+    @validate_call
     def withdraw_from_derive(self, chain_id: ChainID, currency: Currency, amount: int, receiver: Address) -> TxResult:
         """Deposit funds via socket superbridge to Derive chain smart contract funding account.
 
@@ -167,8 +169,8 @@ class BaseClient:
 
         w3 = get_w3_connection(chain_id=ChainID.DERIVE)
         derive_addresses = get_prod_derive_addresses()
-        token_data = derive_addresses.chains[ChainID.DERIVE][Currency[currency]]
-        amount = int(amount * 10 ** TOKEN_DECIMALS[UnderlyingCurrency[currency]])
+        token_data = derive_addresses.chains[ChainID.DERIVE][currency]
+        amount = int(amount * 10 ** TOKEN_DECIMALS[UnderlyingCurrency[currency.name]])
         client = BridgeClient(self.env, w3=w3, account=self.signer)
         return client.withdraw_with_wrapper(
             amount=amount,

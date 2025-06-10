@@ -46,16 +46,27 @@ from derive_client.data_types import (
 from derive_client.utils import get_contract, get_erc20_contract, send_and_confirm_tx
 
 
-def _load_vault_contract(w3: Web3, token_data) -> Contract:
+def _load_vault_contract(w3: Web3, token_data: NonMintableTokenData) -> Contract:
     path = NEW_VAULT_ABI_PATH if token_data.isNewBridge else OLD_VAULT_ABI_PATH
     abi = json.loads(path.read_text())
     return get_contract(w3=w3, address=token_data.Vault, abi=abi)
 
 
-def _load_controller_contract(w3: Web3, token_data) -> Contract:
+def _load_controller_contract(w3: Web3, token_data: MintableTokenData) -> Contract:
     path = CONTROLLER_ABI_PATH if token_data.isNewBridge else CONTROLLER_V0_ABI_PATH
     abi = json.loads(path.read_text())
     return get_contract(w3=w3, address=token_data.Controller, abi=abi)
+
+
+def _load_deposit_contract(w3: Web3, token_data: MintableTokenData) -> Contract:
+    address = token_data.LyraTSAShareHandlerDepositHook
+    abi = json.loads(DEPOSIT_HOOK_ABI_PATH.read_text())
+    return get_contract(w3=w3, address=address, abi=abi)
+
+
+def _load_light_account(w3: Web3, wallet_address: Address) -> Contract:
+    abi = json.loads(LIGHT_ACCOUNT_ABI_PATH.read_text())
+    return get_contract(w3=w3, address=wallet_address, abi=abi)
 
 
 class BridgeClient:
@@ -169,10 +180,8 @@ class BridgeClient:
         connector = token_data.connectors[target_chain][TARGET_SPEED]
 
         # Get the token contract and Light Account contract instances.
-        token_contract = get_erc20_contract(w3=self.w3, token_address=token_data.MintableToken)
-        abi = json.loads(LIGHT_ACCOUNT_ABI_PATH.read_text())
-        light_account = get_contract(w3=self.w3, address=wallet, abi=abi)
-
+        token_contract = get_erc20_contract(self.w3, token_data.MintableToken)
+        light_account = _load_light_account(w3=self.w3, wallet=wallet)
         controller = _load_controller_contract(w3=self.w3, token_data=token_data)
 
         if token_data.isNewBridge:
@@ -180,8 +189,7 @@ class BridgeClient:
             if not deposit_hook == token_data.LyraTSAShareHandlerDepositHook:
                 raise ValueError("Controller deposit hook does not match expected address")
 
-            abi = json.loads(DEPOSIT_HOOK_ABI_PATH.read_text())
-            deposit_contract = get_contract(w3=self.w3, address=deposit_hook, abi=abi)
+            deposit_contract = _load_deposit_contract(w3=self.w3, token_data=token_data)
             pool_id = deposit_contract.functions.connectorPoolIds(connector).call()
             locked = deposit_contract.functions.poolLockedAmounts(pool_id).call()
 
