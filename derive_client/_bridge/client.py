@@ -46,10 +46,16 @@ from derive_client.data_types import (
 from derive_client.utils import get_contract, get_erc20_contract, send_and_confirm_tx
 
 
-def load_bridge_contract(w3: Web3, token_data, spender: Address) -> Contract:
+def _load_bridge_contract(w3: Web3, token_data) -> Contract:
     path = NEW_VAULT_ABI_PATH if token_data.isNewBridge else OLD_VAULT_ABI_PATH
     abi = json.loads(path.read_text())
-    return get_contract(w3=w3, address=spender, abi=abi)
+    return get_contract(w3=w3, address=token_data.Vault, abi=abi)
+
+
+def _load_controller_contract(w3: Web3, token_data) -> Contract:
+    path = CONTROLLER_ABI_PATH if token_data.isNewBridge else CONTROLLER_V0_ABI_PATH
+    abi = json.loads(path.read_text())
+    return get_contract(w3=w3, address=token_data.Controller, abi=abi)
 
 
 class BridgeClient:
@@ -60,29 +66,18 @@ class BridgeClient:
         self.w3 = w3
         self.account = account
         self.chain_id = chain_id
-        self.withdraw_wrapper_contract: Contract | None = None
-        self.controller: Contract | None = None
+        self.withdraw_wrapper_contract = self._load_withdraw_wrapper()
+        self.deposit_helper = self._load_deposit_helper()
 
+    def _load_deposit_helper(self) -> Contract:
         address = self.config.contracts.DEPOSIT_WRAPPER
         abi = json.loads(DEPOSIT_HELPER_ABI_PATH.read_text())
-        self.deposit_helper = get_contract(w3=self.w3, address=address, abi=abi)
+        return get_contract(w3=self.w3, address=address, abi=abi)
 
-    def load_withdraw_wrapper(self):
+    def _load_withdraw_wrapper(self) -> Contract:
         address = self.config.contracts.WITHDRAW_WRAPPER_V2
         abi = json.loads(WITHDRAW_WRAPPER_V2_ABI_PATH.read_text())
-        self.withdraw_wrapper_contract = get_contract(w3=self.w3, address=address, abi=abi)
-
-    def load_controller(self, token_data: NonMintableTokenData | MintableTokenData) -> Contract:
-        """Instantiate the controller contract."""
-
-        if token_data.isNewBridge:
-            path = CONTROLLER_ABI_PATH
-        else:
-            path = CONTROLLER_V0_ABI_PATH
-
-        abi = json.loads(path.read_text())
-        address = self.w3.to_checksum_address(token_data.Controller)
-        self.controller = get_contract(w3=self.w3, address=address, abi=abi)
+        return get_contract(w3=self.w3, address=address, abi=abi)
 
     def deposit(
         self,
@@ -101,7 +96,7 @@ class BridgeClient:
 
         spender = token_data.Vault
         connector = token_data.connectors[ChainID.DERIVE][TARGET_SPEED]
-        bridge_contract = load_bridge_contract(w3=self.w3, token_data=token_data, spender=spender)
+        bridge_contract = _load_bridge_contract(w3=self.w3, token_data=token_data)
 
         token_contract = get_erc20_contract(self.w3, token_data.NonMintableToken)
         ensure_balance(token_contract, self.account.address, amount)
@@ -177,10 +172,10 @@ class BridgeClient:
         abi = json.loads(LIGHT_ACCOUNT_ABI_PATH.read_text())
         light_account = get_contract(w3=self.w3, address=wallet, abi=abi)
 
-        self.load_controller(token_data=token_data)
+        controller = _load_controller_contract(w3=self.w3, token_data=token_data)
 
         if token_data.isNewBridge:
-            deposit_hook = self.controller.functions.hook__().call()
+            deposit_hook = controller.functions.hook__().call()
             if not deposit_hook == token_data.LyraTSAShareHandlerDepositHook:
                 raise ValueError("Controller deposit hook does not match expected address")
 
@@ -200,6 +195,7 @@ class BridgeClient:
         else:
             # figure out how to check balances on the old bridge.
             print("Old bridge not checking balances")
+
         tx = prepare_withdraw_wrapper_tx(
             w3=self.w3,
             account=self.account,
@@ -211,7 +207,7 @@ class BridgeClient:
             connector=connector,
             msg_gas_limit=MSG_GAS_LIMIT,
             is_new_bridge=token_data.isNewBridge,
-            controller_contract=self.controller,
+            controller_contract=controller,
             light_account=light_account,
         )
 

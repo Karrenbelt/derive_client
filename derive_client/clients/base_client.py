@@ -170,7 +170,6 @@ class BaseClient:
         token_data = derive_addresses.chains[ChainID.DERIVE][Currency[currency]]
         amount = int(amount * 10 ** TOKEN_DECIMALS[UnderlyingCurrency[currency]])
         client = BridgeClient(self.env, w3=w3, account=self.signer, chain_id=chain_id)
-        client.load_withdraw_wrapper()
         return client.withdraw_with_wrapper(
             amount=amount,
             receiver=receiver,
