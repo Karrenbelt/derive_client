@@ -46,6 +46,12 @@ from derive_client.data_types import (
 from derive_client.utils import get_contract, get_erc20_contract, send_and_confirm_tx
 
 
+def load_bridge_contract(w3: Web3, token_data, spender: Address) -> Contract:
+    path = NEW_VAULT_ABI_PATH if token_data.isNewBridge else OLD_VAULT_ABI_PATH
+    abi = json.loads(path.read_text())
+    return get_contract(w3=w3, address=spender, abi=abi)
+
+
 class BridgeClient:
     def __init__(self, env: Environment, w3: Web3, account: Account, chain_id: ChainID):
         if not env == Environment.PROD:
@@ -54,27 +60,17 @@ class BridgeClient:
         self.w3 = w3
         self.account = account
         self.chain_id = chain_id
-        self.bridge_contract: Contract | None = None
         self.withdraw_wrapper_contract: Contract | None = None
         self.controller: Contract | None = None
 
-    def load_bridge_contract(self, vault_address: str, is_new_bridge: bool) -> None:
-        """Instantiate the bridge contract."""
-
-        path = NEW_VAULT_ABI_PATH if is_new_bridge else OLD_VAULT_ABI_PATH
-        abi = json.loads(path.read_text())
-        address = self.w3.to_checksum_address(vault_address)
-        self.bridge_contract = get_contract(w3=self.w3, address=address, abi=abi)
+        address = self.config.contracts.DEPOSIT_WRAPPER
+        abi = json.loads(DEPOSIT_HELPER_ABI_PATH.read_text())
+        self.deposit_helper = get_contract(w3=self.w3, address=address, abi=abi)
 
     def load_withdraw_wrapper(self):
         address = self.config.contracts.WITHDRAW_WRAPPER_V2
         abi = json.loads(WITHDRAW_WRAPPER_V2_ABI_PATH.read_text())
         self.withdraw_wrapper_contract = get_contract(w3=self.w3, address=address, abi=abi)
-
-    def load_deposit_helper(self):
-        address = self.config.contracts.DEPOSIT_WRAPPER
-        abi = json.loads(DEPOSIT_HELPER_ABI_PATH.read_text())
-        self.deposit_helper = get_contract(w3=self.w3, address=address, abi=abi)
 
     def load_controller(self, token_data: NonMintableTokenData | MintableTokenData) -> Contract:
         """Instantiate the controller contract."""
@@ -89,28 +85,40 @@ class BridgeClient:
         self.controller = get_contract(w3=self.w3, address=address, abi=abi)
 
     def deposit(
-        self, amount: int, receiver: Address, connector: Address, token_data: NonMintableTokenData | MintableTokenData
+        self,
+        amount: int,
+        receiver: Address,
+        token_data: NonMintableTokenData | MintableTokenData,
     ) -> TxResult:
         """
         Deposit funds by preparing, signing, and sending a bridging transaction.
         """
 
         if token_data.isNewBridge:
-            spender = token_data.Vault
             prepare_bridge_tx = prepare_new_bridge_tx
         else:
-            spender = self.bridge_contract.address
             prepare_bridge_tx = prepare_old_bridge_tx
+
+        spender = token_data.Vault
+        connector = token_data.connectors[ChainID.DERIVE][TARGET_SPEED]
+        bridge_contract = load_bridge_contract(w3=self.w3, token_data=token_data, spender=spender)
 
         token_contract = get_erc20_contract(self.w3, token_data.NonMintableToken)
         ensure_balance(token_contract, self.account.address, amount)
-        ensure_allowance(self.w3, token_contract, self.account.address, spender, amount, self.account._private_key)
+        ensure_allowance(
+            w3=self.w3,
+            token_contract=token_contract,
+            owner=self.account.address,
+            spender=spender,
+            amount=amount,
+            private_key=self.account._private_key,
+        )
 
         tx = prepare_bridge_tx(
             w3=self.w3,
             chain_id=self.chain_id,
             account=self.account,
-            contract=self.bridge_contract,
+            contract=bridge_contract,
             receiver=receiver,
             amount=amount,
             msg_gas_limit=MSG_GAS_LIMIT,
@@ -183,7 +191,7 @@ class BridgeClient:
 
             if amount > locked:
                 raise RuntimeError(
-                    f"Insufficient funds locked in pool: has {locked}, want {amount} ({(locked/amount*100):.2f}%)"
+                    f"Insufficient funds locked in pool: has {locked}, want {amount} ({(locked / amount * 100):.2f}%)"
                 )
 
             owner = light_account.functions.owner().call()
