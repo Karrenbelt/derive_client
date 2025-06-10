@@ -6,7 +6,7 @@ from web3 import Web3
 from web3.contract import Contract
 from web3.datastructures import AttributeDict
 
-from derive_client.constants import ABI_DATA_DIR
+from derive_client.constants import ABI_DATA_DIR, GAS_FEE_BUFFER
 from derive_client.data_types import ChainID, RPCEndPoints, TxResult, TxStatus
 
 
@@ -50,6 +50,22 @@ def sign_and_send_tx(w3: Web3, tx: dict, private_key: str) -> HexBytes:
     return tx_hash
 
 
+def simulate_tx(w3: Web3, tx: dict, private_key: str):
+    account = w3.eth.account.from_key(private_key)
+    balance = w3.eth.get_balance(account.address)
+    max_fee_per_gas = tx["maxFeePerGas"]
+    gas_limit = tx["gas"]
+    value = tx.get("value", 0)
+
+    max_gas_cost = gas_limit * max_fee_per_gas
+    total_cost = max_gas_cost + value
+    if not balance >= total_cost:
+        ratio = balance / total_cost * 100
+        raise ValueError(f"Insufficient gas balance, have {balance}, need {total_cost}: ({ratio:.2f})")
+
+    w3.eth.call(tx)
+
+
 def send_and_confirm_tx(
     w3: Web3,
     tx: dict,
@@ -57,6 +73,9 @@ def send_and_confirm_tx(
     *,
     action: str,  # e.g. "approve()", "deposit()", "withdraw()"
 ) -> TxResult:
+    """Send and confirm transactions, after simulating."""
+
+    simulate_tx(w3, tx, private_key)
     tx_result = TxResult(tx_hash="", tx_receipt=None, exception=None)
 
     try:
@@ -108,7 +127,7 @@ def estimate_fees(w3, percentiles: list[int], blocks=20, default_tip=10_000):
     # Calculate max fees
     fee_estimations = []
     for priority_fee in avg_priority_fees:
-        max_fee = latest_base_fee + priority_fee
+        max_fee = int((latest_base_fee + priority_fee) * GAS_FEE_BUFFER)
         fee_estimations.append({"maxFeePerGas": max_fee, "maxPriorityFeePerGas": priority_fee})
 
     return fee_estimations

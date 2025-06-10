@@ -75,7 +75,6 @@ def increase_allowance(
 ) -> None:
     func = erc20_contract.functions.approve(spender, amount)
     tx = build_standard_transaction(func=func, account=from_account, w3=w3)
-    w3.eth.call(tx)
     tx_result = send_and_confirm_tx(w3=w3, tx=tx, private_key=private_key, action="approve()")
     if tx_result.status != TxStatus.SUCCESS:
         raise RuntimeError("approve() failed")

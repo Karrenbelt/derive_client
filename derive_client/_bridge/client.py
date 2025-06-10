@@ -132,7 +132,6 @@ class BridgeClient:
             deposit_helper=self.deposit_helper,
         )
 
-        self.w3.eth.call(tx)
         tx_result = send_and_confirm_tx(w3=self.w3, tx=tx, private_key=self.account._private_key, action="bridge()")
         return tx_result
 
