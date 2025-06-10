@@ -59,13 +59,12 @@ def _load_controller_contract(w3: Web3, token_data) -> Contract:
 
 
 class BridgeClient:
-    def __init__(self, env: Environment, w3: Web3, account: Account, chain_id: ChainID):
+    def __init__(self, env: Environment, w3: Web3, account: Account):
         if not env == Environment.PROD:
             raise RuntimeError(f"Bridging is not supported in the {env.name} environment.")
         self.config = CONFIGS[env]
         self.w3 = w3
         self.account = account
-        self.chain_id = chain_id
         self.withdraw_wrapper_contract = self._load_withdraw_wrapper()
         self.deposit_helper = self._load_deposit_helper()
 
@@ -111,7 +110,6 @@ class BridgeClient:
 
         tx = prepare_bridge_tx(
             w3=self.w3,
-            chain_id=self.chain_id,
             account=self.account,
             contract=bridge_contract,
             receiver=receiver,
@@ -148,6 +146,7 @@ class BridgeClient:
         token_data: MintableTokenData,
         wallet: Address,
         private_key: str,
+        target_chain: str,
     ) -> TxResult:
         """
         Checks if sufficent gas is available in derive, if not funds the wallet.
@@ -165,7 +164,7 @@ class BridgeClient:
                 f"Connected to chain ID {self.w3.eth.chain_id}, but expected Derive chain ({ChainID.DERIVE})."
             )
 
-        connector = token_data.connectors[self.chain_id][TARGET_SPEED]
+        connector = token_data.connectors[target_chain][TARGET_SPEED]
 
         # Get the token contract and Light Account contract instances.
         token_contract = get_erc20_contract(w3=self.w3, token_address=token_data.MintableToken)

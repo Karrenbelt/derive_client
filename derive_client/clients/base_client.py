@@ -148,7 +148,7 @@ class BaseClient:
         derive_addresses = get_prod_derive_addresses()
         token_data = derive_addresses.chains[chain_id][currency]
         amount = int(amount * 10 ** TOKEN_DECIMALS[UnderlyingCurrency[currency.name]])
-        client = BridgeClient(self.env, w3=w3, account=self.signer, chain_id=chain_id)
+        client = BridgeClient(self.env, w3=w3, account=self.signer)
         return client.deposit(
             amount=amount,
             receiver=receiver,
@@ -168,14 +168,16 @@ class BaseClient:
         w3 = get_w3_connection(chain_id=ChainID.DERIVE)
         derive_addresses = get_prod_derive_addresses()
         token_data = derive_addresses.chains[ChainID.DERIVE][Currency[currency]]
+
         amount = int(amount * 10 ** TOKEN_DECIMALS[UnderlyingCurrency[currency]])
-        client = BridgeClient(self.env, w3=w3, account=self.signer, chain_id=chain_id)
+        client = BridgeClient(self.env, w3=w3, account=self.signer)
         return client.withdraw_with_wrapper(
             amount=amount,
             receiver=receiver,
             token_data=token_data,
             wallet=self.wallet,
             private_key=self.signer._private_key,
+            target_chain=chain_id,
         )
 
     def fetch_instruments(
