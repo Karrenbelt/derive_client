@@ -5,6 +5,7 @@ from .logger import get_logger
 from .prod_addresses import get_prod_derive_addresses
 from .retry import exp_backoff_retry, get_retry_session
 from .w3 import (
+    build_standard_transaction,
     estimate_fees,
     get_contract,
     get_erc20_contract,
@@ -27,4 +28,5 @@ __all__ = [
     "sign_and_send_tx",
     "send_and_confirm_tx",
     "download_prod_address_abis",
+    "build_standard_transaction",
 ]

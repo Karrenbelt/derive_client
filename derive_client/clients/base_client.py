@@ -135,7 +135,7 @@ class BaseClient:
         return True
 
     @validate_call
-    def deposit_to_derive(self, chain_id: ChainID, currency: Currency, amount: int, receiver: Address) -> TxResult:
+    def deposit_to_derive(self, chain_id: ChainID, currency: Currency, amount: float, receiver: Address) -> TxResult:
         """Deposit funds via socket superbridge to Derive chain smart contract funding account.
 
         Parameters:
@@ -157,7 +157,7 @@ class BaseClient:
         )
 
     @validate_call
-    def withdraw_from_derive(self, chain_id: ChainID, currency: Currency, amount: int, receiver: Address) -> TxResult:
+    def withdraw_from_derive(self, chain_id: ChainID, currency: Currency, amount: float, receiver: Address) -> TxResult:
         """Deposit funds via socket superbridge to Derive chain smart contract funding account.
 
         Parameters:

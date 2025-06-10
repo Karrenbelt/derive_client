@@ -1,6 +1,7 @@
 import json
 import time
 
+from eth_account import Account
 from hexbytes import HexBytes
 from web3 import Web3
 from web3.contract import Contract
@@ -8,6 +9,7 @@ from web3.datastructures import AttributeDict
 
 from derive_client.constants import ABI_DATA_DIR, GAS_FEE_BUFFER
 from derive_client.data_types import ChainID, RPCEndPoints, TxResult, TxStatus
+from derive_client.utils.retry import exp_backoff_retry
 
 
 def get_w3_connection(chain_id: ChainID) -> Web3:
@@ -26,6 +28,53 @@ def get_erc20_contract(w3: Web3, token_address: str) -> Contract:
     erc20_abi_path = ABI_DATA_DIR / "erc20.json"
     abi = json.loads(erc20_abi_path.read_text())
     return get_contract(w3=w3, address=token_address, abi=abi)
+
+
+def simulate_tx(w3: Web3, tx: dict, account: Account) -> dict:
+    balance = w3.eth.get_balance(account.address)
+    max_fee_per_gas = tx["maxFeePerGas"]
+    gas_limit = tx["gas"]
+    value = tx.get("value", 0)
+
+    max_gas_cost = gas_limit * max_fee_per_gas
+    total_cost = max_gas_cost + value
+    if not balance >= total_cost:
+        ratio = balance / total_cost * 100
+        raise ValueError(f"Insufficient gas balance, have {balance}, need {total_cost}: ({ratio:.2f})")
+
+    w3.eth.call(tx)
+    return tx
+
+
+@exp_backoff_retry
+def build_standard_transaction(
+    func,
+    account: Account,
+    w3: Web3,
+    value: int = 0,
+    gas_blocks: int = 100,
+    gas_percentile: int = 99,
+) -> dict:
+    """Standardized transaction building with EIP-1559 and gas estimation"""
+
+    nonce = w3.eth.get_transaction_count(account.address)
+    fee_estimations = estimate_fees(w3, blocks=gas_blocks, percentiles=[gas_percentile])
+    max_fee = fee_estimations[0]["maxFeePerGas"]
+    priority_fee = fee_estimations[0]["maxPriorityFeePerGas"]
+
+    tx = func.build_transaction(
+        {
+            "from": account.address,
+            "nonce": nonce,
+            "maxFeePerGas": max_fee,
+            "maxPriorityFeePerGas": priority_fee,
+            "chainId": w3.eth.chain_id,
+            "value": value,
+        }
+    )
+
+    tx["gas"] = w3.eth.estimate_gas(tx)
+    return simulate_tx(w3, tx, account)
 
 
 def wait_for_tx_receipt(w3: Web3, tx_hash: str, timeout=120, poll_interval=1) -> AttributeDict:
@@ -50,22 +99,6 @@ def sign_and_send_tx(w3: Web3, tx: dict, private_key: str) -> HexBytes:
     return tx_hash
 
 
-def simulate_tx(w3: Web3, tx: dict, private_key: str):
-    account = w3.eth.account.from_key(private_key)
-    balance = w3.eth.get_balance(account.address)
-    max_fee_per_gas = tx["maxFeePerGas"]
-    gas_limit = tx["gas"]
-    value = tx.get("value", 0)
-
-    max_gas_cost = gas_limit * max_fee_per_gas
-    total_cost = max_gas_cost + value
-    if not balance >= total_cost:
-        ratio = balance / total_cost * 100
-        raise ValueError(f"Insufficient gas balance, have {balance}, need {total_cost}: ({ratio:.2f})")
-
-    w3.eth.call(tx)
-
-
 def send_and_confirm_tx(
     w3: Web3,
     tx: dict,
@@ -75,7 +108,6 @@ def send_and_confirm_tx(
 ) -> TxResult:
     """Send and confirm transactions, after simulating."""
 
-    simulate_tx(w3, tx, private_key)
     tx_result = TxResult(tx_hash="", tx_receipt=None, exception=None)
 
     try:

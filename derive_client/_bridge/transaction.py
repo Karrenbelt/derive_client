@@ -4,38 +4,7 @@ from web3.contract import Contract
 
 from derive_client.constants import DEFAULT_GAS_FUNDING_AMOUNT, MSG_GAS_LIMIT, PAYLOAD_SIZE
 from derive_client.data_types import Address, ChainID, MintableTokenData, NonMintableTokenData, TxStatus
-from derive_client.utils import estimate_fees, exp_backoff_retry, send_and_confirm_tx
-
-
-def build_standard_transaction(
-    func,
-    account: Account,
-    w3: Web3,
-    value: int = 0,
-    gas_blocks: int = 100,
-    gas_percentile: int = 99,
-) -> dict:
-    """Standardized transaction building with EIP-1559 and gas estimation"""
-
-    nonce = w3.eth.get_transaction_count(account.address)
-    fee_estimations = estimate_fees(w3, blocks=gas_blocks, percentiles=[gas_percentile])
-    max_fee = fee_estimations[0]["maxFeePerGas"]
-    priority_fee = fee_estimations[0]["maxPriorityFeePerGas"]
-
-    tx = func.build_transaction(
-        {
-            "from": account.address,
-            "nonce": nonce,
-            "maxFeePerGas": max_fee,
-            "maxPriorityFeePerGas": priority_fee,
-            "chainId": w3.eth.chain_id,
-            "value": value,
-        }
-    )
-
-    tx["gas"] = w3.eth.estimate_gas(tx)
-
-    return tx
+from derive_client.utils import build_standard_transaction, estimate_fees, exp_backoff_retry, send_and_confirm_tx
 
 
 def ensure_balance(token_contract: Contract, owner: Address, amount: int):
@@ -120,9 +89,6 @@ def prepare_new_bridge_tx(
     )
 
     fees = get_min_fees(w3=w3, bridge_contract=vault_contract, connector=connector, is_new_bridge=True)
-
-    func.call({"from": account.address, "value": fees})
-
     return build_standard_transaction(func=func, account=account, w3=w3, value=fees + 1)
 
 
@@ -149,9 +115,6 @@ def prepare_old_bridge_tx(
     )
 
     fees = get_min_fees(w3=w3, bridge_contract=vault_contract, connector=connector, is_new_bridge=False)
-
-    func.call({"from": account.address, "value": fees})
-
     return build_standard_transaction(func=func, account=account, w3=w3, value=fees + 1)
 
 
@@ -175,20 +138,6 @@ def prepare_withdraw_wrapper_tx(
     via a batch execution on the provided Light Account.
     """
 
-    fees = get_min_fees(
-        w3=w3,
-        bridge_contract=controller_contract,
-        connector=connector,
-        is_new_bridge=is_new_bridge,
-    )
-    if is_new_bridge:
-        if amount < fees:
-            raise RuntimeError(f"Amount {amount} less than fee {fees} ({(amount / fees * 100):.2f}%)")
-    else:
-        balance = w3.eth.get_balance(account.address)
-        if balance < fees:
-            raise RuntimeError(f"Amount {amount} less than fee {fees} ({(amount / fees * 100):.2f}%)")
-
     kwargs = {
         "token": token_contract.address,
         "amount": amount,
@@ -208,29 +157,7 @@ def prepare_withdraw_wrapper_tx(
         func=[approve_data, bridge_data],
     )
 
-    balance = token_contract.functions.balanceOf(wallet).call()
-
-    @exp_backoff_retry
-    def simulate_tx():
-        tx = build_standard_transaction(func=func, account=account, w3=w3, value=0)
-
-        if is_new_bridge:
-            # pay the fees in the native token.
-            required = tx["gas"] * tx["maxFeePerGas"] + amount
-            if balance < required:
-                raise RuntimeError(
-                    f"Insufficient token balance: have {balance}, need {required} ({(balance / required * 100):.2f}%)"
-                )
-        else:
-            required = amount
-            if balance < required:
-                raise RuntimeError(
-                    f"Insufficient token balance: have {balance}, need {required} ({(balance / required * 100):.2f}%)"
-                )
-        w3.eth.call(tx)
-        return tx
-
-    return simulate_tx()
+    return build_standard_transaction(func=func, account=account, w3=w3, value=0)
 
 
 def prepare_mainnet_to_derive_gas_tx(
