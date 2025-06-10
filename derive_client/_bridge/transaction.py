@@ -95,9 +95,7 @@ def get_min_fees(
     if is_new_bridge:
         params["payloadSize_"] = PAYLOAD_SIZE
 
-    total_fees = bridge_contract.functions.getMinFees(
-        **params,
-    ).call()
+    total_fees = bridge_contract.functions.getMinFees(**params).call()
     return total_fees
 
 
@@ -142,12 +140,6 @@ def prepare_old_bridge_tx(
 ) -> dict:
     """Build the function call for 'bridge'"""
 
-    fees = get_min_fees(w3=w3, bridge_contract=vault_contract, connector=connector, is_new_bridge=False)
-
-    balance = w3.eth.get_balance(account.address)
-    if balance < fees:
-        raise RuntimeError(f"Amount {amount} less than fee {fees} ({(amount / fees * 100):.2f}%)")
-
     func = deposit_helper.functions.depositToLyra(
         token=w3.to_checksum_address(token_data.NonMintableToken),
         socketVault=w3.to_checksum_address(token_data.Vault),
@@ -156,6 +148,8 @@ def prepare_old_bridge_tx(
         gasLimit=msg_gas_limit,
         connector=w3.to_checksum_address(connector),
     )
+
+    fees = get_min_fees(w3=w3, bridge_contract=vault_contract, connector=connector, is_new_bridge=False)
 
     func.call({"from": account.address, "value": fees})
 
