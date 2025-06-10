@@ -31,6 +31,7 @@ from derive_client.constants import (
     MSG_GAS_LIMIT,
     NEW_VAULT_ABI_PATH,
     OLD_VAULT_ABI_PATH,
+    PAYLOAD_SIZE,
     TARGET_SPEED,
     WITHDRAW_WRAPPER_V2_ABI_PATH,
 )
@@ -67,6 +68,21 @@ def _load_deposit_contract(w3: Web3, token_data: MintableTokenData) -> Contract:
 def _load_light_account(w3: Web3, wallet: Address) -> Contract:
     abi = json.loads(LIGHT_ACCOUNT_ABI_PATH.read_text())
     return get_contract(w3=w3, address=wallet, abi=abi)
+
+
+def _get_min_fees(
+    bridge_contract: Contract,
+    connector: Address,
+    token_data: NonMintableTokenData | MintableTokenData,
+) -> int:
+    params = {
+        "connector_": connector,
+        "msgGasLimit_": MSG_GAS_LIMIT,
+    }
+    if token_data.isNewBridge:
+        params["payloadSize_"] = PAYLOAD_SIZE
+
+    return bridge_contract.functions.getMinFees(**params).call()
 
 
 class BridgeClient:
@@ -119,6 +135,7 @@ class BridgeClient:
             amount=amount,
             private_key=self.account._private_key,
         )
+        fees = _get_min_fees(bridge_contract=vault_contract, connector=connector, token_data=token_data)
 
         tx = prepare_bridge_tx(
             w3=self.w3,
@@ -130,6 +147,7 @@ class BridgeClient:
             connector=connector,
             token_data=token_data,
             deposit_helper=self.deposit_helper,
+            fees=fees,
         )
 
         tx_result = send_and_confirm_tx(w3=self.w3, tx=tx, private_key=self.account._private_key, action="bridge()")

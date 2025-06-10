@@ -2,7 +2,7 @@ from eth_account import Account
 from web3 import Web3
 from web3.contract import Contract
 
-from derive_client.constants import DEFAULT_GAS_FUNDING_AMOUNT, MSG_GAS_LIMIT, PAYLOAD_SIZE
+from derive_client.constants import DEFAULT_GAS_FUNDING_AMOUNT, MSG_GAS_LIMIT
 from derive_client.data_types import Address, ChainID, MintableTokenData, NonMintableTokenData, TxStatus
 from derive_client.utils import build_standard_transaction, estimate_fees, exp_backoff_retry, send_and_confirm_tx
 
@@ -49,24 +49,6 @@ def increase_allowance(
         raise RuntimeError("approve() failed")
 
 
-def get_min_fees(
-    w3: Web3,
-    bridge_contract: Contract,
-    connector: str,
-    is_new_bridge: bool,
-) -> int:
-    """Get min fees"""
-    params = {
-        "connector_": Web3.to_checksum_address(connector),
-        "msgGasLimit_": MSG_GAS_LIMIT,
-    }
-    if is_new_bridge:
-        params["payloadSize_"] = PAYLOAD_SIZE
-
-    total_fees = bridge_contract.functions.getMinFees(**params).call()
-    return total_fees
-
-
 def prepare_new_bridge_tx(
     w3: Web3,
     account: Account,
@@ -75,6 +57,7 @@ def prepare_new_bridge_tx(
     amount: int,
     msg_gas_limit: int,
     connector: str,
+    fees: int,
     **kwargs,
 ) -> dict:
     """Build the function call for 'bridge'"""
@@ -88,7 +71,6 @@ def prepare_new_bridge_tx(
         options_=b"",
     )
 
-    fees = get_min_fees(w3=w3, bridge_contract=vault_contract, connector=connector, is_new_bridge=True)
     return build_standard_transaction(func=func, account=account, w3=w3, value=fees + 1)
 
 
@@ -101,6 +83,7 @@ def prepare_old_bridge_tx(
     token_data: NonMintableTokenData | MintableTokenData,
     connector: str,
     deposit_helper: Contract,
+    fees: int,
     **kwargs,
 ) -> dict:
     """Build the function call for 'bridge'"""
@@ -114,7 +97,6 @@ def prepare_old_bridge_tx(
         connector=w3.to_checksum_address(connector),
     )
 
-    fees = get_min_fees(w3=w3, bridge_contract=vault_contract, connector=connector, is_new_bridge=False)
     return build_standard_transaction(func=func, account=account, w3=w3, value=fees + 1)
 
 
