@@ -64,9 +64,9 @@ def _load_deposit_contract(w3: Web3, token_data: MintableTokenData) -> Contract:
     return get_contract(w3=w3, address=address, abi=abi)
 
 
-def _load_light_account(w3: Web3, wallet_address: Address) -> Contract:
+def _load_light_account(w3: Web3, wallet: Address) -> Contract:
     abi = json.loads(LIGHT_ACCOUNT_ABI_PATH.read_text())
-    return get_contract(w3=w3, address=wallet_address, abi=abi)
+    return get_contract(w3=w3, address=wallet, abi=abi)
 
 
 class BridgeClient:
@@ -181,8 +181,12 @@ class BridgeClient:
 
         # Get the token contract and Light Account contract instances.
         token_contract = get_erc20_contract(self.w3, token_data.MintableToken)
-        light_account = _load_light_account(w3=self.w3, wallet=wallet)
         controller = _load_controller_contract(w3=self.w3, token_data=token_data)
+        light_account = _load_light_account(w3=self.w3, wallet=wallet)
+
+        owner = light_account.functions.owner().call()
+        if not receiver == owner:
+            raise NotImplementedError(f"Withdraw to receiver {receiver} other than wallet owner {owner}")
 
         if token_data.isNewBridge:
             deposit_hook = controller.functions.hook__().call()
@@ -192,18 +196,14 @@ class BridgeClient:
             deposit_contract = _load_deposit_contract(w3=self.w3, token_data=token_data)
             pool_id = deposit_contract.functions.connectorPoolIds(connector).call()
             locked = deposit_contract.functions.poolLockedAmounts(pool_id).call()
-
-            if amount > locked:
-                raise RuntimeError(
-                    f"Insufficient funds locked in pool: has {locked}, want {amount} ({(locked / amount * 100):.2f}%)"
-                )
-
-            owner = light_account.functions.owner().call()
-            if not receiver == owner:
-                raise NotImplementedError("Withdraw to receiver other than wallet owner")
         else:
-            # figure out how to check balances on the old bridge.
-            print("Old bridge not checking balances")
+            pool_id = controller.functions.connectorPoolIds(connector).call()
+            locked = controller.functions.poolLockedAmounts(pool_id).call()
+
+        if amount > locked:
+            raise RuntimeError(
+                f"Insufficient funds locked in pool: has {locked}, want {amount} ({(locked / amount * 100):.2f}%)"
+            )
 
         tx = prepare_withdraw_wrapper_tx(
             w3=self.w3,
