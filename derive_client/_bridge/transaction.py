@@ -7,6 +7,37 @@ from derive_client.data_types import Address, ChainID, MintableTokenData, NonMin
 from derive_client.utils import estimate_fees, exp_backoff_retry, send_and_confirm_tx
 
 
+def build_standard_transaction(
+    func,
+    account: Account,
+    w3: Web3,
+    value: int = 0,
+    gas_blocks: int = 100,
+    gas_percentile: int = 99,
+) -> dict:
+    """Standardized transaction building with EIP-1559 and gas estimation"""
+
+    nonce = w3.eth.get_transaction_count(account.address)
+    fee_estimations = estimate_fees(w3, blocks=gas_blocks, percentiles=[gas_percentile])
+    max_fee = fee_estimations[0]["maxFeePerGas"]
+    priority_fee = fee_estimations[0]["maxPriorityFeePerGas"]
+
+    tx = func.build_transaction(
+        {
+            "from": account.address,
+            "nonce": nonce,
+            "maxFeePerGas": max_fee,
+            "maxPriorityFeePerGas": priority_fee,
+            "chainId": w3.eth.chain_id,
+            "value": value,
+        }
+    )
+
+    tx["gas"] = w3.eth.estimate_gas(tx)
+
+    return tx
+
+
 def ensure_balance(token_contract: Contract, owner: Address, amount: int):
     balance = token_contract.functions.balanceOf(owner).call()
     if amount > balance:
@@ -43,49 +74,11 @@ def increase_allowance(
     private_key: str,
 ) -> None:
     func = erc20_contract.functions.approve(spender, amount)
-    nonce = w3.eth.get_transaction_count(from_account.address)
-    tx = func.build_transaction(
-        {
-            "from": from_account.address,
-            "nonce": nonce,
-            "gas": MSG_GAS_LIMIT,
-            "gasPrice": w3.eth.gas_price,
-        }
-    )
+    tx = build_standard_transaction(func=func, account=from_account, w3=w3)
+    w3.eth.call(tx)
     tx_result = send_and_confirm_tx(w3=w3, tx=tx, private_key=private_key, action="approve()")
     if tx_result.status != TxStatus.SUCCESS:
         raise RuntimeError("approve() failed")
-
-
-def build_standard_transaction(
-    func,
-    account: Account,
-    w3: Web3,
-    value: int = 0,
-    gas_blocks: int = 100,
-    gas_percentile: int = 99,
-) -> dict:
-    """Standardized transaction building with EIP-1559 and gas estimation"""
-
-    nonce = w3.eth.get_transaction_count(account.address)
-    fee_estimations = estimate_fees(w3, blocks=gas_blocks, percentiles=[gas_percentile])
-    max_fee = fee_estimations[0]["maxFeePerGas"]
-    priority_fee = fee_estimations[0]["maxPriorityFeePerGas"]
-
-    tx = func.build_transaction(
-        {
-            "from": account.address,
-            "nonce": nonce,
-            "maxFeePerGas": max_fee,
-            "maxPriorityFeePerGas": priority_fee,
-            "chainId": w3.eth.chain_id,
-            "value": value,
-        }
-    )
-
-    tx["gas"] = w3.eth.estimate_gas(tx)
-
-    return tx
 
 
 def get_min_fees(

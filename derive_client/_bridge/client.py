@@ -90,10 +90,11 @@ class BridgeClient:
 
         if token_data.isNewBridge:
             prepare_bridge_tx = prepare_new_bridge_tx
+            spender = token_data.Vault
         else:
             prepare_bridge_tx = prepare_old_bridge_tx
+            spender = self.deposit_helper.address
 
-        spender = token_data.Vault
         connector = token_data.connectors[ChainID.DERIVE][TARGET_SPEED]
         bridge_contract = _load_bridge_contract(w3=self.w3, token_data=token_data)
 
@@ -120,6 +121,7 @@ class BridgeClient:
             deposit_helper=self.deposit_helper,
         )
 
+        self.w3.eth.call(tx)
         tx_result = send_and_confirm_tx(w3=self.w3, tx=tx, private_key=self.account._private_key, action="bridge()")
         return tx_result
 
