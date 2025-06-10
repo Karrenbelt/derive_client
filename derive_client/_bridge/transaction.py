@@ -85,7 +85,6 @@ def get_min_fees(
     bridge_contract: Contract,
     connector: str,
     is_new_bridge: bool,
-    is_withdraw: bool = False,
 ) -> int:
     """Get min fees"""
     params = {
