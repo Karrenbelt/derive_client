@@ -105,7 +105,7 @@ def get_min_fees(
 def prepare_new_bridge_tx(
     w3: Web3,
     account: Account,
-    contract: Contract,
+    vault_contract: Contract,
     receiver: str,
     amount: int,
     msg_gas_limit: int,
@@ -114,7 +114,7 @@ def prepare_new_bridge_tx(
 ) -> dict:
     """Build the function call for 'bridge'"""
 
-    func = contract.functions.bridge(
+    func = vault_contract.functions.bridge(
         receiver_=w3.to_checksum_address(receiver),
         amount_=amount,
         msgGasLimit_=msg_gas_limit,
@@ -123,7 +123,7 @@ def prepare_new_bridge_tx(
         options_=b"",
     )
 
-    fees = get_min_fees(w3=w3, bridge_contract=contract, connector=connector, is_new_bridge=True)
+    fees = get_min_fees(w3=w3, bridge_contract=vault_contract, connector=connector, is_new_bridge=True)
 
     func.call({"from": account.address, "value": fees})
 
@@ -133,7 +133,7 @@ def prepare_new_bridge_tx(
 def prepare_old_bridge_tx(
     w3: Web3,
     account: Account,
-    contract: Contract,
+    vault_contract: Contract,
     amount: int,
     msg_gas_limit: int,
     token_data: NonMintableTokenData | MintableTokenData,
@@ -143,7 +143,7 @@ def prepare_old_bridge_tx(
 ) -> dict:
     """Build the function call for 'bridge'"""
 
-    fees = get_min_fees(w3=w3, bridge_contract=contract, connector=connector, is_new_bridge=False)
+    fees = get_min_fees(w3=w3, bridge_contract=vault_contract, connector=connector, is_new_bridge=False)
 
     balance = w3.eth.get_balance(account.address)
     if balance < fees:

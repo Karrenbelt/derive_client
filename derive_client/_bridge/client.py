@@ -46,7 +46,7 @@ from derive_client.data_types import (
 from derive_client.utils import get_contract, get_erc20_contract, send_and_confirm_tx
 
 
-def _load_bridge_contract(w3: Web3, token_data) -> Contract:
+def _load_vault_contract(w3: Web3, token_data) -> Contract:
     path = NEW_VAULT_ABI_PATH if token_data.isNewBridge else OLD_VAULT_ABI_PATH
     abi = json.loads(path.read_text())
     return get_contract(w3=w3, address=token_data.Vault, abi=abi)
@@ -88,15 +88,15 @@ class BridgeClient:
         Deposit funds by preparing, signing, and sending a bridging transaction.
         """
 
+        connector = token_data.connectors[ChainID.DERIVE][TARGET_SPEED]
+        vault_contract = _load_vault_contract(w3=self.w3, token_data=token_data)
+
         if token_data.isNewBridge:
             prepare_bridge_tx = prepare_new_bridge_tx
-            spender = token_data.Vault
+            spender = vault_contract.address
         else:
             prepare_bridge_tx = prepare_old_bridge_tx
             spender = self.deposit_helper.address
-
-        connector = token_data.connectors[ChainID.DERIVE][TARGET_SPEED]
-        bridge_contract = _load_bridge_contract(w3=self.w3, token_data=token_data)
 
         token_contract = get_erc20_contract(self.w3, token_data.NonMintableToken)
         ensure_balance(token_contract, self.account.address, amount)
@@ -112,7 +112,7 @@ class BridgeClient:
         tx = prepare_bridge_tx(
             w3=self.w3,
             account=self.account,
-            contract=bridge_contract,
+            vault_contract=vault_contract,
             receiver=receiver,
             amount=amount,
             msg_gas_limit=MSG_GAS_LIMIT,
