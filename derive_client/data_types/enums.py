@@ -28,6 +28,14 @@ class ChainID(IntEnum):
             return super()._missing_(value)
 
 
+class LayerZeroChainIDv2(IntEnum):
+    # https://dev.gas.zip/layerzero/chain-support/outbound
+    ETH = 30101
+    ARBITRUM = 30110
+    OPTIMISM = 30111
+    BASE = 30184
+
+
 class RPCEndPoints(Enum):
     ETH = "https://eth.drpc.org"
     OPTIMISM = "https://optimism.drpc.org"
