@@ -169,9 +169,19 @@ class BaseClient:
 
         w3 = get_w3_connection(chain_id=ChainID.DERIVE)
         derive_addresses = get_prod_derive_addresses()
-        token_data = derive_addresses.chains[ChainID.DERIVE][currency]
         amount = int(amount * 10 ** TOKEN_DECIMALS[UnderlyingCurrency[currency.name]])
         client = BridgeClient(self.env, w3=w3, account=self.signer)
+
+        if currency == Currency.DRV:
+            return client.withdraw_drv(
+                amount=amount,
+                receiver=receiver,
+                wallet=self.wallet,
+                private_key=self.signer._private_key,
+                target_chain=chain_id,
+            )
+
+        token_data = derive_addresses.chains[ChainID.DERIVE][currency]
         return client.withdraw_with_wrapper(
             amount=amount,
             receiver=receiver,
