@@ -31,7 +31,9 @@ from derive_client.constants import (
 from derive_client.data_types import (
     Address,
     ChainID,
+    DeriveTokenAddresses,
     Environment,
+    LayerZeroChainIDv2,
     MintableTokenData,
     NonMintableTokenData,
     RPCEndPoints,
@@ -98,6 +100,60 @@ class BridgeClient:
         abi = json.loads(WITHDRAW_WRAPPER_V2_ABI_PATH.read_text())
         return get_contract(w3=self.w3, address=address, abi=abi)
 
+    def deposit_drv(
+        self,
+        amount: int,
+        receiver: Address,
+        chain_id: ChainID,
+    ) -> TxResult:
+        """
+        Deposit funds by preparing, signing, and sending a bridging transaction.
+        """
+
+        spender = Web3.to_checksum_address(DeriveTokenAddresses[chain_id.name])
+        if chain_id == ChainID.ETH:
+            abi_path = CONTROLLER_ABI_PATH.parent / "Derive.json"
+        else:
+            abi_path = CONTROLLER_ABI_PATH.parent / "DeriveL2.json"
+
+        abi = json.loads(abi_path.read_text())
+        token_contract = get_contract(self.w3, spender, abi=abi)
+
+        ensure_balance(token_contract, self.account.address, amount)
+        ensure_allowance(
+            w3=self.w3,
+            token_contract=token_contract,
+            owner=self.account.address,
+            spender=spender,
+            amount=amount,
+            private_key=self.account._private_key,
+        )
+
+        receiver_bytes32 = Web3.to_bytes(hexstr=self.account.address).rjust(32, b"\x00")
+
+        params = (
+            LayerZeroChainIDv2.DERIVE.value,  # dstEid
+            receiver_bytes32,  # receiver
+            amount,  # amountLD
+            amount,  # minAmountLD
+            b"",  # extraOptions
+            b"",  # composeMsg
+            b"",  # oftCmd
+        )
+        fees = token_contract.functions.quoteSend(
+            params,
+            False,  # payInLzToken
+        ).call()
+
+        native_fee, lz_token_fee = fees
+        _refundAddress = self.account.address
+        func = token_contract.functions.send(params, fees, _refundAddress)
+
+        tx = build_standard_transaction(func=func, account=self.account, w3=self.w3, value=native_fee)
+
+        tx_result = send_and_confirm_tx(w3=self.w3, tx=tx, private_key=self.account._private_key, action="bridge()")
+        return tx_result
+
     def deposit(
         self,
         amount: int,
@@ -128,6 +184,54 @@ class BridgeClient:
         tx_result = send_and_confirm_tx(w3=self.w3, tx=tx, private_key=self.account._private_key, action="bridge()")
         return tx_result
 
+    def withdraw_drv(
+        self,
+        amount: int,
+        receiver: Address,
+        wallet: Address,
+        private_key: str,
+        target_chain: int,
+    ):
+        # proxy contract address for DRV token contract on Derive chain
+        mintable_token = Web3.to_checksum_address("0x2EE0fd70756EDC663AcC9676658A1497C247693A")
+
+        token_contract = get_erc20_contract(self.w3, mintable_token)
+        light_account = _load_light_account(w3=self.w3, wallet=wallet)
+
+        ABI_PATH = CONTROLLER_ABI_PATH.parent / "LyraOFTWithdrawWrapper.json"
+        address = "0x9400cc156dad38a716047a67c897973A29A06710"
+        abi = json.loads(ABI_PATH.read_text())
+        withdraw_wrapper = get_contract(self.w3, address, abi=abi)
+
+        balance = token_contract.functions.balanceOf(wallet).call()
+        if balance < amount:
+            raise ValueError(f"Not enough tokens to withdraw: {amount} < {balance} ({(balance / amount * 100):.2f}%) ")
+
+        destEID = LayerZeroChainIDv2[target_chain.name]
+        fee = withdraw_wrapper.functions.getFeeInToken(token_contract.address, amount, destEID).call()
+        if amount < fee:
+            raise ValueError(f"Withdraw amount < fee: {amount} < {fee} ({(fee / amount * 100):.2f}%)")
+
+        kwargs = {
+            "token": token_contract.address,
+            "amount": amount,
+            "toAddress": receiver,
+            "destEID": destEID,
+        }
+
+        approve_data = token_contract.encodeABI(fn_name="approve", args=[withdraw_wrapper.address, amount])
+        bridge_data = withdraw_wrapper.encodeABI(fn_name="withdrawToChain", args=list(kwargs.values()))
+
+        func = light_account.functions.executeBatch(
+            dest=[token_contract.address, withdraw_wrapper.address],
+            func=[approve_data, bridge_data],
+        )
+
+        tx = build_standard_transaction(func=func, account=self.account, w3=self.w3, value=0)
+
+        tx_result = send_and_confirm_tx(w3=self.w3, tx=tx, private_key=private_key, action="executeBatch()")
+        return tx_result
+
     def withdraw_with_wrapper(
         self,
         amount: int,
@@ -135,7 +239,7 @@ class BridgeClient:
         token_data: MintableTokenData,
         wallet: Address,
         private_key: str,
-        target_chain: str,
+        target_chain: int,
     ) -> TxResult:
         """
         Checks if sufficent gas is available in derive, if not funds the wallet.
