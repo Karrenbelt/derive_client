@@ -147,9 +147,16 @@ class BaseClient:
 
         w3 = get_w3_connection(chain_id=chain_id)
         derive_addresses = get_prod_derive_addresses()
-        token_data = derive_addresses.chains[chain_id][currency]
         amount = int(amount * 10 ** TOKEN_DECIMALS[UnderlyingCurrency[currency.name]])
         client = BridgeClient(self.env, w3=w3, account=self.signer)
+        if currency == Currency.DRV:
+            return client.deposit_drv(
+                amount=amount,
+                receiver=receiver,
+                chain_id=chain_id,
+            )
+
+        token_data = derive_addresses.chains[chain_id][currency]
         return client.deposit(
             amount=amount,
             receiver=receiver,

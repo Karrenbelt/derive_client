@@ -31,6 +31,7 @@ from derive_client.constants import (
 from derive_client.data_types import (
     Address,
     ChainID,
+    DeriveTokenAddresses,
     Environment,
     LayerZeroChainIDv2,
     MintableTokenData,
@@ -98,6 +99,60 @@ class BridgeClient:
         address = self.config.contracts.WITHDRAW_WRAPPER_V2
         abi = json.loads(WITHDRAW_WRAPPER_V2_ABI_PATH.read_text())
         return get_contract(w3=self.w3, address=address, abi=abi)
+
+    def deposit_drv(
+        self,
+        amount: int,
+        receiver: Address,
+        chain_id: ChainID,
+    ) -> TxResult:
+        """
+        Deposit funds by preparing, signing, and sending a bridging transaction.
+        """
+
+        spender = Web3.to_checksum_address(DeriveTokenAddresses[chain_id.name])
+        if chain_id == ChainID.ETH:
+            abi_path = CONTROLLER_ABI_PATH.parent / "Derive.json"
+        else:
+            abi_path = CONTROLLER_ABI_PATH.parent / "DeriveL2.json"
+
+        abi = json.loads(abi_path.read_text())
+        token_contract = get_contract(self.w3, spender, abi=abi)
+
+        ensure_balance(token_contract, self.account.address, amount)
+        ensure_allowance(
+            w3=self.w3,
+            token_contract=token_contract,
+            owner=self.account.address,
+            spender=spender,
+            amount=amount,
+            private_key=self.account._private_key,
+        )
+
+        receiver_bytes32 = Web3.to_bytes(hexstr=self.account.address).rjust(32, b"\x00")
+
+        params = (
+            LayerZeroChainIDv2.DERIVE.value,  # dstEid
+            receiver_bytes32,  # receiver
+            amount,  # amountLD
+            amount,  # minAmountLD
+            b"",  # extraOptions
+            b"",  # composeMsg
+            b"",  # oftCmd
+        )
+        fees = token_contract.functions.quoteSend(
+            params,
+            False,  # payInLzToken
+        ).call()
+
+        native_fee, lz_token_fee = fees
+        _refundAddress = self.account.address
+        func = token_contract.functions.send(params, fees, _refundAddress)
+
+        tx = build_standard_transaction(func=func, account=self.account, w3=self.w3, value=native_fee)
+
+        tx_result = send_and_confirm_tx(w3=self.w3, tx=tx, private_key=self.account._private_key, action="bridge()")
+        return tx_result
 
     def deposit(
         self,
