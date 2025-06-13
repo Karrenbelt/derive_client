@@ -147,8 +147,9 @@ class BaseClient:
 
         w3 = get_w3_connection(chain_id=chain_id)
         derive_addresses = get_prod_derive_addresses()
-        amount = int(amount * 10 ** TOKEN_DECIMALS[UnderlyingCurrency[currency.name]])
+        amount = int(amount * 10 ** TOKEN_DECIMALS[UnderlyingCurrency[currency.name.upper()]])
         client = BridgeClient(self.env, w3=w3, account=self.signer)
+        chain_id = ChainID(chain_id)
         if currency == Currency.DRV:
             return client.deposit_drv(
                 amount=amount,
@@ -156,15 +157,11 @@ class BaseClient:
                 chain_id=chain_id,
             )
         # Hmmmm this is a bit of a hack, but we need to derive the token data
+        if currency not in derive_addresses.chains[chain_id]:
+            raise ValueError(
+                f"Currency {currency} not found in Derive addresses for chain {chain_id}. Please check the route."
+            )
         token_data = derive_addresses.chains[chain_id][currency]
-        if chain_id in [
-            ChainID.ARBITRUM,
-            ChainID.OPTIMISM,
-        ]:
-            if chain_id == ChainID.ARBITRUM:
-                print("Using Arbitrum bridge for deposit")
-            else:
-                print("Using Optimism bridge for deposit")
 
         return client.deposit(
             amount=amount,
@@ -185,7 +182,7 @@ class BaseClient:
 
         w3 = get_w3_connection(chain_id=ChainID.DERIVE)
         derive_addresses = get_prod_derive_addresses()
-        amount = int(amount * 10 ** TOKEN_DECIMALS[UnderlyingCurrency[currency.name]])
+        amount = int(amount * 10 ** TOKEN_DECIMALS[UnderlyingCurrency[currency.name.upper()]])
         client = BridgeClient(self.env, w3=w3, account=self.signer)
 
         if currency == Currency.DRV:
