@@ -118,6 +118,7 @@ class BridgeClient:
         Deposit funds by preparing, signing, and sending a bridging transaction.
         """
 
+        breakpoint()
         spender = Web3.to_checksum_address(DeriveTokenAddresses[chain_id.name].value)
         if chain_id == ChainID.ETH:
             abi_path = CONTROLLER_ABI_PATH.parent / "Derive.json"
@@ -137,7 +138,7 @@ class BridgeClient:
             private_key=self.account._private_key,
         )
 
-        receiver_bytes32 = Web3.to_bytes(hexstr=self.account.address).rjust(32, b"\x00")
+        receiver_bytes32 = Web3.to_bytes(hexstr=receiver).rjust(32, b"\x00")
 
         params = (
             LayerZeroChainIDv2.DERIVE.value,  # dstEid

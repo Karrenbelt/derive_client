@@ -151,12 +151,13 @@ class BaseClient:
         client = BridgeClient(self.env, w3=w3, account=self.signer)
         chain_id = ChainID(chain_id)
         if currency == Currency.DRV:
+            if not self.wallet:
+                raise ValueError("Wallet address must be provided for DRV deposits.")
             return client.deposit_drv(
                 amount=amount,
-                receiver=receiver,
+                receiver=self.wallet,
                 chain_id=chain_id,
             )
-        # Hmmmm this is a bit of a hack, but we need to derive the token data
         if currency not in derive_addresses.chains[chain_id]:
             raise ValueError(
                 f"Currency {currency} not found in Derive addresses for chain {chain_id}. Please check the route."
