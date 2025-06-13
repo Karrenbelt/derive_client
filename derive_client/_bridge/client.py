@@ -118,7 +118,6 @@ class BridgeClient:
         Deposit funds by preparing, signing, and sending a bridging transaction.
         """
 
-        breakpoint()
         spender = Web3.to_checksum_address(DeriveTokenAddresses[chain_id.name].value)
         if chain_id == ChainID.ETH:
             abi_path = CONTROLLER_ABI_PATH.parent / "Derive.json"

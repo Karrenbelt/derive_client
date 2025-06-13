@@ -36,8 +36,8 @@ function deposit () {
     fi
 
     echo "Depositing $currency to subaccount $SUBACCOUNT_ID"
-    # drv -s $SUBACCOUNT_ID -w $DERIVE_SC_WALLET_ADDRESS -k $SIGNER_KEY_PATH bridge deposit -c BASE     -t $currency -a $amount
-    # drv -s $SUBACCOUNT_ID -w $DERIVE_SC_WALLET_ADDRESS -k $SIGNER_KEY_PATH bridge deposit -c OPTIMISM -t $currency -a $amount
+    drv -s $SUBACCOUNT_ID -w $DERIVE_SC_WALLET_ADDRESS -k $SIGNER_KEY_PATH bridge deposit -c BASE     -t $currency -a $amount
+    drv -s $SUBACCOUNT_ID -w $DERIVE_SC_WALLET_ADDRESS -k $SIGNER_KEY_PATH bridge deposit -c OPTIMISM -t $currency -a $amount
     drv -s $SUBACCOUNT_ID -w $DERIVE_SC_WALLET_ADDRESS -k $SIGNER_KEY_PATH bridge deposit -c ARBITRUM -t $currency -a $amount
 }
 
