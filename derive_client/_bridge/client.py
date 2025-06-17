@@ -5,6 +5,7 @@ Bridge client to deposit funds to the Derive smart contract funding account
 from __future__ import annotations
 
 import json
+from typing import NamedTuple
 
 from eth_account import Account
 from web3 import Web3
@@ -139,23 +140,50 @@ class BridgeClient:
 
         receiver_bytes32 = Web3.to_bytes(hexstr=receiver).rjust(32, b"\x00")
 
+        amount_ld      = 1000000000000000000000
+        min_amount_ld  = 900000000000000000000
+        extra_options  = b""  # extraOptions
+
+
         params = (
             LayerZeroChainIDv2.DERIVE.value,  # dstEid
             receiver_bytes32,  # receiver
             amount,  # amountLD
-            amount,  # minAmountLD
-            b"",  # extraOptions
+            0,  # minAmountLD
+            extra_options,
+            b"",  # composeMsg
+            b"",  # oftCmd
+        )
+        extra_options  = b"0x00030100110100000000000000000000000000000000"  # extraOptions
+        send_params = (
+            params[0],  # dstEid
+            params[1], # receiver
+            params[2],  # amountLD
+            params[3],  # minAmountLD
+            params[4],  # extraOptions
             b"",  # composeMsg
             b"",  # oftCmd
         )
         fees = token_contract.functions.quoteSend(
-            params,
+            send_params,  # params, feeParams
             False,  # payInLzToken
         ).call()
 
         native_fee, lz_token_fee = fees
         _refundAddress = self.account.address
-        func = token_contract.functions.send(params, fees, _refundAddress)
+
+        # fees = token_contract.functions.quoteOFT(
+        #     send_params,  # params, feeParams
+        #     # False,  # payInLzToken
+        # ).call()
+        # breakpoint()
+
+
+        func = token_contract.functions.send(
+            send_params, 
+            fees,  # lzTokenFee
+            _refundAddress)
+
 
         tx = build_standard_transaction(func=func, account=self.account, w3=self.w3, value=native_fee)
 
