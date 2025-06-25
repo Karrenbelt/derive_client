@@ -86,7 +86,7 @@ class BaseClient:
         self.env = env
         self.config = CONFIGS[env]
         self.logger = logger or get_logger()
-        self.web3_client = Web3()
+        self.web3_client = Web3(Web3.HTTPProvider(self.config.rpc_endpoint))
         self.signer = self.web3_client.eth.account.from_key(private_key)
         self.wallet = wallet
         self._verify_wallet(wallet)
@@ -94,10 +94,9 @@ class BaseClient:
         self.referral_code = referral_code
 
     def _verify_wallet(self, wallet: Address):
-        w3 = Web3(Web3.HTTPProvider(self.config.rpc_endpoint))
-        if not w3.is_connected():
+        if not self.web3_client.is_connected():
             raise ConnectionError(f"Failed to connect to RPC at {self.config.rpc_endpoint}")
-        if not w3.eth.get_code(wallet):
+        if not self.web3_client.eth.get_code(wallet):
             msg = f"{wallet} appears to be an EOA (no bytecode). Expected a smart-contract wallet on Derive."
             raise ValueError(msg)
         session_keys = self._get_session_keys(wallet)
@@ -135,27 +134,26 @@ class BaseClient:
         return True
 
     @validate_call
-    def deposit_to_derive(self, chain_id: ChainID, currency: Currency, amount: float, receiver: Address) -> TxResult:
+    def deposit_to_derive(self, chain_id: ChainID, currency: Currency, amount: float) -> TxResult:
         """Deposit funds via socket superbridge to Derive chain smart contract funding account.
 
         Parameters:
             chain_id (ChainID): The chain you are bridging FROM.
             currency (Currency): The asset being bridged.
             amount (int): The amount to deposit, in Wei.
-            receiver (Address): The Derive smart contract wallet address to receive the funds.
         """
 
         w3 = get_w3_connection(chain_id=chain_id)
         derive_addresses = get_prod_derive_addresses()
         amount = int(amount * 10 ** TOKEN_DECIMALS[UnderlyingCurrency[currency.name.upper()]])
-        client = BridgeClient(self.env, w3=w3, account=self.signer)
+        client = BridgeClient(self.env, w3=w3, account=self.signer, wallet=self.wallet)
         chain_id = ChainID(chain_id)
+
         if currency == Currency.DRV:
             if not self.wallet:
                 raise ValueError("Wallet address must be provided for DRV deposits.")
             return client.deposit_drv(
                 amount=amount,
-                receiver=self.wallet,
                 chain_id=chain_id,
             )
         if currency not in derive_addresses.chains[chain_id]:
@@ -163,45 +161,33 @@ class BaseClient:
                 f"Currency {currency} not found in Derive addresses for chain {chain_id}. Please check the route."
             )
         token_data = derive_addresses.chains[chain_id][currency]
-
-        return client.deposit(
-            amount=amount,
-            receiver=receiver,
-            token_data=token_data,
-        )
+        return client.deposit(amount=amount, token_data=token_data)
 
     @validate_call
-    def withdraw_from_derive(self, chain_id: ChainID, currency: Currency, amount: float, receiver: Address) -> TxResult:
+    def withdraw_from_derive(self, chain_id: ChainID, currency: Currency, amount: float) -> TxResult:
         """Deposit funds via socket superbridge to Derive chain smart contract funding account.
 
         Parameters:
             chain_id (ChainID): The chain you are bridging TO.
             currency (Currency): The asset being bridged.
             amount (int): The amount to withdraw, in Wei.
-            receiver (Address): The address to receive the funds.
         """
 
         w3 = get_w3_connection(chain_id=ChainID.DERIVE)
         derive_addresses = get_prod_derive_addresses()
         amount = int(amount * 10 ** TOKEN_DECIMALS[UnderlyingCurrency[currency.name.upper()]])
-        client = BridgeClient(self.env, w3=w3, account=self.signer)
+        client = BridgeClient(self.env, w3=w3, account=self.signer, wallet=self.wallet)
 
         if currency == Currency.DRV:
             return client.withdraw_drv(
                 amount=amount,
-                receiver=receiver,
-                wallet=self.wallet,
-                private_key=self.signer._private_key,
                 target_chain=chain_id,
             )
 
         token_data = derive_addresses.chains[ChainID.DERIVE][currency]
         return client.withdraw_with_wrapper(
             amount=amount,
-            receiver=receiver,
             token_data=token_data,
-            wallet=self.wallet,
-            private_key=self.signer._private_key,
             target_chain=chain_id,
         )
 
