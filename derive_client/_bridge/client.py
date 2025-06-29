@@ -249,6 +249,7 @@ class BridgeClient:
         amount: int,
         target_chain: int,
     ):
+        self._ensure_derive_eth_balance()
         # proxy contract address for DRV token contract on Derive chain
         mintable_token = Web3.to_checksum_address("0x2EE0fd70756EDC663AcC9676658A1497C247693A")
 
@@ -288,6 +289,16 @@ class BridgeClient:
         tx_result = send_and_confirm_tx(w3=self.w3, tx=tx, private_key=self.private_key, action="executeBatch()")
         return tx_result
 
+    def _ensure_derive_eth_balance(
+        self,
+    ):
+        """Ensure that the Derive EOA wallet has sufficient ETH balance for gas."""
+        derive_w3 = Web3(Web3.HTTPProvider(RPCEndPoints.DERIVE.value))
+        balance_of_owner = derive_w3.eth.get_balance(self.owner)
+        if balance_of_owner < DEPOSIT_GAS_LIMIT:
+            print(f"Funding Derive EOA wallet with {DEFAULT_GAS_FUNDING_AMOUNT} ETH")
+            self.bridge_mainnet_eth_to_derive(DEFAULT_GAS_FUNDING_AMOUNT)
+
     def withdraw_with_wrapper(self, amount: int, token_data: MintableTokenData, target_chain: int) -> TxResult:
         """
         Checks if sufficent gas is available in derive, if not funds the wallet.
@@ -299,16 +310,12 @@ class BridgeClient:
                 f"Connected to chain ID {self.w3.eth.chain_id}, but expected Derive chain ({ChainID.DERIVE})."
             )
 
-        derive_w3 = Web3(Web3.HTTPProvider(RPCEndPoints.DERIVE.value))
-        balance_of_owner = derive_w3.eth.get_balance(self.owner)
-        if balance_of_owner < DEPOSIT_GAS_LIMIT:
-            print(f"Funding Derive EOA wallet with {DEFAULT_GAS_FUNDING_AMOUNT} ETH")
-            self.bridge_mainnet_eth_to_derive(DEFAULT_GAS_FUNDING_AMOUNT)
-
         if target_chain not in token_data.connectors:
             raise ValueError(
                 f"Target chain {target_chain} not found in token data connectors. Please check input configuration."
             )
+
+        self._ensure_derive_eth_balance()
         connector = token_data.connectors[target_chain][TARGET_SPEED]
 
         # Get the token contract and Light Account contract instances.
