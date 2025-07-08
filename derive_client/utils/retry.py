@@ -1,12 +1,15 @@
 import functools
 import time
-from typing import Sequence
+from typing import Callable, ParamSpec, Sequence, TypeVar
 
 import requests
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
 from derive_client.utils.logger import get_logger
+
+P = ParamSpec('P')
+T = TypeVar('T')
 
 
 def exp_backoff_retry(func=None, *, attempts=3, initial_delay=1, exceptions=(Exception,)):
@@ -66,3 +69,30 @@ def get_retry_session(
 
     session.hooks["response"] = [log_response]
     return session
+
+
+def wait_until(
+    func: Callable[P, T],
+    condition: Callable[[T], bool],
+    timeout: float = 60.0,
+    poll_interval=1.0,
+    retry_exceptions: type[Exception] | tuple[type[Exception], ...] = (ConnectionError, TimeoutError),
+    max_retries: int = 3,
+    **kwargs: P.kwargs,
+) -> T:
+    retries = 0
+    start_time = time.time()
+    while True:
+        try:
+            result = func(**kwargs)
+        except retry_exceptions:
+            retries += 1
+            if retries >= max_retries:
+                raise
+            poll_interval *= 2
+            result = None
+        if result is not None and condition(result):
+            return result
+        if time.time() - start_time > timeout:
+            raise TimeoutError("Timed out waiting for transaction receipt.")
+        time.sleep(poll_interval)
