@@ -6,12 +6,12 @@ from derive_action_signing.module_data import ModuleData
 from derive_action_signing.utils import decimal_to_big_int
 from eth_abi.abi import encode
 from eth_utils import is_address, to_checksum_address
-from pydantic import BaseModel, ConfigDict, GetCoreSchemaHandler, GetJsonSchemaHandler
+from pydantic import BaseModel, ConfigDict, Field, GetCoreSchemaHandler, GetJsonSchemaHandler
 from pydantic_core import core_schema
 from web3 import Web3
 from web3.datastructures import AttributeDict
 
-from .enums import ChainID, Currency, MainnetCurrency, MarginType, SessionKeyScope, TxStatus
+from .enums import ChainID, Currency, DeriveTxStatus, MainnetCurrency, MarginType, SessionKeyScope, TxStatus
 
 
 class Address(str):
@@ -111,3 +111,20 @@ class TxResult:
         if isinstance(self.exception, TimeoutError):
             return TxStatus.PENDING
         return TxStatus.ERROR
+
+
+class DepositResult(BaseModel):
+    status: DeriveTxStatus  # should be "REQUESTED"
+    transaction_id: str
+
+
+class WithdrawResult(BaseModel):
+    status: DeriveTxStatus  # should be "REQUESTED"
+    transaction_id: str
+
+
+class DeriveTxResult(BaseModel):
+    data: dict  # Data used to create transaction
+    status: DeriveTxStatus
+    error_log: dict
+    tx_hash: str | None = Field(alias="transaction_hash")
