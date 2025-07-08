@@ -6,6 +6,7 @@ from .enums import (
     CollateralAsset,
     Currency,
     DeriveTokenAddresses,
+    DeriveTxStatus,
     Environment,
     InstrumentType,
     LayerZeroChainIDv2,
@@ -25,16 +26,20 @@ from .models import (
     Address,
     CreateSubAccountData,
     CreateSubAccountDetails,
+    DepositResult,
     DeriveAddresses,
+    DeriveTxResult,
     ManagerAddress,
     MintableTokenData,
     NonMintableTokenData,
     SessionKey,
     TxResult,
+    WithdrawResult,
 )
 
 __all__ = [
     "TxStatus",
+    "DeriveTxStatus",
     "TxResult",
     "ChainID",
     "LayerZeroChainIDv2",
@@ -62,4 +67,7 @@ __all__ = [
     "MainnetCurrency",
     "MarginType",
     "ManagerAddress",
+    "DepositResult",
+    "WithdrawResult",
+    "DeriveTxResult",
 ]

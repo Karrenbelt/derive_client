@@ -34,6 +34,9 @@ from derive_client.data_types import (
     CreateSubAccountData,
     CreateSubAccountDetails,
     Currency,
+    DepositResult,
+    DeriveTxResult,
+    DeriveTxStatus,
     Environment,
     InstrumentType,
     MainnetCurrency,
@@ -48,8 +51,13 @@ from derive_client.data_types import (
     TimeInForce,
     TxResult,
     UnderlyingCurrency,
+    WithdrawResult,
 )
-from derive_client.utils import get_logger, get_prod_derive_addresses, get_w3_connection
+from derive_client.utils import get_logger, get_prod_derive_addresses, get_w3_connection, wait_until
+
+
+def _is_final_tx(res: DeriveTxResult) -> bool:
+    return res.status not in (DeriveTxStatus.REQUESTED, DeriveTxStatus.PENDING)
 
 
 class ApiException(Exception):
@@ -786,7 +794,13 @@ class BaseClient:
         payload = {"currency": asset_name}
         return self._send_request(url, json=payload)
 
-    def transfer_from_funding_to_subaccount(self, amount: int, asset_name: str, subaccount_id: int):
+    def get_transaction(self, transaction_id: str) -> DeriveTxResult:
+        """Get a transaction by its transaction id."""
+        url = f"{self.config.base_url}/public/get_transaction"
+        payload = {"transaction_id": transaction_id}
+        return DeriveTxResult(**self._send_request(url, json=payload))
+
+    def transfer_from_funding_to_subaccount(self, amount: int, asset_name: str, subaccount_id: int) -> DeriveTxResult:
         """
         Transfer from funding to subaccount
         """
@@ -833,9 +847,12 @@ class BaseClient:
         typed_data_hash = sender_action._to_typed_data_hash()
         print(f"Action hash: {action_hash.hex()}")
         print(f"Typed data hash: {typed_data_hash.hex()}")
-        return self._send_request(
-            url,
-            json=payload,
+
+        deposit_result = DepositResult(**self._send_request(url, json=payload))
+        return wait_until(
+            self.get_transaction,
+            condition=_is_final_tx,
+            transaction_id=deposit_result.transaction_id,
         )
 
     def get_manager_for_subaccount(self, subaccount_id: int, asset_name):
@@ -872,7 +889,7 @@ class BaseClient:
             raise Exception(f"Unable to find manager address or underlying address for {asset_name}")
         return manager.address, underlying_address, TOKEN_DECIMALS[deposit_currency]
 
-    def transfer_from_subaccount_to_funding(self, amount: int, asset_name: str, subaccount_id: int):
+    def transfer_from_subaccount_to_funding(self, amount: int, asset_name: str, subaccount_id: int) -> DeriveTxResult:
         """
         Transfer from subaccount to funding
         """
@@ -915,7 +932,10 @@ class BaseClient:
         typed_data_hash = sender_action._to_typed_data_hash()
         print(f"Action hash: {action_hash.hex()}")
         print(f"Typed data hash: {typed_data_hash.hex()}")
-        return self._send_request(
-            url,
-            json=payload,
+
+        withdraw_result = WithdrawResult(**self._send_request(url, json=payload))
+        return wait_until(
+            self.get_transaction,
+            condition=_is_final_tx,
+            transaction_id=withdraw_result.transaction_id,
         )
