@@ -10,6 +10,17 @@ class TxStatus(IntEnum):
     ERROR = 3  # local error, e.g. connection, invalid tx
 
 
+class DeriveTxStatus(Enum):
+    """Status code returned in DeriveClient.get_transaction."""
+
+    REQUESTED = "requested"
+    PENDING = "pending"
+    SETTLED = "settled"
+    REVERTED = "reverted"
+    IGNORED = "ignored"
+    TIMED_OUT = "timed_out"
+
+
 class ChainID(IntEnum):
     ETH = 1
     OPTIMISM = 10
