@@ -199,8 +199,8 @@ def iter_events(
         upper = fixed_ceiling or w3.eth.block_number
         if cursor <= upper:
             end = min(upper, cursor + max_block_range - 1)
-            filter_params["fromBlock"] = cursor
-            filter_params["toBlock"] = end
+            filter_params["fromBlock"] = hex(cursor)
+            filter_params["toBlock"] = hex(end)
             logs = w3.eth.get_logs(filter_params=filter_params)
             print(f"Scanned {cursor} - {end}: {len(logs)} logs")
             yield from logs
