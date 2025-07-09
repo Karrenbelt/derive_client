@@ -1,5 +1,6 @@
 """Models used in the bridge module."""
 
+from abc import ABC, abstractmethod
 from dataclasses import dataclass
 
 from derive_action_signing.module_data import ModuleData
@@ -96,6 +97,24 @@ class ManagerAddress(BaseModel):
     address: Address
     margin_type: MarginType
     currency: MainnetCurrency | None
+
+
+class IndexedEventSpec(ABC, BaseModel):
+    """Anything that can supply the low-level topics (and address) for an on-chain event filter."""
+
+    @property
+    @abstractmethod
+    def signature(self) -> str:
+        """Human-readable event signature."""
+
+    @property
+    def topic0(self) -> str:
+        return Web3.keccak(text=self.signature).to_0x_hex()
+
+    @property
+    @abstractmethod
+    def topics(self) -> list[str]:
+        """The indexed fields of an event as 32 byte strings."""
 
 
 @dataclass
