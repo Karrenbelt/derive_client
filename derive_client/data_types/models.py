@@ -133,6 +133,21 @@ class OFTSentSpec(IndexedEventSpec, arbitrary_types_allowed=True, populate_by_na
         return [self.topic0, guid, from_address]
 
 
+class OFTReceivedSpec(IndexedEventSpec, arbitrary_types_allowed=True, populate_by_name=True):
+    guid: HexBytes | None = Field(default=None)
+    to_address: HexBytes | None = Field(default=None, alias="toAddress")
+
+    @property
+    def signature(self) -> str:
+        return "OFTReceived(bytes32,uint32,address,uint256)"
+
+    @property
+    def topics(self) -> list[str]:
+        guid = self.guid.to_0x_hex() if self.guid is not None else None
+        to_address = self.to_address.to_0x_hex() if self.to_address is not None else None
+        return [self.topic0, guid, to_address]
+
+
 @dataclass
 class TxResult:
     tx_hash: str
