@@ -210,3 +210,15 @@ def iter_events(
             return
 
         time.sleep(poll_interval)
+
+
+def wait_for_event(
+    w3: Web3,
+    event_filter: EventFilter,
+    max_block_range: int = 10_000,
+    poll_interval: float = 5.0,
+    timeout: float = 300.0,
+) -> AttributeDict:
+    """Return the first log from iter_events, or raise TimeoutError after `timeout` seconds."""
+
+    return next(iter_events(**locals()))
