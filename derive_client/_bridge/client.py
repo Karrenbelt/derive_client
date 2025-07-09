@@ -31,21 +31,29 @@ from derive_client.constants import (
 )
 from derive_client.data_types import (
     Address,
+    BridgeTxResult,
     ChainID,
     DeriveTokenAddresses,
     Environment,
+    EventFilter,
     LayerZeroChainIDv2,
     MintableTokenData,
     NonMintableTokenData,
+    OFTReceivedSpec,
+    OFTSentSpec,
     RPCEndPoints,
     TxResult,
+    TxStatus,
 )
 from derive_client.utils import (
     build_standard_transaction,
     get_contract,
     get_erc20_contract,
     get_w3_connection,
+    log_matches_topics,
     send_and_confirm_tx,
+    wait_for_event,
+    wait_for_tx_receipt,
 )
 
 
@@ -247,8 +255,8 @@ class BridgeClient:
     def withdraw_drv(
         self,
         amount: int,
-        target_chain: int,
-    ):
+        target_chain: ChainID,
+    ) -> BridgeTxResult:
         self._ensure_derive_eth_balance()
         # proxy contract address for DRV token contract on Derive chain
         mintable_token = Web3.to_checksum_address("0x2EE0fd70756EDC663AcC9676658A1497C247693A")
@@ -286,7 +294,50 @@ class BridgeClient:
 
         tx = build_standard_transaction(func=func, account=self.account, w3=self.w3, value=0)
 
-        tx_result = send_and_confirm_tx(w3=self.w3, tx=tx, private_key=self.private_key, action="executeBatch()")
+        # target chain
+        chain_id = ChainID(target_chain)
+        wrapper_address = DeriveTokenAddresses[chain_id.name].value
+        target_w3 = get_w3_connection(chain_id=chain_id)
+        from_block = target_w3.eth.block_number  # record on target chain before tx submission on source chain
+
+        # we don't know GUID yet, we instantiate empty spec
+        oft_received_spec = OFTReceivedSpec()
+        event_filter = EventFilter(
+            spec=oft_received_spec,
+            address=wrapper_address,
+            from_block=from_block,
+            to_block="latest",
+        )
+
+        target_tx = TxResult(tx_hash="", tx_receipt=None, exception=None)
+        source_tx = send_and_confirm_tx(w3=self.w3, tx=tx, private_key=self.private_key, action="executeBatch()")
+        tx_result = BridgeTxResult(
+            source_chain=ChainID.DERIVE,
+            target_chain=target_chain,
+            source_tx=source_tx,
+            target_tx=target_tx,
+            event_filter=event_filter,
+        )
+        if not source_tx.status == TxStatus.SUCCESS:
+            return tx_result
+
+        topics = OFTSentSpec().topics
+        logs = source_tx.tx_receipt.logs
+        try:
+            log = next(log for log in logs if log_matches_topics(log, topics))
+            oft_received_spec.guid = log.topics[1]
+            # oft_received_spec.to_address = log.topics[2]  # incorrect
+        except Exception as e:
+            source_tx.exception = ValueError(f"Could not find OFTSent log in source transaction receipt: {e}")
+            return tx_result
+
+        try:
+            event_log = wait_for_event(target_w3, tx_result.event_filter)
+            target_tx.tx_hash = event_log["transactionHash"].to_0x_hex()
+            target_tx.tx_receipt = wait_for_tx_receipt(w3=target_w3, tx_hash=target_tx.tx_hash)
+        except Exception as e:
+            target_tx.exception = e
+
         return tx_result
 
     def _ensure_derive_eth_balance(
