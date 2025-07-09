@@ -1,5 +1,6 @@
 import json
 import time
+from typing import Generator
 
 from eth_account import Account
 from hexbytes import HexBytes
@@ -8,7 +9,7 @@ from web3.contract import Contract
 from web3.datastructures import AttributeDict
 
 from derive_client.constants import ABI_DATA_DIR, GAS_FEE_BUFFER
-from derive_client.data_types import ChainID, RPCEndPoints, TxResult, TxStatus
+from derive_client.data_types import ChainID, EventFilter, RPCEndPoints, TxResult, TxStatus
 from derive_client.utils.retry import exp_backoff_retry
 
 
@@ -172,3 +173,40 @@ def log_matches_topics(log: AttributeDict, topics: list[str | None]) -> bool:
         if i >= len(log["topics"]) or log["topics"][i].to_0x_hex() != topic:
             return False
     return True
+
+
+def iter_events(
+    w3: Web3,
+    event_filter: EventFilter,
+    max_block_range: int = 10_000,
+    poll_interval: float = 5.0,
+    timeout: float | None = None,
+) -> Generator[AttributeDict, None, None]:
+    """Stream matching logs over a fixed or live block window. Optionally raises TimeoutError."""
+
+    if (cursor := event_filter.from_block) == "latest":
+        cursor = w3.eth.block_number
+
+    start_block = cursor
+    fixed_ceiling = None if event_filter.to_block == "latest" else event_filter.to_block
+
+    filter_params = event_filter.model_dump(by_alias=True)
+    deadline = None if timeout is None else time.time() + timeout
+    while True:
+        if deadline and time.time() > deadline:
+            msg = f"Timed out waiting for events after scanning blocks {start_block}-{cursor}"
+            raise TimeoutError(f"{msg}: {event_filter}")
+        upper = fixed_ceiling or w3.eth.block_number
+        if cursor <= upper:
+            end = min(upper, cursor + max_block_range - 1)
+            filter_params["fromBlock"] = cursor
+            filter_params["toBlock"] = end
+            logs = w3.eth.get_logs(filter_params=filter_params)
+            print(f"Scanned {cursor} - {end}: {len(logs)} logs")
+            yield from logs
+            cursor = end + 1  # bounds are inclusive
+
+        if fixed_ceiling and cursor > fixed_ceiling:
+            return
+
+        time.sleep(poll_interval)
