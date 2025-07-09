@@ -2,6 +2,7 @@
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
+from typing import Literal
 
 from derive_action_signing.module_data import ModuleData
 from derive_action_signing.utils import decimal_to_big_int
@@ -146,6 +147,18 @@ class OFTReceivedSpec(IndexedEventSpec, arbitrary_types_allowed=True, populate_b
         guid = self.guid.to_0x_hex() if self.guid is not None else None
         to_address = self.to_address.to_0x_hex() if self.to_address is not None else None
         return [self.topic0, guid, to_address]
+
+
+class EventFilter(BaseModel, populate_by_name=True):
+    spec: IndexedEventSpec = Field(exclude=True)
+    address: Address | list[Address]
+    from_block: int | Literal["latest"] = Field(default="latest", alias="fromBlock")
+    to_block: int | Literal["latest"] = Field(default="latest", alias="toBlock")
+
+    def model_dump(self, **kwargs):
+        data = super().model_dump(**kwargs)
+        data["topics"] = self.spec.topics
+        return data
 
 
 @dataclass
