@@ -182,7 +182,7 @@ class BridgeTxResult:
     target_chain: ChainID
     source_tx: TxResult
     target_tx: TxResult
-    event_filter: EventFilter | None
+    event_filter: EventFilter
 
     @property
     def status(self) -> TxStatus:
