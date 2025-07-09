@@ -7,6 +7,7 @@ from derive_action_signing.module_data import ModuleData
 from derive_action_signing.utils import decimal_to_big_int
 from eth_abi.abi import encode
 from eth_utils import is_address, to_checksum_address
+from hexbytes import HexBytes
 from pydantic import BaseModel, ConfigDict, Field, GetCoreSchemaHandler, GetJsonSchemaHandler
 from pydantic_core import core_schema
 from web3 import Web3
@@ -115,6 +116,21 @@ class IndexedEventSpec(ABC, BaseModel):
     @abstractmethod
     def topics(self) -> list[str]:
         """The indexed fields of an event as 32 byte strings."""
+
+
+class OFTSentSpec(IndexedEventSpec, arbitrary_types_allowed=True, populate_by_name=True):
+    guid: HexBytes | None = Field(default=None)
+    from_address: HexBytes | None = Field(default=None, alias="fromAddress")
+
+    @property
+    def signature(self) -> str:
+        return "OFTSent(bytes32,uint32,address,uint256,uint256)"
+
+    @property
+    def topics(self) -> list[str]:
+        guid = self.guid.to_0x_hex() if self.guid is not None else None
+        from_address = self.from_address.to_0x_hex() if self.from_address is not None else None
+        return [self.topic0, guid, from_address]
 
 
 @dataclass
