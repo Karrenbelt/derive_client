@@ -24,14 +24,19 @@ from .enums import (
 )
 from .models import (
     Address,
+    BridgeTxResult,
     CreateSubAccountData,
     CreateSubAccountDetails,
     DepositResult,
     DeriveAddresses,
     DeriveTxResult,
+    EventFilter,
+    IndexedEventSpec,
     ManagerAddress,
     MintableTokenData,
     NonMintableTokenData,
+    OFTReceivedSpec,
+    OFTSentSpec,
     SessionKey,
     TxResult,
     WithdrawResult,
@@ -40,6 +45,8 @@ from .models import (
 __all__ = [
     "TxStatus",
     "DeriveTxStatus",
+    "EventFilter",
+    "BridgeTxResult",
     "TxResult",
     "ChainID",
     "LayerZeroChainIDv2",
@@ -70,4 +77,7 @@ __all__ = [
     "DepositResult",
     "WithdrawResult",
     "DeriveTxResult",
+    "IndexedEventSpec",
+    "OFTSentSpec",
+    "OFTReceivedSpec",
 ]
