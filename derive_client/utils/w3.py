@@ -163,3 +163,12 @@ def estimate_fees(w3, percentiles: list[int], blocks=20, default_tip=10_000):
         fee_estimations.append({"maxFeePerGas": max_fee, "maxPriorityFeePerGas": priority_fee})
 
     return fee_estimations
+
+
+def log_matches_topics(log: AttributeDict, topics: list[str | None]) -> bool:
+    for i, topic in enumerate(topics):
+        if topic is None:
+            continue
+        if i >= len(log["topics"]) or log["topics"][i].to_0x_hex() != topic:
+            return False
+    return True
