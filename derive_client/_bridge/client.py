@@ -8,6 +8,7 @@ import functools
 import json
 
 from eth_account import Account
+from hexbytes import HexBytes
 from web3 import Web3
 from web3.contract import Contract
 
@@ -322,14 +323,11 @@ class BridgeClient:
         if not source_tx.status == TxStatus.SUCCESS:
             return tx_result
 
-        topics = OFTSentSpec().topics
-        logs = source_tx.tx_receipt.logs
         try:
-            log = next(log for log in logs if log_matches_topics(log, topics))
-            oft_received_spec.guid = log.topics[1]
-            # oft_received_spec.to_address = log.topics[2]  # incorrect
+            event = token_contract.events.OFTSent().process_log(source_tx.tx_receipt.logs[-1])
+            oft_received_spec.guid = HexBytes(event["args"]["guid"])
         except Exception as e:
-            source_tx.exception = ValueError(f"Could not find OFTSent log in source transaction receipt: {e}")
+            source_tx.exception = ValueError(f"Failed to retrieve OFTSent log guid from source transaction receipt: {e}")
             return tx_result
 
         try:
