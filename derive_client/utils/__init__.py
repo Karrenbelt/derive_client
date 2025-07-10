@@ -11,7 +11,6 @@ from .w3 import (
     get_erc20_contract,
     get_w3_connection,
     iter_events,
-    log_matches_topics,
     send_and_confirm_tx,
     sign_and_send_tx,
     wait_for_event,
@@ -33,7 +32,6 @@ __all__ = [
     "send_and_confirm_tx",
     "download_prod_address_abis",
     "build_standard_transaction",
-    "log_matches_topics",
     "iter_events",
     "wait_for_event",
 ]

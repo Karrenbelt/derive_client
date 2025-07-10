@@ -1,14 +1,11 @@
 """Models used in the bridge module."""
 
-from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import Literal
 
 from derive_action_signing.module_data import ModuleData
 from derive_action_signing.utils import decimal_to_big_int
 from eth_abi.abi import encode
 from eth_utils import is_address, to_checksum_address
-from hexbytes import HexBytes
 from pydantic import BaseModel, ConfigDict, Field, GetCoreSchemaHandler, GetJsonSchemaHandler
 from pydantic_core import core_schema
 from web3 import Web3
@@ -101,66 +98,6 @@ class ManagerAddress(BaseModel):
     currency: MainnetCurrency | None
 
 
-class IndexedEventSpec(ABC, BaseModel):
-    """Anything that can supply the low-level topics (and address) for an on-chain event filter."""
-
-    @property
-    @abstractmethod
-    def signature(self) -> str:
-        """Human-readable event signature."""
-
-    @property
-    def topic0(self) -> str:
-        return Web3.keccak(text=self.signature).to_0x_hex()
-
-    @property
-    @abstractmethod
-    def topics(self) -> list[str]:
-        """The indexed fields of an event as 32 byte strings."""
-
-
-class OFTSentSpec(IndexedEventSpec, arbitrary_types_allowed=True, populate_by_name=True):
-    guid: HexBytes | None = Field(default=None)
-    from_address: HexBytes | None = Field(default=None, alias="fromAddress")
-
-    @property
-    def signature(self) -> str:
-        return "OFTSent(bytes32,uint32,address,uint256,uint256)"
-
-    @property
-    def topics(self) -> list[str]:
-        guid = self.guid.to_0x_hex() if self.guid is not None else None
-        from_address = self.from_address.to_0x_hex() if self.from_address is not None else None
-        return [self.topic0, guid, from_address]
-
-
-class OFTReceivedSpec(IndexedEventSpec, arbitrary_types_allowed=True, populate_by_name=True):
-    guid: HexBytes | None = Field(default=None)
-    to_address: HexBytes | None = Field(default=None, alias="toAddress")
-
-    @property
-    def signature(self) -> str:
-        return "OFTReceived(bytes32,uint32,address,uint256)"
-
-    @property
-    def topics(self) -> list[str]:
-        guid = self.guid.to_0x_hex() if self.guid is not None else None
-        to_address = self.to_address.to_0x_hex() if self.to_address is not None else None
-        return [self.topic0, guid, to_address]
-
-
-class EventFilter(BaseModel, populate_by_name=True):
-    spec: IndexedEventSpec = Field(exclude=True)
-    address: Address | list[Address]
-    from_block: int | Literal["latest"] = Field(default="latest", alias="fromBlock")
-    to_block: int | Literal["latest"] = Field(default="latest", alias="toBlock")
-
-    def model_dump(self, **kwargs):
-        data = super().model_dump(**kwargs)
-        data["topics"] = self.spec.topics
-        return data
-
-
 @dataclass
 class TxResult:
     tx_hash: str
@@ -182,7 +119,6 @@ class BridgeTxResult:
     target_chain: ChainID
     source_tx: TxResult
     target_tx: TxResult
-    event_filter: EventFilter
 
     @property
     def status(self) -> TxStatus:

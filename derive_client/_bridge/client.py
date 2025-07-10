@@ -8,7 +8,6 @@ import functools
 import json
 
 from eth_account import Account
-from hexbytes import HexBytes
 from web3 import Web3
 from web3.contract import Contract
 
@@ -25,14 +24,14 @@ from derive_client.constants import (
     DERIVE_L2_ABI_PATH,
     L1_STANDARD_BRIDGE_ABI_PATH,
     LIGHT_ACCOUNT_ABI_PATH,
+    LYRA_OFT_WITHDRAW_WRAPPER_ABI_PATH,
+    LYRA_OFT_WITHDRAW_WRAPPER_ADDRESS,
     MSG_GAS_LIMIT,
     NEW_VAULT_ABI_PATH,
     OLD_VAULT_ABI_PATH,
     PAYLOAD_SIZE,
     TARGET_SPEED,
     WITHDRAW_WRAPPER_V2_ABI_PATH,
-    LYRA_OFT_WITHDRAW_WRAPPER_ABI_PATH,
-    LYRA_OFT_WITHDRAW_WRAPPER_ADDRESS,
 )
 from derive_client.data_types import (
     Address,
@@ -40,12 +39,9 @@ from derive_client.data_types import (
     ChainID,
     DeriveTokenAddresses,
     Environment,
-    EventFilter,
     LayerZeroChainIDv2,
     MintableTokenData,
     NonMintableTokenData,
-    OFTReceivedSpec,
-    OFTSentSpec,
     RPCEndPoints,
     TxResult,
     TxStatus,
@@ -55,7 +51,6 @@ from derive_client.utils import (
     get_contract,
     get_erc20_contract,
     get_w3_connection,
-    log_matches_topics,
     send_and_confirm_tx,
     wait_for_event,
     wait_for_tx_receipt,
@@ -298,18 +293,8 @@ class BridgeClient:
 
         # target chain
         chain_id = ChainID(target_chain)
-        wrapper_address = DeriveTokenAddresses[chain_id.name].value
         target_w3 = get_w3_connection(chain_id=chain_id)
         from_block = target_w3.eth.block_number  # record on target chain before tx submission on source chain
-
-        # we don't know GUID yet, we instantiate empty spec
-        oft_received_spec = OFTReceivedSpec()
-        event_filter = EventFilter(
-            spec=oft_received_spec,
-            address=wrapper_address,
-            from_block=from_block,
-            to_block="latest",
-        )
 
         target_tx = TxResult(tx_hash="", tx_receipt=None, exception=None)
         source_tx = send_and_confirm_tx(w3=self.w3, tx=tx, private_key=self.private_key, action="executeBatch()")
@@ -318,7 +303,6 @@ class BridgeClient:
             target_chain=target_chain,
             source_tx=source_tx,
             target_tx=target_tx,
-            event_filter=event_filter,
         )
         if not source_tx.status == TxStatus.SUCCESS:
             return tx_result
@@ -327,10 +311,15 @@ class BridgeClient:
             event = token_contract.events.OFTSent().process_log(source_tx.tx_receipt.logs[-1])
             guid = event["args"]["guid"]
         except Exception as e:
-            source_tx.exception = ValueError(f"Failed to retrieve OFTSent log guid from source transaction receipt: {e}")
+            msg = f"Failed to retrieve OFTSent log guid from source transaction receipt: {e}"
+            source_tx.exception = ValueError(msg)
             return tx_result
 
-        log_filter = token_contract.events.OFTReceived.create_filter(fromBlock=from_block, argument_filters={"guid": guid})
+        log_filter = token_contract.events.OFTReceived.create_filter(
+            fromBlock=from_block, argument_filters={"guid": guid}
+        )
+        # This is hacky, we should instantiate and use target chain token_contract
+        log_filter.filter_params["address"] = Web3.to_checksum_address(DeriveTokenAddresses[chain_id.name].value)
         try:
             event_log = wait_for_event(target_w3, log_filter)
             target_tx.tx_hash = event_log["transactionHash"].to_0x_hex()
@@ -357,14 +346,12 @@ class BridgeClient:
         """
 
         if not self.w3.eth.chain_id == ChainID.DERIVE:
-            raise ValueError(
-                f"Connected to chain ID {self.w3.eth.chain_id}, but expected Derive chain ({ChainID.DERIVE})."
-            )
+            msg = f"Connected to chain ID {self.w3.eth.chain_id}, but expected Derive chain ({ChainID.DERIVE})."
+            raise ValueError(msg)
 
         if target_chain not in token_data.connectors:
-            raise ValueError(
-                f"Target chain {target_chain} not found in token data connectors. Please check input configuration."
-            )
+            msg = f"Target chain {target_chain} not found in token data connectors. Please check input configuration."
+            raise ValueError(msg)
 
         self._ensure_derive_eth_balance()
         connector = token_data.connectors[target_chain][TARGET_SPEED]
@@ -453,9 +440,8 @@ class BridgeClient:
             deposit_hook = controller.functions.hook__().call()
             expected_hook = token_data.LyraTSAShareHandlerDepositHook
             if not deposit_hook == token_data.LyraTSAShareHandlerDepositHook:
-                raise ValueError(
-                    f"Controller deposit hook {deposit_hook} does not match expected address {expected_hook}"
-                )
+                msg = f"Controller deposit hook {deposit_hook} does not match expected address {expected_hook}"
+                raise ValueError(msg)
             deposit_contract = _load_deposit_contract(w3=self.w3, token_data=token_data)
             pool_id = deposit_contract.functions.connectorPoolIds(connector).call()
             locked = deposit_contract.functions.poolLockedAmounts(pool_id).call()
