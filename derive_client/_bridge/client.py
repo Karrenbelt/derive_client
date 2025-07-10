@@ -20,6 +20,8 @@ from derive_client.constants import (
     DEPOSIT_GAS_LIMIT,
     DEPOSIT_HELPER_ABI_PATH,
     DEPOSIT_HOOK_ABI_PATH,
+    DERIVE_ABI_PATH,
+    DERIVE_L2_ABI_PATH,
     L1_STANDARD_BRIDGE_ABI_PATH,
     LIGHT_ACCOUNT_ABI_PATH,
     MSG_GAS_LIMIT,
@@ -162,9 +164,9 @@ class BridgeClient:
 
         spender = Web3.to_checksum_address(DeriveTokenAddresses[chain_id.name].value)
         if chain_id == ChainID.ETH:
-            abi_path = CONTROLLER_ABI_PATH.parent / "Derive.json"
+            abi_path = DERIVE_ABI_PATH
         else:
-            abi_path = CONTROLLER_ABI_PATH.parent / "DeriveL2.json"
+            abi_path = DERIVE_L2_ABI_PATH
 
         abi = json.loads(abi_path.read_text())
         token_contract = get_contract(self.w3, spender, abi=abi)
