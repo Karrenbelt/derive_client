@@ -338,7 +338,7 @@ class BridgeClient:
         Prepares, signs, and sends a withdrawal transaction using the withdraw wrapper.
         """
 
-        chain_id = self.remote_w3.chain_id
+        chain_id = self.remote_w3.eth.chain_id
 
         if chain_id not in token_data.connectors:
             msg = f"Target chain {chain_id} not found in token data connectors. Please check input configuration."
@@ -426,14 +426,14 @@ class BridgeClient:
         return build_standard_transaction(func=func, account=self.account, w3=self.remote_w3, value=fees + 1)
 
     def _check_bridge_funds(self, token_data, connector: Address, amount: int):
-        controller = _load_controller_contract(w3=self.remote_w3, token_data=token_data)
+        controller = _load_controller_contract(w3=self.derive_w3, token_data=token_data)
         if token_data.isNewBridge:
             deposit_hook = controller.functions.hook__().call()
             expected_hook = token_data.LyraTSAShareHandlerDepositHook
             if not deposit_hook == token_data.LyraTSAShareHandlerDepositHook:
                 msg = f"Controller deposit hook {deposit_hook} does not match expected address {expected_hook}"
                 raise ValueError(msg)
-            deposit_contract = _load_deposit_contract(w3=self.remote_w3, token_data=token_data)
+            deposit_contract = _load_deposit_contract(w3=self.derive_w3, token_data=token_data)
             pool_id = deposit_contract.functions.connectorPoolIds(connector).call()
             locked = deposit_contract.functions.poolLockedAmounts(pool_id).call()
         else:
