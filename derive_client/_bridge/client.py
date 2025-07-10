@@ -256,8 +256,7 @@ class BridgeClient:
     def withdraw_drv(self, amount: int) -> BridgeTxResult:
         self._ensure_derive_eth_balance()
 
-        target_w3 = get_w3_connection(chain_id=self.remote_chain_id)
-        from_block = target_w3.eth.block_number  # record on target chain before tx submission on source chain
+        from_block = self.remote_w3.eth.block_number  # record on target chain before tx submission on source chain
 
         abi = json.loads(DERIVE_L2_ABI_PATH.read_text())
         token_contract = get_contract(self.derive_w3, DeriveTokenAddresses.DERIVE.value, abi=abi)
@@ -318,9 +317,9 @@ class BridgeClient:
         log_filter.filter_params["address"] = Web3.to_checksum_address(target_address)
 
         try:
-            event_log = wait_for_event(target_w3, log_filter)
+            event_log = wait_for_event(self.remote_w3, log_filter)
             target_tx.tx_hash = event_log["transactionHash"].to_0x_hex()
-            target_tx.tx_receipt = wait_for_tx_receipt(w3=target_w3, tx_hash=target_tx.tx_hash)
+            target_tx.tx_receipt = wait_for_tx_receipt(w3=self.remote_w3, tx_hash=target_tx.tx_hash)
         except Exception as e:
             target_tx.exception = e
 
