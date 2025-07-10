@@ -1,11 +1,10 @@
 import json
 import time
-from typing import Generator
+from typing import Callable, Generator
 
 from eth_account import Account
 from hexbytes import HexBytes
 from web3 import Web3
-from web3._utils.filters import LogFilter
 from web3.contract import Contract
 from web3.datastructures import AttributeDict
 
@@ -169,25 +168,28 @@ def estimate_fees(w3, percentiles: list[int], blocks=20, default_tip=10_000):
 
 def iter_events(
     w3: Web3,
-    log_filter: LogFilter,
+    filter_params: dict,
+    *,
+    condition: Callable[[AttributeDict], bool] = lambda _: True,
     max_block_range: int = 10_000,
     poll_interval: float = 5.0,
     timeout: float | None = None,
 ) -> Generator[AttributeDict, None, None]:
     """Stream matching logs over a fixed or live block window. Optionally raises TimeoutError."""
 
-    filter_params = log_filter.filter_params.copy()  # return original in TimeoutError
+    filter_params = filter_params.copy()  # return original in TimeoutError
     if (cursor := filter_params["fromBlock"]) == "latest":
         cursor = w3.eth.block_number
 
     start_block = cursor
+    filter_params["toBlock"] = filter_params.get("toBlock", "latest")
     fixed_ceiling = None if filter_params["toBlock"] == "latest" else filter_params["toBlock"]
 
     deadline = None if timeout is None else time.time() + timeout
     while True:
         if deadline and time.time() > deadline:
             msg = f"Timed out waiting for events after scanning blocks {start_block}-{cursor}"
-            raise TimeoutError(f"{msg}: filter_params: {log_filter.filter_params}")
+            raise TimeoutError(f"{msg}: filter_params: {filter_params}")
         upper = fixed_ceiling or w3.eth.block_number
         if cursor <= upper:
             end = min(upper, cursor + max_block_range - 1)
@@ -195,7 +197,7 @@ def iter_events(
             filter_params["toBlock"] = hex(end)
             logs = w3.eth.get_logs(filter_params=filter_params)
             print(f"Scanned {cursor} - {end}: {len(logs)} logs")
-            yield from logs
+            yield from filter(condition, logs)
             cursor = end + 1  # bounds are inclusive
 
         if fixed_ceiling and cursor > fixed_ceiling:
@@ -206,7 +208,9 @@ def iter_events(
 
 def wait_for_event(
     w3: Web3,
-    log_filter: LogFilter,
+    filter_params: dict,
+    *,
+    condition: Callable[[AttributeDict], bool] = lambda _: True,
     max_block_range: int = 10_000,
     poll_interval: float = 5.0,
     timeout: float = 300.0,
