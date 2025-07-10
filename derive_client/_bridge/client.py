@@ -263,7 +263,8 @@ class BridgeClient:
     ) -> BridgeTxResult:
         self._ensure_derive_eth_balance()
 
-        token_contract = get_erc20_contract(self.w3, DeriveTokenAddresses.DERIVE)
+        abi = json.loads(DERIVE_L2_ABI_PATH.read_text())
+        token_contract = get_contract(self.w3, DeriveTokenAddresses.DERIVE.value, abi=abi)
 
         abi = json.loads(LYRA_OFT_WITHDRAW_WRAPPER_ABI_PATH.read_text())
         withdraw_wrapper = get_contract(self.w3, LYRA_OFT_WITHDRAW_WRAPPER_ADDRESS, abi=abi)
