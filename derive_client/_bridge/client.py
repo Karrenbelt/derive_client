@@ -260,10 +260,8 @@ class BridgeClient:
         target_chain: ChainID,
     ) -> BridgeTxResult:
         self._ensure_derive_eth_balance()
-        # proxy contract address for DRV token contract on Derive chain
-        mintable_token = Web3.to_checksum_address("0x2EE0fd70756EDC663AcC9676658A1497C247693A")
 
-        token_contract = get_erc20_contract(self.w3, mintable_token)
+        token_contract = get_erc20_contract(self.w3, DeriveTokenAddresses.DERIVE)
 
         ABI_PATH = CONTROLLER_ABI_PATH.parent / "LyraOFTWithdrawWrapper.json"
         address = "0x9400cc156dad38a716047a67c897973A29A06710"
