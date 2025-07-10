@@ -175,15 +175,13 @@ class BaseClient:
             amount (int): The amount to withdraw, in Wei.
         """
 
-        derive_addresses = get_prod_derive_addresses()
         amount = int(amount * 10 ** TOKEN_DECIMALS[UnderlyingCurrency[currency.name.upper()]])
         client = BridgeClient(self.env, chain_id, account=self.signer, wallet=self.wallet)
 
         if currency == Currency.DRV:
             return client.withdraw_drv(amount=amount)
 
-        token_data = derive_addresses.chains[ChainID.DERIVE][currency]
-        return client.withdraw_with_wrapper(amount=amount, token_data=token_data)
+        return client.withdraw_with_wrapper(amount=amount, currency=currency)
 
     def fetch_instruments(
         self,
