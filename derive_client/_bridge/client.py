@@ -30,6 +30,8 @@ from derive_client.constants import (
     PAYLOAD_SIZE,
     TARGET_SPEED,
     WITHDRAW_WRAPPER_V2_ABI_PATH,
+    LYRA_OFT_WITHDRAW_WRAPPER_ABI_PATH,
+    LYRA_OFT_WITHDRAW_WRAPPER_ADDRESS,
 )
 from derive_client.data_types import (
     Address,
@@ -263,10 +265,8 @@ class BridgeClient:
 
         token_contract = get_erc20_contract(self.w3, DeriveTokenAddresses.DERIVE)
 
-        ABI_PATH = CONTROLLER_ABI_PATH.parent / "LyraOFTWithdrawWrapper.json"
-        address = "0x9400cc156dad38a716047a67c897973A29A06710"
-        abi = json.loads(ABI_PATH.read_text())
-        withdraw_wrapper = get_contract(self.w3, address, abi=abi)
+        abi = json.loads(LYRA_OFT_WITHDRAW_WRAPPER_ABI_PATH.read_text())
+        withdraw_wrapper = get_contract(self.w3, LYRA_OFT_WITHDRAW_WRAPPER_ADDRESS, abi=abi)
 
         balance = token_contract.functions.balanceOf(self.wallet).call()
         if balance < amount:
