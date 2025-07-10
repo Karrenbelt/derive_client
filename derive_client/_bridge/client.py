@@ -325,13 +325,14 @@ class BridgeClient:
 
         try:
             event = token_contract.events.OFTSent().process_log(source_tx.tx_receipt.logs[-1])
-            oft_received_spec.guid = HexBytes(event["args"]["guid"])
+            guid = event["args"]["guid"]
         except Exception as e:
             source_tx.exception = ValueError(f"Failed to retrieve OFTSent log guid from source transaction receipt: {e}")
             return tx_result
 
+        log_filter = token_contract.events.OFTReceived.create_filter(fromBlock=from_block, argument_filters={"guid": guid})
         try:
-            event_log = wait_for_event(target_w3, tx_result.event_filter)
+            event_log = wait_for_event(target_w3, log_filter)
             target_tx.tx_hash = event_log["transactionHash"].to_0x_hex()
             target_tx.tx_receipt = wait_for_tx_receipt(w3=target_w3, tx_hash=target_tx.tx_hash)
         except Exception as e:
