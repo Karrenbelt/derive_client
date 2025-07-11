@@ -31,6 +31,7 @@ from derive_client.constants import (
     NEW_VAULT_ABI_PATH,
     OLD_VAULT_ABI_PATH,
     PAYLOAD_SIZE,
+    SOCKET_ABI_PATH,
     TARGET_SPEED,
     WITHDRAW_WRAPPER_V2_ABI_PATH,
 )
@@ -45,6 +46,7 @@ from derive_client.data_types import (
     MintableTokenData,
     NonMintableTokenData,
     RPCEndPoints,
+    SocketAddress,
     TxResult,
     TxStatus,
 )
@@ -336,7 +338,7 @@ class BridgeClient:
             print(f"Funding Derive EOA wallet with {DEFAULT_GAS_FUNDING_AMOUNT} ETH")
             self.bridge_mainnet_eth_to_derive(DEFAULT_GAS_FUNDING_AMOUNT)
 
-    def withdraw_with_wrapper(self, amount: int, currency: Currency) -> TxResult:
+    def withdraw_with_wrapper(self, amount: int, currency: Currency) -> BridgeTxResult:
         """
         Checks if sufficent gas is available in derive, if not funds the wallet.
         Prepares, signs, and sends a withdrawal transaction using the withdraw wrapper.
@@ -354,8 +356,10 @@ class BridgeClient:
         self._ensure_derive_eth_balance()
         connector = token_data.connectors[chain_id][TARGET_SPEED]
 
-        # Get the token contract and controller contract instances.
-        controller = _load_controller_contract(w3=self.remote_w3, token_data=token_data)
+        # Get the token contract and socket contract instances.
+        abi = json.loads(SOCKET_ABI_PATH.read_text())
+        source_socket = get_contract(self.derive_w3, address=SocketAddress.DERIVE.value, abi=abi)
+        target_socket = get_contract(self.derive_w3, address=SocketAddress[chain_id.name].value, abi=abi)
         token_contract = get_erc20_contract(self.derive_w3, token_data.MintableToken)
 
         self._check_bridge_funds(token_data, connector, amount)
@@ -393,22 +397,22 @@ class BridgeClient:
             return tx_result
 
         try:
-            event = controller.events.BridgingTokens().process_log(source_tx.tx_receipt.logs[-1])
-            message_id = event["args"]["messageId"]
+            source_event = source_socket.events.MessageOutbound().process_log(source_tx.tx_receipt.logs[-2])
+            message_id = source_event["args"]["msgId"]
         except Exception as e:
-            msg = f"Failed to retrieve BridgeTokens log messageId from source transaction receipt: {e}"
+            msg = (
+                f"Failed to retrieve `messageId` from the Socket MessageOutbound event log from source tx_receipt: {e}"
+            )
             source_tx.exception = ValueError(msg)
             return tx_result
 
-        token_data: NonMintableTokenData = self.derive_addresses.chains[self.remote_chain_id][currency]
-        vault_contract = _load_vault_contract(self.remote_w3, token_data)
-        event = vault_contract.events.TokensBridged()
-        filter_params = event._get_event_filter_params(fromBlock=from_block, abi=event.abi)
+        target_event = target_socket.events.ExecutionSuccess()
+        filter_params = target_event._get_event_filter_params(fromBlock=from_block, abi=target_event.abi)
 
         def matching_message_id(log: AttributeDict) -> bool:
             try:
-                decoded = event.process_log(log)
-                return decoded["args"].get("messageId") == message_id
+                decoded = target_event.process_log(log)
+                return decoded["args"].get("msgId") == message_id
             except Exception:
                 return False
 

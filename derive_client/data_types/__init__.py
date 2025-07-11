@@ -17,6 +17,7 @@ from .enums import (
     OrderType,
     RfqStatus,
     RPCEndPoints,
+    SocketAddress,
     SubaccountType,
     TimeInForce,
     TxStatus,
@@ -72,4 +73,5 @@ __all__ = [
     "DepositResult",
     "WithdrawResult",
     "DeriveTxResult",
+    "SocketAddress",
 ]
