@@ -166,26 +166,31 @@ class BridgeClient:
         Deposit funds by preparing, signing, and sending a bridging transaction.
         """
 
+        # record on DERIVE when we start polling
+        target_w3 = self.derive_w3
+        from_block = target_w3.eth.block_number
+
+        # build the send contract from the source chain
         chain_id = self.remote_chain_id
         spender = Web3.to_checksum_address(DeriveTokenAddresses[chain_id.name].value)
-        if chain_id == ChainID.ETH:
-            abi_path = DERIVE_ABI_PATH
-        else:
-            abi_path = DERIVE_L2_ABI_PATH
-
+        abi_path = DERIVE_ABI_PATH if chain_id == ChainID.ETH else DERIVE_L2_ABI_PATH
         abi = json.loads(abi_path.read_text())
-        token_contract = get_contract(self.remote_w3, spender, abi=abi)
+        source_token = get_contract(self.remote_w3, spender, abi=abi)
+        derive_l2_abi = json.loads(DERIVE_L2_ABI_PATH.read_text())
+        target_token = get_contract(target_w3, DeriveTokenAddresses.DERIVE.value, abi=derive_l2_abi)
 
-        ensure_balance(token_contract, self.owner, amount)
+        # check allowance, if needed approve
+        ensure_balance(source_token, self.owner, amount)
         ensure_allowance(
             w3=self.remote_w3,
-            token_contract=token_contract,
+            token_contract=source_token,
             owner=self.owner,
             spender=spender,
             amount=amount,
             private_key=self.private_key,
         )
 
+        # build the send tx
         receiver_bytes32 = Web3.to_bytes(hexstr=self.wallet).rjust(32, b"\x00")
 
         extra_options = b""  # extraOptions
@@ -209,7 +214,7 @@ class BridgeClient:
             b"",  # composeMsg
             b"",  # oftCmd
         )
-        fees = token_contract.functions.quoteSend(
+        fees = source_token.functions.quoteSend(
             send_params,  # params, feeParams
             False,  # payInLzToken
         ).call()
@@ -217,17 +222,42 @@ class BridgeClient:
         native_fee, lz_token_fee = fees
         _refundAddress = self.owner
 
-        # fees = token_contract.functions.quoteOFT(
-        #     send_params,  # params, feeParams
-        #     # False,  # payInLzToken
-        # ).call()
-        # breakpoint()
-
-        func = token_contract.functions.send(send_params, fees, _refundAddress)  # lzTokenFee
-
+        func = source_token.functions.send(send_params, fees, _refundAddress)  # lzTokenFee
         tx = build_standard_transaction(func=func, account=self.account, w3=self.remote_w3, value=native_fee)
 
-        tx_result = send_and_confirm_tx(w3=self.remote_w3, tx=tx, private_key=self.private_key, action="bridge()")
+        target_tx = TxResult(tx_hash="", tx_receipt=None, exception=None)
+        source_tx = send_and_confirm_tx(w3=self.remote_w3, tx=tx, private_key=self.private_key, action="executeBatch()")
+        tx_result = BridgeTxResult(
+            source_chain=self.remote_chain_id,
+            target_chain=ChainID.DERIVE,
+            source_tx=source_tx,
+            target_tx=target_tx,
+        )
+        if not source_tx.status == TxStatus.SUCCESS:
+            return tx_result
+
+        # get the LayerZero GUID out of the OFTSent event on from the source chain
+        try:
+            event = source_token.events.OFTSent().process_log(source_tx.tx_receipt.logs[-1])
+            guid = event["args"]["guid"]
+        except Exception as e:
+            msg = f"Could not decode OFTSent guid: {e}"
+            source_tx.exception = ValueError(msg)
+            return tx_result
+
+        print(f"Source chain ({tx_result.source_chain.name}) LayerZero guid: {guid.hex()}")
+        log_filter = target_token.events.OFTReceived.create_filter(
+            fromBlock=from_block, argument_filters={"guid": guid}
+        )
+
+        print(f"Searching target chain ({tx_result.target_chain.name}) LayerZero events: {target_token.address}")
+        try:
+            event_log = wait_for_event(target_w3, log_filter.filter_params)
+            target_tx.tx_hash = event_log["transactionHash"].to_0x_hex()
+            target_tx.tx_receipt = wait_for_tx_receipt(w3=target_w3, tx_hash=target_tx.tx_hash)
+        except Exception as e:
+            target_tx.exception = e
+
         return tx_result
 
     def deposit(self, amount: int, currency: Currency) -> BridgeTxResult:
