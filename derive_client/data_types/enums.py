@@ -48,6 +48,14 @@ class LayerZeroChainIDv2(IntEnum):
     DERIVE = 30311
 
 
+class SocketAddress(Enum):
+    ETH = "0x943ac2775928318653e91d350574436a1b9b16f9"
+    ARBITRUM = "0x37cc674582049b579571e2ffd890a4d99355f6ba"
+    OPTIMISM = "0x301bD265F0b3C16A58CbDb886Ad87842E3A1c0a4"
+    BASE = "0x12E6e58864cE4402cF2B4B8a8E9c75eAD7280156"
+    DERIVE = "0x565810cbfa3Cf1390963E5aFa2fB953795686339"
+
+
 class DeriveTokenAddresses(Enum):
     # https://www.coingecko.com/en/coins/derive
     ETH = "0xb1d1eae60eea9525032a6dcb4c1ce336a1de71be"  # impl: 0x4909ad99441ea5311b90a94650c394cea4a881b8 (Derive)
