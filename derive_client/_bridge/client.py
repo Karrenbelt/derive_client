@@ -167,22 +167,23 @@ class BridgeClient:
         """
 
         # record on DERIVE when we start polling
+        source_w3 = self.remote_w3
         target_w3 = self.derive_w3
         from_block = target_w3.eth.block_number
 
-        # build the send contract from the source chain
+        # build the token contract on the source chain
         chain_id = self.remote_chain_id
         spender = Web3.to_checksum_address(DeriveTokenAddresses[chain_id.name].value)
         abi_path = DERIVE_ABI_PATH if chain_id == ChainID.ETH else DERIVE_L2_ABI_PATH
         abi = json.loads(abi_path.read_text())
-        source_token = get_contract(self.remote_w3, spender, abi=abi)
+        source_token = get_contract(source_w3, spender, abi=abi)
         derive_l2_abi = json.loads(DERIVE_L2_ABI_PATH.read_text())
         target_token = get_contract(target_w3, DeriveTokenAddresses.DERIVE.value, abi=derive_l2_abi)
 
         # check allowance, if needed approve
         ensure_balance(source_token, self.owner, amount)
         ensure_allowance(
-            w3=self.remote_w3,
+            w3=source_w3,
             token_contract=source_token,
             owner=self.owner,
             spender=spender,
@@ -193,40 +194,28 @@ class BridgeClient:
         # build the send tx
         receiver_bytes32 = Web3.to_bytes(hexstr=self.wallet).rjust(32, b"\x00")
 
-        extra_options = b""  # extraOptions
+        kwargs = {
+            "dstEid": LayerZeroChainIDv2.DERIVE.value,
+            "receiver": receiver_bytes32,
+            "amountLD": amount,
+            "minAmountLD": 0,
+            "extraOptions": b"",
+            "composeMsg": b"",
+            "oftCmd": b"",
+        }
 
-        params = (
-            LayerZeroChainIDv2.DERIVE.value,  # dstEid
-            receiver_bytes32,  # receiver
-            amount,  # amountLD
-            0,  # minAmountLD
-            extra_options,
-            b"",  # composeMsg
-            b"",  # oftCmd
-        )
-        extra_options = b"0x00030100110100000000000000000000000000000000"  # extraOptions
-        send_params = (
-            params[0],  # dstEid
-            params[1],  # receiver
-            params[2],  # amountLD
-            params[3],  # minAmountLD
-            params[4],  # extraOptions
-            b"",  # composeMsg
-            b"",  # oftCmd
-        )
-        fees = source_token.functions.quoteSend(
-            send_params,  # params, feeParams
-            False,  # payInLzToken
-        ).call()
-
+        pay_in_lz_token = False
+        send_params = tuple(kwargs.values())
+        fees = source_token.functions.quoteSend(send_params, pay_in_lz_token).call()
         native_fee, lz_token_fee = fees
-        _refundAddress = self.owner
+        refund_address = self.owner
 
-        func = source_token.functions.send(send_params, fees, _refundAddress)  # lzTokenFee
-        tx = build_standard_transaction(func=func, account=self.account, w3=self.remote_w3, value=native_fee)
+        func = source_token.functions.send(send_params, fees, refund_address)
+        tx = build_standard_transaction(func=func, account=self.account, w3=source_w3, value=native_fee)
 
+        # Setup the BridgeTxResult and send the tx on the source chain
         target_tx = TxResult(tx_hash="", tx_receipt=None, exception=None)
-        source_tx = send_and_confirm_tx(w3=self.remote_w3, tx=tx, private_key=self.private_key, action="executeBatch()")
+        source_tx = send_and_confirm_tx(w3=source_w3, tx=tx, private_key=self.private_key, action="executeBatch()")
         tx_result = BridgeTxResult(
             source_chain=self.remote_chain_id,
             target_chain=ChainID.DERIVE,
@@ -236,7 +225,7 @@ class BridgeClient:
         if not source_tx.status == TxStatus.SUCCESS:
             return tx_result
 
-        # get the LayerZero GUID out of the OFTSent event on from the source chain
+        # Get the LayerZero GUID out of the OFTSent event on from the source chain
         try:
             event = source_token.events.OFTSent().process_log(source_tx.tx_receipt.logs[-1])
             guid = event["args"]["guid"]
@@ -245,12 +234,12 @@ class BridgeClient:
             source_tx.exception = ValueError(msg)
             return tx_result
 
-        print(f"Source chain ({tx_result.source_chain.name}) LayerZero guid: {guid.hex()}")
+        print(f"🔖 Source [{tx_result.source_chain.name}] OFTSent GUID: {guid.hex()}")
         log_filter = target_token.events.OFTReceived.create_filter(
             fromBlock=from_block, argument_filters={"guid": guid}
         )
 
-        print(f"Searching target chain ({tx_result.target_chain.name}) LayerZero events: {target_token.address}")
+        print(f"🔍 Listening for OFTReceived on [{tx_result.target_chain.name}] at {target_token.address}")
         try:
             event_log = wait_for_event(target_w3, log_filter.filter_params)
             target_tx.tx_hash = event_log["transactionHash"].to_0x_hex()
