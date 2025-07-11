@@ -161,7 +161,7 @@ class BridgeClient:
         abi = json.loads(WITHDRAW_WRAPPER_V2_ABI_PATH.read_text())
         return get_contract(w3=self.derive_w3, address=address, abi=abi)
 
-    def deposit_drv(self, amount: int) -> TxResult:
+    def deposit_drv(self, amount: int) -> BridgeTxResult:
         """
         Deposit funds by preparing, signing, and sending a bridging transaction.
         """

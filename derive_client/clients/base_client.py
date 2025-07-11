@@ -29,6 +29,7 @@ from derive_client._bridge import BridgeClient
 from derive_client.constants import CONFIGS, DEFAULT_REFERER, PUBLIC_HEADERS, TOKEN_DECIMALS
 from derive_client.data_types import (
     Address,
+    BridgeTxResult,
     ChainID,
     CollateralAsset,
     CreateSubAccountData,
@@ -49,7 +50,6 @@ from derive_client.data_types import (
     SessionKey,
     SubaccountType,
     TimeInForce,
-    TxResult,
     UnderlyingCurrency,
     WithdrawResult,
 )
@@ -142,7 +142,7 @@ class BaseClient:
         return True
 
     @validate_call
-    def deposit_to_derive(self, chain_id: ChainID, currency: Currency, amount: float) -> TxResult:
+    def deposit_to_derive(self, chain_id: ChainID, currency: Currency, amount: float) -> BridgeTxResult:
         """Deposit funds via socket superbridge to Derive chain smart contract funding account.
 
         Parameters:
@@ -160,7 +160,7 @@ class BaseClient:
         return client.deposit(amount=amount, currency=currency)
 
     @validate_call
-    def withdraw_from_derive(self, chain_id: ChainID, currency: Currency, amount: float) -> TxResult:
+    def withdraw_from_derive(self, chain_id: ChainID, currency: Currency, amount: float) -> BridgeTxResult:
         """Deposit funds via socket superbridge to Derive chain smart contract funding account.
 
         Parameters:
