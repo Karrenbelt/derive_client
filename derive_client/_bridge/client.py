@@ -252,7 +252,7 @@ class BridgeClient:
         )
 
         if token_data.isNewBridge:
-            tx = self._prepare_new_style_deposit(token_data, amount, self.wallet)
+            tx = self._prepare_new_style_deposit(token_data, amount)
         else:
             tx = self._prepare_old_style_deposit(token_data, amount)
 
@@ -441,17 +441,12 @@ class BridgeClient:
         tx_result = send_and_confirm_tx(w3=w3, tx=tx, private_key=self.private_key, action="bridgeETH()")
         return tx_result
 
-    def _prepare_new_style_deposit(
-        self,
-        token_data: NonMintableTokenData,
-        amount: int,
-        receiver: Address,
-    ) -> dict:
+    def _prepare_new_style_deposit(self, token_data: NonMintableTokenData, amount: int) -> dict:
         vault_contract = _load_vault_contract(w3=self.remote_w3, token_data=token_data)
         connector = token_data.connectors[ChainID.DERIVE][TARGET_SPEED]
         fees = _get_min_fees(bridge_contract=vault_contract, connector=connector, token_data=token_data)
         func = vault_contract.functions.bridge(
-            receiver_=receiver,
+            receiver_=self.wallet,
             amount_=amount,
             msgGasLimit_=MSG_GAS_LIMIT,
             connector_=connector,
