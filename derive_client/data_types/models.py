@@ -9,6 +9,7 @@ from eth_utils import is_address, to_checksum_address
 from pydantic import BaseModel, ConfigDict, Field, GetCoreSchemaHandler, GetJsonSchemaHandler
 from pydantic_core import core_schema
 from web3 import Web3
+from web3.contract import Contract
 from web3.datastructures import AttributeDict
 
 from .enums import ChainID, Currency, DeriveTxStatus, MainnetCurrency, MarginType, SessionKeyScope, TxStatus
@@ -96,6 +97,22 @@ class ManagerAddress(BaseModel):
     address: Address
     margin_type: MarginType
     currency: MainnetCurrency | None
+
+
+@dataclass
+class BridgePair:
+    source_w3: Web3
+    target_w3: Web3
+    source_token: Contract
+    target_token: Contract
+
+    @property
+    def source_chain(self) -> ChainID:
+        return ChainID(self.source_w3.eth.chain_id)
+
+    @property
+    def target_chain(self) -> ChainID:
+        return ChainID(self.target_w3.eth.chain_id)
 
 
 @dataclass
