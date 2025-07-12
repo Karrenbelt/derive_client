@@ -56,6 +56,7 @@ from derive_client.utils import (
     get_erc20_contract,
     get_prod_derive_addresses,
     get_w3_connection,
+    make_filter_params,
     send_and_confirm_tx,
     wait_for_event,
     wait_for_tx_receipt,
@@ -327,42 +328,51 @@ class BridgeClient:
     def withdraw_drv(self, amount: int) -> BridgeTxResult:
         self._ensure_derive_eth_balance()
 
-        from_block = self.remote_w3.eth.block_number  # record on target chain before tx submission on source chain
+        # record on target chain when we start polling
+        source_w3 = self.derive_w3
+        target_w3 = self.remote_w3
+        from_block = target_w3.eth.block_number
+
+        # build the token contract on the source chain
+        chain_id = self.remote_chain_id
+        abi_path = DERIVE_ABI_PATH if chain_id == ChainID.ETH else DERIVE_L2_ABI_PATH
+        derive_abi = json.loads(abi_path.read_text())
+        target_token = get_contract(target_w3, DeriveTokenAddresses[chain_id.name].value, abi=derive_abi)
 
         abi = json.loads(DERIVE_L2_ABI_PATH.read_text())
-        token_contract = get_contract(self.derive_w3, DeriveTokenAddresses.DERIVE.value, abi=abi)
+        source_token = get_contract(source_w3, DeriveTokenAddresses.DERIVE.value, abi=abi)
 
         abi = json.loads(LYRA_OFT_WITHDRAW_WRAPPER_ABI_PATH.read_text())
-        withdraw_wrapper = get_contract(self.derive_w3, LYRA_OFT_WITHDRAW_WRAPPER_ADDRESS, abi=abi)
+        withdraw_wrapper = get_contract(source_w3, LYRA_OFT_WITHDRAW_WRAPPER_ADDRESS, abi=abi)
 
-        balance = token_contract.functions.balanceOf(self.wallet).call()
+        balance = source_token.functions.balanceOf(self.wallet).call()
         if balance < amount:
             raise ValueError(f"Not enough tokens to withdraw: {amount} < {balance} ({(balance / amount * 100):.2f}%) ")
 
         destEID = LayerZeroChainIDv2[self.remote_chain_id.name]
-        fee = withdraw_wrapper.functions.getFeeInToken(token_contract.address, amount, destEID).call()
+        fee = withdraw_wrapper.functions.getFeeInToken(source_token.address, amount, destEID).call()
         if amount < fee:
             raise ValueError(f"Withdraw amount < fee: {amount} < {fee} ({(fee / amount * 100):.2f}%)")
 
         kwargs = {
-            "token": token_contract.address,
+            "token": source_token.address,
             "amount": amount,
             "toAddress": self.owner,
             "destEID": destEID,
         }
 
-        approve_data = token_contract.encodeABI(fn_name="approve", args=[withdraw_wrapper.address, amount])
+        approve_data = source_token.encodeABI(fn_name="approve", args=[withdraw_wrapper.address, amount])
         bridge_data = withdraw_wrapper.encodeABI(fn_name="withdrawToChain", args=list(kwargs.values()))
 
         func = self.light_account.functions.executeBatch(
-            dest=[token_contract.address, withdraw_wrapper.address],
+            dest=[source_token.address, withdraw_wrapper.address],
             func=[approve_data, bridge_data],
         )
 
-        tx = build_standard_transaction(func=func, account=self.account, w3=self.derive_w3, value=0)
+        tx = build_standard_transaction(func=func, account=self.account, w3=source_w3, value=0)
 
         target_tx = TxResult(tx_hash="", tx_receipt=None, exception=None)
-        source_tx = send_and_confirm_tx(w3=self.derive_w3, tx=tx, private_key=self.private_key, action="executeBatch()")
+        source_tx = send_and_confirm_tx(w3=source_w3, tx=tx, private_key=self.private_key, action="executeBatch()")
         tx_result = BridgeTxResult(
             source_chain=ChainID.DERIVE,
             target_chain=self.remote_chain_id,
@@ -373,24 +383,23 @@ class BridgeClient:
             return tx_result
 
         try:
-            event = token_contract.events.OFTSent().process_log(source_tx.tx_receipt.logs[-1])
+            event = source_token.events.OFTSent().process_log(source_tx.tx_receipt.logs[-1])
             guid = event["args"]["guid"]
         except Exception as e:
             msg = f"Failed to retrieve OFTSent log guid from source transaction receipt: {e}"
             source_tx.exception = ValueError(msg)
             return tx_result
 
-        log_filter = token_contract.events.OFTReceived.create_filter(
-            fromBlock=from_block, argument_filters={"guid": guid}
+        filter_params = make_filter_params(
+            event=target_token.events.OFTReceived(),
+            from_block=from_block,
+            argument_filters={"guid": guid},
         )
-        # This is hacky, we should instantiate and use target chain token_contract
-        target_address = DeriveTokenAddresses[self.remote_chain_id.name].value
-        log_filter.filter_params["address"] = Web3.to_checksum_address(target_address)
 
         try:
-            event_log = wait_for_event(self.remote_w3, log_filter.filter_params)
+            event_log = wait_for_event(target_w3, filter_params)
             target_tx.tx_hash = event_log["transactionHash"].to_0x_hex()
-            target_tx.tx_receipt = wait_for_tx_receipt(w3=self.remote_w3, tx_hash=target_tx.tx_hash)
+            target_tx.tx_receipt = wait_for_tx_receipt(w3=target_w3, tx_hash=target_tx.tx_hash)
         except Exception as e:
             target_tx.exception = e
 
