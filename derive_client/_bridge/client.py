@@ -236,13 +236,15 @@ class BridgeClient:
             return tx_result
 
         print(f"🔖 Source [{tx_result.source_chain.name}] OFTSent GUID: {guid.hex()}")
-        log_filter = target_token.events.OFTReceived.create_filter(
-            fromBlock=from_block, argument_filters={"guid": guid}
+        filter_params = make_filter_params(
+            event=target_token.events.OFTReceived(),
+            from_block=from_block,
+            argument_filters={"guid": guid},
         )
 
         print(f"🔍 Listening for OFTReceived on [{tx_result.target_chain.name}] at {target_token.address}")
         try:
-            event_log = wait_for_event(target_w3, log_filter.filter_params)
+            event_log = wait_for_event(target_w3, filter_params)
             target_tx.tx_hash = event_log["transactionHash"].to_0x_hex()
             target_tx.tx_receipt = wait_for_tx_receipt(w3=target_w3, tx_hash=target_tx.tx_hash)
         except Exception as e:
@@ -335,12 +337,13 @@ class BridgeClient:
 
         # build the token contract on the source chain
         chain_id = self.remote_chain_id
+        source_address = DeriveTokenAddresses.DERIVE.value
+        target_address = Web3.to_checksum_address(DeriveTokenAddresses[chain_id.name].value)
         abi_path = DERIVE_ABI_PATH if chain_id == ChainID.ETH else DERIVE_L2_ABI_PATH
-        derive_abi = json.loads(abi_path.read_text())
-        target_token = get_contract(target_w3, DeriveTokenAddresses[chain_id.name].value, abi=derive_abi)
-
-        abi = json.loads(DERIVE_L2_ABI_PATH.read_text())
-        source_token = get_contract(source_w3, DeriveTokenAddresses.DERIVE.value, abi=abi)
+        abi = json.loads(abi_path.read_text())
+        derive_l2_abi = json.loads(DERIVE_L2_ABI_PATH.read_text())
+        source_token = get_contract(source_w3, source_address, abi=derive_l2_abi)
+        target_token = get_contract(target_w3, target_address, abi=abi)
 
         abi = json.loads(LYRA_OFT_WITHDRAW_WRAPPER_ABI_PATH.read_text())
         withdraw_wrapper = get_contract(source_w3, LYRA_OFT_WITHDRAW_WRAPPER_ADDRESS, abi=abi)
