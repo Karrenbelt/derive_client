@@ -1,11 +1,12 @@
 import json
 import time
-from typing import Callable, Generator
+from typing import Callable, Generator, Literal
 
 from eth_account import Account
 from hexbytes import HexBytes
 from web3 import Web3
 from web3.contract import Contract
+from web3.contract.contract import ContractEvent
 from web3.datastructures import AttributeDict
 
 from derive_client.constants import ABI_DATA_DIR, GAS_FEE_BUFFER
@@ -123,11 +124,11 @@ def send_and_confirm_tx(
         tx_receipt = wait_for_tx_receipt(w3=w3, tx_hash=tx_hash)
         tx_result.tx_receipt = tx_receipt
     except TimeoutError as timeout_err:
-        print(f"⏱️  Timeout waiting for tx receipt of {tx_hash.hex()}")
+        print(f"⏱️ Timeout waiting for tx receipt of {tx_hash.hex()}")
         tx_result.exception = timeout_err
         return tx_result
     except Exception as wait_err:
-        print(f"⚠️  Error while waiting for tx receipt of {tx_hash.hex()}: {wait_err!r}")
+        print(f"⚠️ Error while waiting for tx receipt of {tx_hash.hex()}: {wait_err!r}")
         tx_result.exception = wait_err
         return tx_result
 
@@ -218,3 +219,33 @@ def wait_for_event(
     """Return the first log from iter_events, or raise TimeoutError after `timeout` seconds."""
 
     return next(iter_events(**locals()))
+
+
+def make_filter_params(
+    event: ContractEvent,
+    from_block: int | Literal["latest"],
+    to_block: int | Literal["latest"] = "latest",
+    argument_filters: dict | None = None,
+) -> dict:
+    """
+    Function to create an eth_getLogs compatible filter_params for this event without using .create_filter.
+    event.create_filter uses eth_newFilter (a "push"), which not all RPC endpoints support.
+    """
+
+    argument_filters = argument_filters or {}
+    filter_params = event._get_event_filter_params(
+        fromBlock=from_block,
+        toBlock=to_block,
+        argument_filters=argument_filters,
+        abi=event.abi,
+    )
+    filter_params["topics"] = tuple(filter_params["topics"])
+    address = filter_params["address"]
+    if isinstance(address, str):
+        filter_params["address"] = Web3.to_checksum_address(address)
+    elif isinstance(address, (list, tuple)) and len(address) == 1:
+        filter_params["address"] = Web3.to_checksum_address(address[0])
+    else:
+        raise ValueError(f"Unexpected address filter: {address!r}")
+
+    return filter_params
