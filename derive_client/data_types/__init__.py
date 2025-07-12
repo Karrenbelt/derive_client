@@ -25,6 +25,7 @@ from .enums import (
 )
 from .models import (
     Address,
+    BridgePair,
     BridgeTxResult,
     CreateSubAccountData,
     CreateSubAccountDetails,
@@ -42,6 +43,7 @@ from .models import (
 __all__ = [
     "TxStatus",
     "DeriveTxStatus",
+    "BridgePair",
     "BridgeTxResult",
     "TxResult",
     "ChainID",
