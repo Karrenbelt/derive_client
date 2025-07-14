@@ -472,12 +472,12 @@ class BridgeClient:
         target_w3 = get_w3_connection(tx_result.target_chain)
 
         # 1. Timeout during source_tx.tx_receipt
-        if source_tx.status == TxStatus.PENDING:
+        if not source_tx.tx_receipt:
             print(f"⏳ Checking source chain [{tx_result.source_chain.name}] tx receipt for {source_tx.tx_hash}")
             source_tx.tx_receipt = wait_for_tx_receipt(w3=source_w3, tx_hash=source_tx.tx_hash)
 
         # 2. Timeout waiting for event_log on target chain
-        if target_tx.status == TxStatus.PENDING:
+        if not target_tx.tx_hash:
             match tx_result.bridge:
                 case BridgeType.SOCKET:
                     event_log = self.fetch_socket_event_log(tx_result)
