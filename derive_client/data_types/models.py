@@ -12,7 +12,7 @@ from web3 import Web3
 from web3.contract import Contract
 from web3.datastructures import AttributeDict
 
-from .enums import ChainID, Currency, DeriveTxStatus, MainnetCurrency, MarginType, SessionKeyScope, TxStatus
+from .enums import BridgeType, ChainID, Currency, DeriveTxStatus, MainnetCurrency, MarginType, SessionKeyScope, TxStatus
 
 
 class Address(str):
@@ -132,10 +132,12 @@ class TxResult:
 
 @dataclass
 class BridgeTxResult:
+    bridge: BridgeType
     source_chain: ChainID
     target_chain: ChainID
     source_tx: TxResult
     target_tx: TxResult
+    target_from_block: int
 
     @property
     def status(self) -> TxStatus:
