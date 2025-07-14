@@ -185,86 +185,6 @@ class BridgeClient:
         tgt = get_contract(tgt_w3, tgt_addr, abi=tgt_abi)
         return BridgePair(src_w3, tgt_w3, src, tgt)
 
-    def deposit_drv(self, amount: int) -> BridgeTxResult:
-        """
-        Deposit funds by preparing, signing, and sending a bridging transaction.
-        """
-
-        # record on target chain when we start polling
-        pair = self._make_bridge_pair("deposit")
-        from_block = pair.target_w3.eth.block_number
-
-        # check allowance, if needed approve
-        ensure_balance(pair.source_token, self.owner, amount)
-        ensure_allowance(
-            w3=pair.source_w3,
-            token_contract=pair.source_token,
-            owner=self.owner,
-            spender=pair.source_token.address,
-            amount=amount,
-            private_key=self.private_key,
-        )
-
-        # build the send tx
-        receiver_bytes32 = Web3.to_bytes(hexstr=self.wallet).rjust(32, b"\x00")
-
-        kwargs = {
-            "dstEid": LayerZeroChainIDv2.DERIVE.value,
-            "receiver": receiver_bytes32,
-            "amountLD": amount,
-            "minAmountLD": 0,
-            "extraOptions": b"",
-            "composeMsg": b"",
-            "oftCmd": b"",
-        }
-
-        pay_in_lz_token = False
-        send_params = tuple(kwargs.values())
-        fees = pair.source_token.functions.quoteSend(send_params, pay_in_lz_token).call()
-        native_fee, lz_token_fee = fees
-        refund_address = self.owner
-
-        func = pair.source_token.functions.send(send_params, fees, refund_address)
-        tx = build_standard_transaction(func=func, account=self.account, w3=pair.source_w3, value=native_fee)
-
-        # Setup the BridgeTxResult and send the tx on the source chain
-        target_tx = TxResult(tx_hash="", tx_receipt=None, exception=None)
-        source_tx = send_and_confirm_tx(w3=pair.source_w3, tx=tx, private_key=self.private_key, action="executeBatch()")
-        tx_result = BridgeTxResult(
-            source_chain=self.remote_chain_id,
-            target_chain=ChainID.DERIVE,
-            source_tx=source_tx,
-            target_tx=target_tx,
-        )
-        if not source_tx.status == TxStatus.SUCCESS:
-            return tx_result
-
-        # Get the LayerZero GUID out of the OFTSent event on from the source chain
-        try:
-            event = pair.source_token.events.OFTSent().process_log(source_tx.tx_receipt.logs[-1])
-            guid = event["args"]["guid"]
-        except Exception as e:
-            msg = f"Could not decode OFTSent guid: {e}"
-            source_tx.exception = ValueError(msg)
-            return tx_result
-
-        print(f"🔖 Source [{tx_result.source_chain.name}] OFTSent GUID: {guid.hex()}")
-        filter_params = make_filter_params(
-            event=pair.target_token.events.OFTReceived(),
-            from_block=from_block,
-            argument_filters={"guid": guid},
-        )
-
-        print(f"🔍 Listening for OFTReceived on [{tx_result.target_chain.name}] at {pair.target_token.address}")
-        try:
-            event_log = wait_for_event(pair.target_w3, filter_params)
-            target_tx.tx_hash = event_log["transactionHash"].to_0x_hex()
-            target_tx.tx_receipt = wait_for_tx_receipt(w3=pair.target_w3, tx_hash=target_tx.tx_hash)
-        except Exception as e:
-            target_tx.exception = e
-
-        return tx_result
-
     def deposit(self, amount: int, currency: Currency) -> BridgeTxResult:
         """
         Deposit funds by preparing, signing, and sending a bridging transaction.
@@ -407,6 +327,62 @@ class BridgeClient:
 
         return tx_result
 
+    def deposit_drv(self, amount: int) -> BridgeTxResult:
+        """
+        Deposit funds by preparing, signing, and sending a bridging transaction.
+        """
+
+        # record on target chain when we start polling
+        pair = self._make_bridge_pair("deposit")
+        from_block = pair.target_w3.eth.block_number
+
+        # check allowance, if needed approve
+        ensure_balance(pair.source_token, self.owner, amount)
+        ensure_allowance(
+            w3=pair.source_w3,
+            token_contract=pair.source_token,
+            owner=self.owner,
+            spender=pair.source_token.address,
+            amount=amount,
+            private_key=self.private_key,
+        )
+
+        # build the send tx
+        receiver_bytes32 = Web3.to_bytes(hexstr=self.wallet).rjust(32, b"\x00")
+
+        kwargs = {
+            "dstEid": LayerZeroChainIDv2.DERIVE.value,
+            "receiver": receiver_bytes32,
+            "amountLD": amount,
+            "minAmountLD": 0,
+            "extraOptions": b"",
+            "composeMsg": b"",
+            "oftCmd": b"",
+        }
+
+        pay_in_lz_token = False
+        send_params = tuple(kwargs.values())
+        fees = pair.source_token.functions.quoteSend(send_params, pay_in_lz_token).call()
+        native_fee, lz_token_fee = fees
+        refund_address = self.owner
+
+        func = pair.source_token.functions.send(send_params, fees, refund_address)
+        tx = build_standard_transaction(func=func, account=self.account, w3=pair.source_w3, value=native_fee)
+
+        # Setup the BridgeTxResult and send the tx on the source chain
+        target_tx = TxResult(tx_hash="", tx_receipt=None, exception=None)
+        source_tx = send_and_confirm_tx(w3=pair.source_w3, tx=tx, private_key=self.private_key, action="executeBatch()")
+        tx_result = BridgeTxResult(
+            source_chain=self.remote_chain_id,
+            target_chain=ChainID.DERIVE,
+            source_tx=source_tx,
+            target_tx=target_tx,
+        )
+        if not source_tx.status == TxStatus.SUCCESS:
+            return tx_result
+
+        return self._wait_for_lz_settlement(pair, from_block, tx_result)
+
     def withdraw_drv(self, amount: int) -> BridgeTxResult:
         self._ensure_derive_eth_balance()
 
@@ -454,20 +430,30 @@ class BridgeClient:
         if not source_tx.status == TxStatus.SUCCESS:
             return tx_result
 
+        return self._wait_for_lz_settlement(pair, from_block, tx_result)
+
+    def _wait_for_lz_settlement(self, pair, from_block, tx_result):
+
+        source_tx = tx_result.source_tx
+        target_tx = tx_result.target_tx
+
+        # Get the LayerZero GUID out of the OFTSent event on from the source chain
         try:
             event = pair.source_token.events.OFTSent().process_log(source_tx.tx_receipt.logs[-1])
             guid = event["args"]["guid"]
         except Exception as e:
-            msg = f"Failed to retrieve OFTSent log guid from source transaction receipt: {e}"
+            msg = f"Could not decode OFTSent guid: {e}"
             source_tx.exception = ValueError(msg)
             return tx_result
 
+        print(f"🔖 Source [{tx_result.source_chain.name}] OFTSent GUID: {guid.hex()}")
         filter_params = make_filter_params(
             event=pair.target_token.events.OFTReceived(),
             from_block=from_block,
             argument_filters={"guid": guid},
         )
 
+        print(f"🔍 Listening for OFTReceived on [{tx_result.target_chain.name}] at {pair.target_token.address}")
         try:
             event_log = wait_for_event(pair.target_w3, filter_params)
             target_tx.tx_hash = event_log["transactionHash"].to_0x_hex()
