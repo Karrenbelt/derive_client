@@ -40,6 +40,7 @@ from derive_client.data_types import (
     Address,
     BridgePair,
     BridgeTxResult,
+    BridgeType,
     ChainID,
     Currency,
     DeriveTokenAddresses,
@@ -194,15 +195,9 @@ class BridgeClient:
             msg = f"Currency {currency} not found in Derive addresses for chain {self.remote_chain_id}."
             raise ValueError(msg)
 
-        chain_id = self.remote_chain_id
-        from_block = self.derive_w3.eth.block_number
-
+        # record on target chain when we start polling
+        target_from_block = self.derive_w3.eth.block_number
         spender = token_data.Vault if token_data.isNewBridge else self.deposit_helper.address
-
-        # Get the token contract and socket contract instances.
-        abi = json.loads(SOCKET_ABI_PATH.read_text())
-        source_socket = get_contract(self.remote_w3, address=SocketAddress[chain_id.name].value, abi=abi)
-        target_socket = get_contract(self.derive_w3, address=SocketAddress.DERIVE.value, abi=abi)
         token_contract = get_erc20_contract(self.remote_w3, token_data.NonMintableToken)
 
         ensure_balance(token_contract, self.owner, amount)
@@ -223,15 +218,17 @@ class BridgeClient:
         target_tx = TxResult(tx_hash="", tx_receipt=None, exception=None)
         source_tx = send_and_confirm_tx(w3=self.remote_w3, tx=tx, private_key=self.private_key, action="bridge()")
         tx_result = BridgeTxResult(
+            bridge=BridgeType.SOCKET,
             source_chain=self.remote_chain_id,
             target_chain=ChainID.DERIVE,
             source_tx=source_tx,
             target_tx=target_tx,
+            target_from_block=target_from_block,
         )
         if not source_tx.status == TxStatus.SUCCESS:
             return tx_result
 
-        return self._wait_for_socket_settlement(self.derive_w3, from_block, tx_result, source_socket, target_socket)
+        return self.poll_bridge_progress(tx_result)
 
     def withdraw_with_wrapper(self, amount: int, currency: Currency) -> BridgeTxResult:
         """
@@ -240,21 +237,18 @@ class BridgeClient:
         """
         # TODO: if token balance is insufficient one gets web3.exceptions.ContractCustomError
 
-        token_data: MintableTokenData = self.derive_addresses.chains[ChainID.DERIVE][currency]
+        # record on target chain when we start polling
         chain_id = self.remote_chain_id
-        from_block = self.remote_w3.eth.block_number  # record on target chain before tx submission on source chain
+        target_from_block = self.remote_w3.eth.block_number
+        token_data: MintableTokenData = self.derive_addresses.chains[ChainID.DERIVE][currency]
 
         if chain_id not in token_data.connectors:
             msg = f"Target chain {chain_id} not found in token data connectors. Please check input configuration."
             raise ValueError(msg)
 
         self._ensure_derive_eth_balance()
-        connector = token_data.connectors[chain_id][TARGET_SPEED]
 
-        # Get the token contract and socket contract instances.
-        abi = json.loads(SOCKET_ABI_PATH.read_text())
-        source_socket = get_contract(self.derive_w3, address=SocketAddress.DERIVE.value, abi=abi)
-        target_socket = get_contract(self.remote_w3, address=SocketAddress[chain_id.name].value, abi=abi)
+        connector = token_data.connectors[chain_id][TARGET_SPEED]
         token_contract = get_erc20_contract(self.derive_w3, token_data.MintableToken)
 
         self._check_bridge_funds(token_data, connector, amount)
@@ -283,49 +277,17 @@ class BridgeClient:
         target_tx = TxResult(tx_hash="", tx_receipt=None, exception=None)
         source_tx = send_and_confirm_tx(w3=self.derive_w3, tx=tx, private_key=self.private_key, action="executeBatch()")
         tx_result = BridgeTxResult(
+            bridge=BridgeType.SOCKET,
             source_chain=ChainID.DERIVE,
             target_chain=self.remote_chain_id,
             source_tx=source_tx,
             target_tx=target_tx,
+            target_from_block=target_from_block,
         )
         if not source_tx.status == TxStatus.SUCCESS:
             return tx_result
 
-        return self._wait_for_socket_settlement(self.remote_w3, from_block, tx_result, source_socket, target_socket)
-
-    def _wait_for_socket_settlement(self, target_w3, from_block, tx_result, source_socket, target_socket):
-
-        source_tx = tx_result.source_tx
-        target_tx = tx_result.target_tx
-
-        try:
-            source_event = source_socket.events.MessageOutbound().process_log(source_tx.tx_receipt.logs[-2])
-            message_id = source_event["args"]["msgId"]
-        except Exception as e:
-            msg = f"Failed to retrieve `msgId` from the Socket MessageOutbound event log from source tx_receipt: {e}"
-            source_tx.exception = ValueError(msg)
-            return tx_result
-
-        print(f"🔖 Source [{tx_result.source_chain.name}] MessageOutbound msgId: {message_id.hex()}")
-        target_event = target_socket.events.ExecutionSuccess()
-        filter_params = target_event._get_event_filter_params(fromBlock=from_block, abi=target_event.abi)
-
-        def matching_message_id(log: AttributeDict) -> bool:
-            try:
-                decoded = target_event.process_log(log)
-                return decoded["args"].get("msgId") == message_id
-            except Exception:
-                return False
-
-        print(f"🔍 Listening for ExecutionSuccess on [{tx_result.target_chain.name}] at {target_socket.address}")
-        try:
-            event_log = wait_for_event(target_w3, filter_params, condition=matching_message_id)
-            target_tx.tx_hash = event_log["transactionHash"].to_0x_hex()
-            target_tx.tx_receipt = wait_for_tx_receipt(w3=target_w3, tx_hash=target_tx.tx_hash)
-        except Exception as e:
-            target_tx.exception = e
-
-        return tx_result
+        return self.poll_bridge_progress(tx_result)
 
     def deposit_drv(self, amount: int) -> BridgeTxResult:
         """
@@ -334,7 +296,7 @@ class BridgeClient:
 
         # record on target chain when we start polling
         pair = self._make_bridge_pair("deposit")
-        from_block = pair.target_w3.eth.block_number
+        target_from_block = pair.target_w3.eth.block_number
 
         # check allowance, if needed approve
         ensure_balance(pair.source_token, self.owner, amount)
@@ -373,22 +335,24 @@ class BridgeClient:
         target_tx = TxResult(tx_hash="", tx_receipt=None, exception=None)
         source_tx = send_and_confirm_tx(w3=pair.source_w3, tx=tx, private_key=self.private_key, action="executeBatch()")
         tx_result = BridgeTxResult(
+            bridge=BridgeType.LAYERZERO,
             source_chain=self.remote_chain_id,
             target_chain=ChainID.DERIVE,
             source_tx=source_tx,
             target_tx=target_tx,
+            target_from_block=target_from_block,
         )
         if not source_tx.status == TxStatus.SUCCESS:
             return tx_result
 
-        return self._wait_for_lz_settlement(pair, from_block, tx_result)
+        return self.poll_bridge_progress(tx_result)
 
     def withdraw_drv(self, amount: int) -> BridgeTxResult:
         self._ensure_derive_eth_balance()
 
         # record on target chain when we start polling
         pair = self._make_bridge_pair("withdraw")
-        from_block = pair.target_w3.eth.block_number
+        target_from_block = pair.target_w3.eth.block_number
 
         abi = json.loads(LYRA_OFT_WITHDRAW_WRAPPER_ABI_PATH.read_text())
         withdraw_wrapper = get_contract(pair.source_w3, LYRA_OFT_WITHDRAW_WRAPPER_ADDRESS, abi=abi)
@@ -422,25 +386,31 @@ class BridgeClient:
         target_tx = TxResult(tx_hash="", tx_receipt=None, exception=None)
         source_tx = send_and_confirm_tx(w3=pair.source_w3, tx=tx, private_key=self.private_key, action="executeBatch()")
         tx_result = BridgeTxResult(
+            bridge=BridgeType.LAYERZERO,
             source_chain=ChainID.DERIVE,
             target_chain=self.remote_chain_id,
             source_tx=source_tx,
             target_tx=target_tx,
+            target_from_block=target_from_block,
         )
         if not source_tx.status == TxStatus.SUCCESS:
             return tx_result
 
-        return self._wait_for_lz_settlement(pair, from_block, tx_result)
+        return self.poll_bridge_progress(tx_result)
 
-    def _wait_for_lz_settlement(self, pair, from_block, tx_result):
+    def fetch_lz_event_log(self, tx_result: BridgeTxResult):
+
+        if tx_result.source_chain == ChainID.DERIVE:
+            pair = self._make_bridge_pair("withdraw")
+        else:
+            pair = self._make_bridge_pair("deposit")
 
         source_tx = tx_result.source_tx
-        target_tx = tx_result.target_tx
 
         # Get the LayerZero GUID out of the OFTSent event on from the source chain
         try:
-            event = pair.source_token.events.OFTSent().process_log(source_tx.tx_receipt.logs[-1])
-            guid = event["args"]["guid"]
+            source_event = pair.source_token.events.OFTSent().process_log(source_tx.tx_receipt.logs[-1])
+            guid = source_event["args"]["guid"]
         except Exception as e:
             msg = f"Could not decode OFTSent guid: {e}"
             source_tx.exception = ValueError(msg)
@@ -449,17 +419,78 @@ class BridgeClient:
         print(f"🔖 Source [{tx_result.source_chain.name}] OFTSent GUID: {guid.hex()}")
         filter_params = make_filter_params(
             event=pair.target_token.events.OFTReceived(),
-            from_block=from_block,
+            from_block=tx_result.target_from_block,
             argument_filters={"guid": guid},
         )
 
         print(f"🔍 Listening for OFTReceived on [{tx_result.target_chain.name}] at {pair.target_token.address}")
+        return wait_for_event(pair.target_w3, filter_params)
+
+    def fetch_socket_event_log(self, tx_result: BridgeTxResult):
+
+        source_tx = tx_result.source_tx
+        source_w3 = get_w3_connection(tx_result.source_chain)
+        target_w3 = get_w3_connection(tx_result.target_chain)
+
+        abi = json.loads(SOCKET_ABI_PATH.read_text())
+        source_address = SocketAddress[tx_result.source_chain.name].value
+        target_address = SocketAddress[tx_result.target_chain.name].value
+        source_socket = get_contract(source_w3, address=source_address, abi=abi)
+        target_socket = get_contract(target_w3, address=target_address, abi=abi)
+
         try:
-            event_log = wait_for_event(pair.target_w3, filter_params)
-            target_tx.tx_hash = event_log["transactionHash"].to_0x_hex()
-            target_tx.tx_receipt = wait_for_tx_receipt(w3=pair.target_w3, tx_hash=target_tx.tx_hash)
+            source_event = source_socket.events.MessageOutbound().process_log(source_tx.tx_receipt.logs[-2])
+            message_id = source_event["args"]["msgId"]
         except Exception as e:
-            target_tx.exception = e
+            msg = f"Failed to retrieve `msgId` from the Socket MessageOutbound event log from source tx_receipt: {e}"
+            source_tx.exception = ValueError(msg)
+            return tx_result
+
+        print(f"🔖 Source [{tx_result.source_chain.name}] MessageOutbound msgId: {message_id.hex()}")
+        target_event = target_socket.events.ExecutionSuccess()
+        filter_params = target_event._get_event_filter_params(
+            fromBlock=tx_result.target_from_block, abi=target_event.abi
+        )
+
+        def matching_message_id(log: AttributeDict) -> bool:
+            try:
+                decoded = target_event.process_log(log)
+                return decoded["args"].get("msgId") == message_id
+            except Exception:
+                return False
+
+        print(f"🔍 Listening for ExecutionSuccess on [{tx_result.target_chain.name}] at {target_socket.address}")
+        return wait_for_event(target_w3, filter_params, condition=matching_message_id)
+
+    def poll_bridge_progress(self, tx_result: BridgeTxResult) -> BridgeTxResult:
+        # TODO: handle non-pending status
+
+        source_tx = tx_result.source_tx
+        target_tx = tx_result.target_tx
+
+        source_w3 = get_w3_connection(tx_result.source_chain)
+        target_w3 = get_w3_connection(tx_result.target_chain)
+
+        # 1. Timeout during source_tx.tx_receipt
+        if source_tx.status == TxStatus.PENDING:
+            print(f"⏳ Checking source chain [{tx_result.source_chain.name}] tx receipt for {source_tx.tx_hash}")
+            source_tx.tx_receipt = wait_for_tx_receipt(w3=source_w3, tx_hash=source_tx.tx_hash)
+
+        # 2. Timeout waiting for event_log on target chain
+        if target_tx.status == TxStatus.PENDING:
+            match tx_result.bridge:
+                case BridgeType.SOCKET:
+                    event_log = self.fetch_socket_event_log(tx_result)
+                case BridgeType.LAYERZERO:
+                    event_log = self.fetch_lz_event_log(tx_result)
+                case _:
+                    raise ValueError()
+            target_tx.tx_hash = event_log["transactionHash"].to_0x_hex()
+
+        # 3. Timeout waiting for target_tx.tx_receipt
+        if not target_tx.tx_receipt:
+            print(f"⏳ Checking target chain [{tx_result.target_chain.name}] tx receipt for {target_tx.tx_hash}")
+            target_tx.tx_receipt = wait_for_tx_receipt(w3=target_w3, tx_hash=target_tx.tx_hash)
 
         return tx_result
 
