@@ -177,6 +177,17 @@ class BaseClient:
 
         return client.withdraw_with_wrapper(amount=amount, currency=currency)
 
+    def poll_bridge_progress(self, tx_result: BridgeTxResult) -> BridgeTxResult:
+        """Resume polling a pending bridge transaction to completion.
+
+        Parameters:
+            tx_result (BridgeTxResult):
+        """
+
+        chain_id = tx_result.source_chain if tx_result.source_chain != ChainID.DERIVE else tx_result.target_chain
+        client = BridgeClient(self.env, chain_id, account=self.signer, wallet=self.wallet)
+        return client.poll_bridge_progress(tx_result=tx_result)
+
     def fetch_instruments(
         self,
         expired=False,
