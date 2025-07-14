@@ -311,6 +311,73 @@ class BridgeClient:
         if not source_tx.status == TxStatus.SUCCESS:
             return tx_result
 
+        return self._wait_for_socket_settlement(self.derive_w3, from_block, tx_result, source_socket, target_socket)
+
+    def withdraw_with_wrapper(self, amount: int, currency: Currency) -> BridgeTxResult:
+        """
+        Checks if sufficent gas is available in derive, if not funds the wallet.
+        Prepares, signs, and sends a withdrawal transaction using the withdraw wrapper.
+        """
+        # TODO: if token balance is insufficient one gets web3.exceptions.ContractCustomError
+
+        token_data: MintableTokenData = self.derive_addresses.chains[ChainID.DERIVE][currency]
+        chain_id = self.remote_chain_id
+        from_block = self.remote_w3.eth.block_number  # record on target chain before tx submission on source chain
+
+        if chain_id not in token_data.connectors:
+            msg = f"Target chain {chain_id} not found in token data connectors. Please check input configuration."
+            raise ValueError(msg)
+
+        self._ensure_derive_eth_balance()
+        connector = token_data.connectors[chain_id][TARGET_SPEED]
+
+        # Get the token contract and socket contract instances.
+        abi = json.loads(SOCKET_ABI_PATH.read_text())
+        source_socket = get_contract(self.derive_w3, address=SocketAddress.DERIVE.value, abi=abi)
+        target_socket = get_contract(self.remote_w3, address=SocketAddress[chain_id.name].value, abi=abi)
+        token_contract = get_erc20_contract(self.derive_w3, token_data.MintableToken)
+
+        self._check_bridge_funds(token_data, connector, amount)
+
+        kwargs = {
+            "token": token_contract.address,
+            "amount": amount,
+            "recipient": self.owner,
+            "socketController": token_data.Controller,
+            "connector": connector,
+            "gasLimit": MSG_GAS_LIMIT,
+        }
+
+        # Encode the token approval and withdrawToChain for the withdraw wrapper.
+        approve_data = token_contract.encodeABI(fn_name="approve", args=[self.withdraw_wrapper.address, amount])
+        bridge_data = self.withdraw_wrapper.encodeABI(fn_name="withdrawToChain", args=list(kwargs.values()))
+
+        # Build the batch execution call via the Light Account.
+        func = self.light_account.functions.executeBatch(
+            dest=[token_contract.address, self.withdraw_wrapper.address],
+            func=[approve_data, bridge_data],
+        )
+
+        tx = build_standard_transaction(func=func, account=self.account, w3=self.derive_w3, value=0)
+
+        target_tx = TxResult(tx_hash="", tx_receipt=None, exception=None)
+        source_tx = send_and_confirm_tx(w3=self.derive_w3, tx=tx, private_key=self.private_key, action="executeBatch()")
+        tx_result = BridgeTxResult(
+            source_chain=ChainID.DERIVE,
+            target_chain=self.remote_chain_id,
+            source_tx=source_tx,
+            target_tx=target_tx,
+        )
+        if not source_tx.status == TxStatus.SUCCESS:
+            return tx_result
+
+        return self._wait_for_socket_settlement(self.remote_w3, from_block, tx_result, source_socket, target_socket)
+
+    def _wait_for_socket_settlement(self, target_w3, from_block, tx_result, source_socket, target_socket):
+
+        source_tx = tx_result.source_tx
+        target_tx = tx_result.target_tx
+
         try:
             source_event = source_socket.events.MessageOutbound().process_log(source_tx.tx_receipt.logs[-2])
             message_id = source_event["args"]["msgId"]
@@ -319,7 +386,7 @@ class BridgeClient:
             source_tx.exception = ValueError(msg)
             return tx_result
 
-        print(f"Source chain ({tx_result.source_chain.name}) Socket msgId: {message_id.hex()}")
+        print(f"🔖 Source [{tx_result.source_chain.name}] MessageOutbound msgId: {message_id.hex()}")
         target_event = target_socket.events.ExecutionSuccess()
         filter_params = target_event._get_event_filter_params(fromBlock=from_block, abi=target_event.abi)
 
@@ -330,11 +397,11 @@ class BridgeClient:
             except Exception:
                 return False
 
-        print(f"Searching target chain ({tx_result.target_chain.name}) Socket events: {target_socket.address}")
+        print(f"🔍 Listening for ExecutionSuccess on [{tx_result.target_chain.name}] at {target_socket.address}")
         try:
-            event_log = wait_for_event(self.derive_w3, filter_params, condition=matching_message_id)
+            event_log = wait_for_event(target_w3, filter_params, condition=matching_message_id)
             target_tx.tx_hash = event_log["transactionHash"].to_0x_hex()
-            target_tx.tx_receipt = wait_for_tx_receipt(w3=self.derive_w3, tx_hash=target_tx.tx_hash)
+            target_tx.tx_receipt = wait_for_tx_receipt(w3=target_w3, tx_hash=target_tx.tx_hash)
         except Exception as e:
             target_tx.exception = e
 
@@ -416,93 +483,6 @@ class BridgeClient:
         if balance_of_owner < DEPOSIT_GAS_LIMIT:
             print(f"Funding Derive EOA wallet with {DEFAULT_GAS_FUNDING_AMOUNT} ETH")
             self.bridge_mainnet_eth_to_derive(DEFAULT_GAS_FUNDING_AMOUNT)
-
-    def withdraw_with_wrapper(self, amount: int, currency: Currency) -> BridgeTxResult:
-        """
-        Checks if sufficent gas is available in derive, if not funds the wallet.
-        Prepares, signs, and sends a withdrawal transaction using the withdraw wrapper.
-        """
-        # TODO: if token balance is insufficient one gets web3.exceptions.ContractCustomError
-
-        token_data: MintableTokenData = self.derive_addresses.chains[ChainID.DERIVE][currency]
-        chain_id = self.remote_chain_id
-        from_block = self.remote_w3.eth.block_number  # record on target chain before tx submission on source chain
-
-        if chain_id not in token_data.connectors:
-            msg = f"Target chain {chain_id} not found in token data connectors. Please check input configuration."
-            raise ValueError(msg)
-
-        self._ensure_derive_eth_balance()
-        connector = token_data.connectors[chain_id][TARGET_SPEED]
-
-        # Get the token contract and socket contract instances.
-        abi = json.loads(SOCKET_ABI_PATH.read_text())
-        source_socket = get_contract(self.derive_w3, address=SocketAddress.DERIVE.value, abi=abi)
-        target_socket = get_contract(self.remote_w3, address=SocketAddress[chain_id.name].value, abi=abi)
-        token_contract = get_erc20_contract(self.derive_w3, token_data.MintableToken)
-
-        self._check_bridge_funds(token_data, connector, amount)
-
-        kwargs = {
-            "token": token_contract.address,
-            "amount": amount,
-            "recipient": self.owner,
-            "socketController": token_data.Controller,
-            "connector": connector,
-            "gasLimit": MSG_GAS_LIMIT,
-        }
-
-        # Encode the token approval and withdrawToChain for the withdraw wrapper.
-        approve_data = token_contract.encodeABI(fn_name="approve", args=[self.withdraw_wrapper.address, amount])
-        bridge_data = self.withdraw_wrapper.encodeABI(fn_name="withdrawToChain", args=list(kwargs.values()))
-
-        # Build the batch execution call via the Light Account.
-        func = self.light_account.functions.executeBatch(
-            dest=[token_contract.address, self.withdraw_wrapper.address],
-            func=[approve_data, bridge_data],
-        )
-
-        tx = build_standard_transaction(func=func, account=self.account, w3=self.derive_w3, value=0)
-
-        target_tx = TxResult(tx_hash="", tx_receipt=None, exception=None)
-        source_tx = send_and_confirm_tx(w3=self.derive_w3, tx=tx, private_key=self.private_key, action="executeBatch()")
-        tx_result = BridgeTxResult(
-            source_chain=ChainID.DERIVE,
-            target_chain=self.remote_chain_id,
-            source_tx=source_tx,
-            target_tx=target_tx,
-        )
-        if not source_tx.status == TxStatus.SUCCESS:
-            return tx_result
-
-        try:
-            source_event = source_socket.events.MessageOutbound().process_log(source_tx.tx_receipt.logs[-2])
-            message_id = source_event["args"]["msgId"]
-        except Exception as e:
-            msg = (
-                f"Failed to retrieve `messageId` from the Socket MessageOutbound event log from source tx_receipt: {e}"
-            )
-            source_tx.exception = ValueError(msg)
-            return tx_result
-
-        target_event = target_socket.events.ExecutionSuccess()
-        filter_params = target_event._get_event_filter_params(fromBlock=from_block, abi=target_event.abi)
-
-        def matching_message_id(log: AttributeDict) -> bool:
-            try:
-                decoded = target_event.process_log(log)
-                return decoded["args"].get("msgId") == message_id
-            except Exception:
-                return False
-
-        try:
-            event_log = wait_for_event(self.remote_w3, filter_params, condition=matching_message_id)
-            target_tx.tx_hash = event_log["transactionHash"].to_0x_hex()
-            target_tx.tx_receipt = wait_for_tx_receipt(w3=self.remote_w3, tx_hash=target_tx.tx_hash)
-        except Exception as e:
-            target_tx.exception = e
-
-        return tx_result
 
     def bridge_mainnet_eth_to_derive(self, amount: int) -> TxResult:
         """
