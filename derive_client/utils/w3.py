@@ -178,7 +178,7 @@ def iter_events(
 ) -> Generator[AttributeDict, None, None]:
     """Stream matching logs over a fixed or live block window. Optionally raises TimeoutError."""
 
-    filter_params = filter_params.copy()  # return original in TimeoutError
+    original_filter_params = filter_params.copy()  # return original in TimeoutError
     if (cursor := filter_params["fromBlock"]) == "latest":
         cursor = w3.eth.block_number
 
@@ -190,7 +190,7 @@ def iter_events(
     while True:
         if deadline and time.time() > deadline:
             msg = f"Timed out waiting for events after scanning blocks {start_block}-{cursor}"
-            raise TimeoutError(f"{msg}: filter_params: {filter_params}")
+            raise TimeoutError(f"{msg}: filter_params: {original_filter_params}")
         upper = fixed_ceiling or w3.eth.block_number
         if cursor <= upper:
             end = min(upper, cursor + max_block_range - 1)
