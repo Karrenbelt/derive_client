@@ -231,13 +231,12 @@ class BridgeClient:
         Deposit funds by preparing, signing, and sending a bridging transaction.
         """
 
+        # record on target chain when we start polling
         token_data, _connector = self._resolve_socket_route("deposit", currency=currency)
         context = self._make_bridge_context("deposit", bridge_type=BridgeType.SOCKET, currency=currency)
-
-        # record on target chain when we start polling
         target_from_block = context.target_w3.eth.block_number
-        spender = token_data.Vault if token_data.isNewBridge else self.deposit_helper.address
 
+        spender = token_data.Vault if token_data.isNewBridge else self.deposit_helper.address
         ensure_balance(context.source_token, self.owner, amount)
         ensure_allowance(
             w3=context.source_w3,
@@ -270,13 +269,13 @@ class BridgeClient:
         Checks if sufficent gas is available in derive, if not funds the wallet.
         Prepares, signs, and sends a withdrawal transaction using the withdraw wrapper.
         """
-        # TODO: if token balance is insufficient one gets web3.exceptions.ContractCustomError
-
-        token_data, connector = self._resolve_socket_route("withdraw", currency=currency)
-        context = self._make_bridge_context("withdraw", bridge_type=BridgeType.SOCKET, currency=currency)
 
         # record on target chain when we start polling
+        token_data, connector = self._resolve_socket_route("withdraw", currency=currency)
+        context = self._make_bridge_context("withdraw", bridge_type=BridgeType.SOCKET, currency=currency)
         target_from_block = context.target_w3.eth.block_number
+
+        ensure_balance(context.source_token, self.wallet, amount)
 
         self._ensure_derive_eth_balance()
         self._check_bridge_funds(token_data, connector, amount)
@@ -378,9 +377,7 @@ class BridgeClient:
         abi = json.loads(LYRA_OFT_WITHDRAW_WRAPPER_ABI_PATH.read_text())
         withdraw_wrapper = get_contract(context.source_w3, LYRA_OFT_WITHDRAW_WRAPPER_ADDRESS, abi=abi)
 
-        balance = context.source_token.functions.balanceOf(self.wallet).call()
-        if balance < amount:
-            raise ValueError(f"Not enough tokens to withdraw: {amount} < {balance} ({(balance / amount * 100):.2f}%) ")
+        ensure_balance(context.source_token, self.wallet, amount)
 
         destEID = LayerZeroChainIDv2[context.target_chain.name]
         fee = withdraw_wrapper.functions.getFeeInToken(context.source_token.address, amount, destEID).call()
