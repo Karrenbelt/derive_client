@@ -1,12 +1,11 @@
 """Models used in the bridge module."""
 
-from dataclasses import dataclass
-
 from derive_action_signing.module_data import ModuleData
 from derive_action_signing.utils import decimal_to_big_int
 from eth_abi.abi import encode
 from eth_utils import is_address, to_checksum_address
 from pydantic import BaseModel, ConfigDict, Field, GetCoreSchemaHandler, GetJsonSchemaHandler
+from pydantic.dataclasses import dataclass
 from pydantic_core import core_schema
 from web3 import Web3
 from web3.contract import Contract
@@ -14,6 +13,40 @@ from web3.contract.contract import ContractEvent
 from web3.datastructures import AttributeDict
 
 from .enums import BridgeType, ChainID, Currency, DeriveTxStatus, MainnetCurrency, MarginType, SessionKeyScope, TxStatus
+
+
+class PException(Exception):
+
+    @classmethod
+    def __get_pydantic_core_schema__(cls, _source, _handler: GetCoreSchemaHandler):
+        return core_schema.no_info_plain_validator_function(cls._validate)
+
+    @classmethod
+    def __get_pydantic_json_schema__(cls, _schema, _handler: GetJsonSchemaHandler) -> dict:
+        return {"type": "string", "description": "An arbitrary Python Exception; serialized via str()"}
+
+    @classmethod
+    def _validate(cls, v) -> Exception:
+        if not isinstance(v, Exception):
+            raise TypeError(f"Expected Exception, got {v!r}")
+        return v
+
+
+class PAttributeDict(AttributeDict):
+
+    @classmethod
+    def __get_pydantic_core_schema__(cls, _source, _handler: GetCoreSchemaHandler) -> core_schema.CoreSchema:
+        return core_schema.no_info_plain_validator_function(lambda v, **kwargs: cls._validate(v))
+
+    @classmethod
+    def __get_pydantic_json_schema__(cls, _schema, _handler: GetJsonSchemaHandler) -> dict:
+        return {"type": "object", "additionalProperties": True}
+
+    @classmethod
+    def _validate(cls, v) -> AttributeDict:
+        if not isinstance(v, AttributeDict):
+            raise TypeError(f"Expected AttributeDict, got {v!r}")
+        return v
 
 
 class Address(str):
@@ -100,7 +133,7 @@ class ManagerAddress(BaseModel):
     currency: MainnetCurrency | None
 
 
-@dataclass
+@dataclass(config=ConfigDict(arbitrary_types_allowed=True))
 class BridgeContext:
     source_w3: Web3
     target_w3: Web3
@@ -120,8 +153,8 @@ class BridgeContext:
 @dataclass
 class TxResult:
     tx_hash: str
-    tx_receipt: AttributeDict | None
-    exception: Exception | None
+    tx_receipt: PAttributeDict | None
+    exception: PException | None
 
     @property
     def status(self) -> TxStatus:
@@ -170,3 +203,6 @@ class DeriveTxResult(BaseModel):
     error_log: dict
     transaction_id: str
     tx_hash: str | None = Field(alias="transaction_hash")
+
+
+breakpoint()
