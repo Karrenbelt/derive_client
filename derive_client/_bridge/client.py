@@ -418,16 +418,10 @@ class BridgeClient:
 
         return self.poll_bridge_progress(tx_result)
 
-    def fetch_lz_event_log(self, tx_result: BridgeTxResult):
-
-        if tx_result.source_chain == ChainID.DERIVE:
-            context = self._make_bridge_context("withdraw", bridge_type=BridgeType.LAYERZERO, currency=tx_result.currency)
-        else:
-            context = self._make_bridge_context("deposit", bridge_type=BridgeType.LAYERZERO, currency=tx_result.currency)
+    def fetch_lz_event_log(self, tx_result: BridgeTxResult, context: BridgeContext):
 
         source_tx = tx_result.source_tx
 
-        # Get the LayerZero GUID out of the OFTSent event on from the source chain
         try:
             source_event = context.source_event.process_log(source_tx.tx_receipt.logs[-1])
             guid = source_event["args"]["guid"]
@@ -446,13 +440,9 @@ class BridgeClient:
         print(f"🔍 Listening for OFTReceived on [{tx_result.target_chain.name}] at {context.target_event.address}")
         return wait_for_event(context.target_w3, filter_params)
 
-    def fetch_socket_event_log(self, tx_result: BridgeTxResult):
+    def fetch_socket_event_log(self, tx_result: BridgeTxResult, context: BridgeContext):
 
         source_tx = tx_result.source_tx
-        if tx_result.source_chain == ChainID.DERIVE:
-            context = self._make_bridge_context("withdraw", bridge_type=BridgeType.SOCKET, currency=tx_result.currency)
-        else:
-            context = self._make_bridge_context("deposit", bridge_type=BridgeType.SOCKET, currency=tx_result.currency)
 
         try:
             source_event = context.source_event.process_log(source_tx.tx_receipt.logs[-2])
@@ -483,21 +473,25 @@ class BridgeClient:
         source_tx = tx_result.source_tx
         target_tx = tx_result.target_tx
 
-        source_w3 = get_w3_connection(tx_result.source_chain)
-        target_w3 = get_w3_connection(tx_result.target_chain)
+        direction = "withdraw" if tx_result.source_chain == ChainID.DERIVE else "deposit"
+        context = self._make_bridge_context(
+            direction=direction,
+            bridge_type=tx_result.bridge,
+            currency=tx_result.currency,
+        )
 
         # 1. Timeout during source_tx.tx_receipt
         if not source_tx.tx_receipt:
             print(f"⏳ Checking source chain [{tx_result.source_chain.name}] tx receipt for {source_tx.tx_hash}")
-            source_tx.tx_receipt = wait_for_tx_receipt(w3=source_w3, tx_hash=source_tx.tx_hash)
+            source_tx.tx_receipt = wait_for_tx_receipt(w3=context.source_w3, tx_hash=source_tx.tx_hash)
 
         # 2. Timeout waiting for event_log on target chain
         if not target_tx.tx_hash:
             match tx_result.bridge:
                 case BridgeType.SOCKET:
-                    event_log = self.fetch_socket_event_log(tx_result)
+                    event_log = self.fetch_socket_event_log(tx_result, context)
                 case BridgeType.LAYERZERO:
-                    event_log = self.fetch_lz_event_log(tx_result)
+                    event_log = self.fetch_lz_event_log(tx_result, context)
                 case _:
                     raise ValueError()
             target_tx.tx_hash = event_log["transactionHash"].to_0x_hex()
@@ -505,7 +499,7 @@ class BridgeClient:
         # 3. Timeout waiting for target_tx.tx_receipt
         if not target_tx.tx_receipt:
             print(f"⏳ Checking target chain [{tx_result.target_chain.name}] tx receipt for {target_tx.tx_hash}")
-            target_tx.tx_receipt = wait_for_tx_receipt(w3=target_w3, tx_hash=target_tx.tx_hash)
+            target_tx.tx_receipt = wait_for_tx_receipt(w3=context.target_w3, tx_hash=target_tx.tx_hash)
 
         return tx_result
 
