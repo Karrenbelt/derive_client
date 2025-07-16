@@ -3,7 +3,7 @@
 from derive_action_signing.module_data import ModuleData
 from derive_action_signing.utils import decimal_to_big_int
 from eth_abi.abi import encode
-from eth_utils import is_address, to_checksum_address
+from eth_utils import is_address, to_checksum_address, is_hex, is_0x_prefixed
 from pydantic import BaseModel, ConfigDict, Field, GetCoreSchemaHandler, GetJsonSchemaHandler
 from pydantic.dataclasses import dataclass
 from pydantic_core import core_schema
@@ -63,6 +63,24 @@ class Address(str):
         if not is_address(v):
             raise ValueError(f"Invalid Ethereum address: {v}")
         return to_checksum_address(v)
+
+
+class TxHash(str):
+    @classmethod
+    def __get_pydantic_core_schema__(cls, _source, _handler: GetCoreSchemaHandler):
+        return core_schema.no_info_before_validator_function(cls._validate, core_schema.str_schema())
+
+    @classmethod
+    def __get_pydantic_json_schema__(cls, _schema, _handler: GetJsonSchemaHandler):
+        return {"type": "string", "format": "ethereum-tx-hash"}
+
+    @classmethod
+    def _validate(cls, v: str) -> str:
+        if not isinstance(v, str):
+            raise TypeError("Expected a string for TxHash")
+        if not is_0x_prefixed(v) or not is_hex(v) or len(v) != 66:
+            raise ValueError(f"Invalid Ethereum transaction hash: {v}")
+        return v
 
 
 @dataclass
@@ -152,9 +170,9 @@ class BridgeContext:
 
 @dataclass
 class TxResult:
-    tx_hash: str
-    tx_receipt: PAttributeDict | None
-    exception: PException | None
+    tx_hash: TxHash
+    tx_receipt: PAttributeDict
+    exception: PException
 
     @property
     def status(self) -> TxStatus:
@@ -203,6 +221,3 @@ class DeriveTxResult(BaseModel):
     error_log: dict
     transaction_id: str
     tx_hash: str | None = Field(alias="transaction_hash")
-
-
-breakpoint()
