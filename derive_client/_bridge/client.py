@@ -509,6 +509,7 @@ class BridgeClient:
             print(
                 f"⏳ Checking target chain [{tx_result.target_chain.name}] tx receipt for {tx_result.target_tx.tx_hash}"
             )
+            tx_result.target_tx.exception = None
             try:
                 tx_result.target_tx.tx_receipt = wait_for_tx_receipt(
                     w3=context.target_w3, tx_hash=tx_result.target_tx.tx_hash
