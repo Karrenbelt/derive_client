@@ -195,21 +195,9 @@ class BridgeTxResult:
 
     @property
     def status(self) -> TxStatus:
-        if self.source_tx.status is TxStatus.ERROR:
-            return TxStatus.ERROR
-        if self.source_tx.status is TxStatus.FAILED:
-            return TxStatus.FAILED
-        if self.source_tx.status is TxStatus.PENDING:
-            return TxStatus.PENDING
-
-        if self.target_tx is None or self.target_tx.status is TxStatus.PENDING:
-            return TxStatus.PENDING
-        if self.target_tx.status is TxStatus.ERROR:
-            return TxStatus.ERROR
-        if self.target_tx.status is TxStatus.FAILED:
-            return TxStatus.FAILED
-
-        return TxStatus.SUCCESS
+        if self.source_tx.status is not TxStatus.SUCCESS:
+            return self.source_tx.status
+        return self.target_tx.status if self.target_tx is not None else TxStatus.PENDING
 
 
 class DepositResult(BaseModel):
