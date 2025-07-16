@@ -3,7 +3,7 @@
 from derive_action_signing.module_data import ModuleData
 from derive_action_signing.utils import decimal_to_big_int
 from eth_abi.abi import encode
-from eth_utils import is_address, to_checksum_address, is_hex, is_0x_prefixed
+from eth_utils import is_0x_prefixed, is_address, is_hex, to_checksum_address
 from pydantic import BaseModel, ConfigDict, Field, GetCoreSchemaHandler, GetJsonSchemaHandler
 from pydantic.dataclasses import dataclass
 from pydantic_core import core_schema

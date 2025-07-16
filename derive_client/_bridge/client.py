@@ -15,7 +15,6 @@ from web3.datastructures import AttributeDict
 
 from derive_client._bridge.transaction import ensure_allowance, ensure_balance, prepare_mainnet_to_derive_gas_tx
 from derive_client.constants import (
-    ERC20_ABI_PATH,
     CONFIGS,
     CONTROLLER_ABI_PATH,
     CONTROLLER_V0_ABI_PATH,
@@ -25,6 +24,7 @@ from derive_client.constants import (
     DEPOSIT_HOOK_ABI_PATH,
     DERIVE_ABI_PATH,
     DERIVE_L2_ABI_PATH,
+    ERC20_ABI_PATH,
     L1_STANDARD_BRIDGE_ABI_PATH,
     LIGHT_ACCOUNT_ABI_PATH,
     LYRA_OFT_WITHDRAW_WRAPPER_ABI_PATH,
@@ -167,10 +167,14 @@ class BridgeClient:
         return get_contract(w3=self.derive_w3, address=address, abi=abi)
 
     @functools.lru_cache
-    def _make_bridge_context(self, direction: Literal["deposit", "withdraw"], bridge_type: BridgeType, currency: Currency) -> BridgeContext:
+    def _make_bridge_context(
+        self, direction: Literal["deposit", "withdraw"], bridge_type: BridgeType, currency: Currency
+    ) -> BridgeContext:
         is_deposit = direction == "deposit"
         src_w3, tgt_w3 = (self.remote_w3, self.derive_w3) if is_deposit else (self.derive_w3, self.remote_w3)
-        src_chain, tgt_chain = (self.remote_chain_id, ChainID.DERIVE) if is_deposit else (ChainID.DERIVE, self.remote_chain_id)
+        src_chain, tgt_chain = (
+            (self.remote_chain_id, ChainID.DERIVE) if is_deposit else (ChainID.DERIVE, self.remote_chain_id)
+        )
 
         if bridge_type == BridgeType.LAYERZERO and currency is Currency.DRV:
             src_addr = DeriveTokenAddresses[src_chain.name].value
@@ -181,9 +185,10 @@ class BridgeClient:
             src_abi, tgt_abi = (remote_abi, derive_abi) if is_deposit else (derive_abi, remote_abi)
             src = get_contract(src_w3, src_addr, abi=src_abi)
             tgt = get_contract(tgt_w3, tgt_addr, abi=tgt_abi)
-            return BridgeContext(src_w3, tgt_w3, src, src.events.OFTSent(), tgt.events.OFTReceived())
+            src_event, tgt_event = src.events.OFTSent(), tgt.events.OFTReceived()
+            return BridgeContext(src_w3, tgt_w3, src, src_event, tgt_event)
 
-        elif bridge_type == BridgeType.SOCKET  and currency is not Currency.DRV:
+        elif bridge_type == BridgeType.SOCKET and currency is not Currency.DRV:
             erc20_abi = json.loads(ERC20_ABI_PATH.read_text())
             socket_abi = json.loads(SOCKET_ABI_PATH.read_text())
 
@@ -196,9 +201,10 @@ class BridgeClient:
 
             src_addr = SocketAddress[src_chain.name].value
             tgt_addr = SocketAddress[tgt_chain.name].value
-            source_socket = get_contract(src_w3, address=src_addr, abi=socket_abi)
-            target_socket = get_contract(tgt_w3, address=tgt_addr, abi=socket_abi)
-            return BridgeContext(src_w3, tgt_w3, token_contract, source_socket.events.MessageOutbound(), target_socket.events.ExecutionSuccess())
+            src_socket = get_contract(src_w3, address=src_addr, abi=socket_abi)
+            tgt_socket = get_contract(tgt_w3, address=tgt_addr, abi=socket_abi)
+            src_event, tgt_event = src_socket.events.MessageOutbound(), tgt_socket.events.ExecutionSuccess()
+            return BridgeContext(src_w3, tgt_w3, token_contract, src_event, tgt_event)
 
         raise ValueError(f"Unsupported bridge_type={bridge_type} for currency={currency}.")
 
@@ -208,7 +214,9 @@ class BridgeClient:
         currency: Currency,
     ) -> tuple[MintableTokenData | NonMintableTokenData, Address]:
         is_deposit = direction == "deposit"
-        src_chain, tgt_chain = (self.remote_chain_id, ChainID.DERIVE) if is_deposit else (ChainID.DERIVE, self.remote_chain_id)
+        src_chain, tgt_chain = (
+            (self.remote_chain_id, ChainID.DERIVE) if is_deposit else (ChainID.DERIVE, self.remote_chain_id)
+        )
 
         if (src_token_data := self.derive_addresses.chains[src_chain].get(currency)) is None:
             msg = f"No bridge path for {currency.name} from {src_chain.name} to {tgt_chain.name}."
@@ -301,7 +309,9 @@ class BridgeClient:
 
         tx = build_standard_transaction(func=func, account=self.account, w3=context.source_w3, value=0)
 
-        source_tx = send_and_confirm_tx(w3=context.source_w3, tx=tx, private_key=self.private_key, action="executeBatch()")
+        source_tx = send_and_confirm_tx(
+            w3=context.source_w3, tx=tx, private_key=self.private_key, action="executeBatch()"
+        )
         tx_result = BridgeTxResult(
             currency=currency,
             bridge=BridgeType.SOCKET,
@@ -355,7 +365,9 @@ class BridgeClient:
         func = context.source_token.functions.send(send_params, fees, refund_address)
         tx = build_standard_transaction(func=func, account=self.account, w3=context.source_w3, value=native_fee)
 
-        source_tx = send_and_confirm_tx(w3=context.source_w3, tx=tx, private_key=self.private_key, action="executeBatch()")
+        source_tx = send_and_confirm_tx(
+            w3=context.source_w3, tx=tx, private_key=self.private_key, action="executeBatch()"
+        )
         tx_result = BridgeTxResult(
             currency=currency,
             bridge=BridgeType.LAYERZERO,
@@ -401,7 +413,9 @@ class BridgeClient:
 
         tx = build_standard_transaction(func=func, account=self.account, w3=context.source_w3, value=0)
 
-        source_tx = send_and_confirm_tx(w3=context.source_w3, tx=tx, private_key=self.private_key, action="executeBatch()")
+        source_tx = send_and_confirm_tx(
+            w3=context.source_w3, tx=tx, private_key=self.private_key, action="executeBatch()"
+        )
         tx_result = BridgeTxResult(
             currency=currency,
             bridge=BridgeType.LAYERZERO,
@@ -471,10 +485,14 @@ class BridgeClient:
 
         # 1. TimeoutError as exception during source_tx.tx_receipt
         if not tx_result.source_tx.tx_receipt:
-            print(f"⏳ Checking source chain [{tx_result.source_chain.name}] tx receipt for {tx_result.source_tx.tx_hash}")
+            print(
+                f"⏳ Checking source chain [{tx_result.source_chain.name}] tx receipt for {tx_result.source_tx.tx_hash}"
+            )
             tx_result.source_tx.exception = None
             try:
-                tx_result.source_tx.tx_receipt = wait_for_tx_receipt(w3=context.source_w3, tx_hash=tx_result.source_tx.tx_hash)
+                tx_result.source_tx.tx_receipt = wait_for_tx_receipt(
+                    w3=context.source_w3, tx_hash=tx_result.source_tx.tx_hash
+                )
             except Exception as e:
                 tx_result.source_tx.exception = e
 
@@ -488,9 +506,13 @@ class BridgeClient:
 
         # 3. Timeout waiting for target_tx.tx_receipt
         if not tx_result.target_tx.tx_receipt:
-            print(f"⏳ Checking target chain [{tx_result.target_chain.name}] tx receipt for {tx_result.target_tx.tx_hash}")
+            print(
+                f"⏳ Checking target chain [{tx_result.target_chain.name}] tx receipt for {tx_result.target_tx.tx_hash}"
+            )
             try:
-                tx_result.target_tx.tx_receipt = wait_for_tx_receipt(w3=context.target_w3, tx_hash=tx_result.target_tx.tx_hash)
+                tx_result.target_tx.tx_receipt = wait_for_tx_receipt(
+                    w3=context.target_w3, tx_hash=tx_result.target_tx.tx_hash
+                )
             except Exception as e:
                 tx_result.target_tx.exception = e
 
