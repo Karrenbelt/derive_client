@@ -14,6 +14,10 @@ from derive_client.data_types import ChainID, RPCEndPoints, TxResult, TxStatus
 from derive_client.utils.retry import exp_backoff_retry
 
 
+class TxSubmissionError(Exception):
+    """Raised when a transaction could not be submitted."""
+
+
 def get_w3_connection(chain_id: ChainID) -> Web3:
     rpc_url = RPCEndPoints[chain_id.name].value
     w3 = Web3(Web3.HTTPProvider(rpc_url))
@@ -108,17 +112,15 @@ def send_and_confirm_tx(
     *,
     action: str,  # e.g. "approve()", "deposit()", "withdraw()"
 ) -> TxResult:
-    """Send and confirm transactions, after simulating."""
-
-    tx_result = TxResult(tx_hash="", tx_receipt=None, exception=None)
+    """Send and confirm transactions."""
 
     try:
         tx_hash = sign_and_send_tx(w3=w3, tx=tx, private_key=private_key)
-        tx_result.tx_hash = tx_hash.hex()
+        tx_result = TxResult(tx_hash=tx_hash.to_0x_hex(), tx_receipt=None, exception=None)
     except Exception as send_err:
-        print(f"❌ Failed to send tx for {action}, error: {send_err!r}")
-        tx_result.exception = send_err
-        return tx_result
+        msg = f"❌ Failed to send tx for {action}, error: {send_err!r}"
+        print(msg)
+        raise TxSubmissionError(msg) from send_err
 
     try:
         tx_receipt = wait_for_tx_receipt(w3=w3, tx_hash=tx_hash)
