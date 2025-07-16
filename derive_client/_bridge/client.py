@@ -202,16 +202,37 @@ class BridgeClient:
 
         raise ValueError(f"Unsupported bridge_type={bridge_type} for currency={currency}.")
 
+    def _resolve_socket_route(
+        self,
+        direction: Literal["deposit", "withdraw"],
+        currency: Currency,
+    ) -> tuple[MintableTokenData | NonMintableTokenData, Address]:
+        is_deposit = direction == "deposit"
+        src_chain, tgt_chain = (self.remote_chain_id, ChainID.DERIVE) if is_deposit else (ChainID.DERIVE, self.remote_chain_id)
+
+        if (src_token_data := self.derive_addresses.chains[src_chain].get(currency)) is None:
+            msg = f"No bridge path for {currency.name} from {src_chain.name} to {tgt_chain.name}."
+            raise BridgeRouteError(msg)
+        if (tgt_token_data := self.derive_addresses.chains[tgt_chain].get(currency)) is None:
+            msg = f"No bridge path for {currency.name} from {tgt_chain.name} to {src_chain.name}."
+            raise BridgeRouteError(msg)
+
+        if tgt_chain not in src_token_data.connectors:
+            msg = f"Target chain {tgt_chain.name} not found in {src_chain.name} connectors."
+            raise BridgeRouteError(msg)
+        if src_chain not in tgt_token_data.connectors:
+            msg = f"Target chain {src_chain.name} not found in {tgt_chain.name} connectors."
+            raise BridgeRouteError(msg)
+
+        return src_token_data, src_token_data.connectors[tgt_chain][TARGET_SPEED]
+
     def deposit(self, amount: int, currency: Currency) -> BridgeTxResult:
         """
         Deposit funds by preparing, signing, and sending a bridging transaction.
         """
 
+        token_data, _connector = self._resolve_socket_route("deposit", currency=currency)
         context = self._make_bridge_context("deposit", bridge_type=BridgeType.SOCKET, currency=currency)
-
-        if (token_data := self.derive_addresses.chains[context.target_chain].get(currency)) is None:
-            msg = f"No bridge path for {currency.name} from {context.source_chain.name} to {context.target_chain.name}."
-            raise BridgeRouteError(msg)
 
         # record on target chain when we start polling
         target_from_block = self.derive_w3.eth.block_number
@@ -251,24 +272,13 @@ class BridgeClient:
         """
         # TODO: if token balance is insufficient one gets web3.exceptions.ContractCustomError
 
+        token_data, connector = self._resolve_socket_route("withdraw", currency=currency)
         context = self._make_bridge_context("withdraw", bridge_type=BridgeType.SOCKET, currency=currency)
 
-        if (token_data := self.derive_addresses.chains[context.target_chain].get(currency)) is None:
-            msg = f"No bridge path for {currency.name} from {context.source_chain.name} to {context.target_chain.name}."
-            raise BridgeRouteError(msg)
-
         # record on target chain when we start polling
-        chain_id = self.remote_chain_id
         target_from_block = self.remote_w3.eth.block_number
-        token_data: MintableTokenData = self.derive_addresses.chains[ChainID.DERIVE][currency]
-
-        if chain_id not in token_data.connectors:
-            msg = f"Target chain {chain_id} not found in token data connectors. Please check input configuration."
-            raise ValueError(msg)
 
         self._ensure_derive_eth_balance()
-
-        connector = token_data.connectors[chain_id][TARGET_SPEED]
         self._check_bridge_funds(token_data, connector, amount)
 
         kwargs = {
