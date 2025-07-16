@@ -165,4 +165,5 @@ class DeriveTxResult(BaseModel):
     data: dict  # Data used to create transaction
     status: DeriveTxStatus
     error_log: dict
+    transaction_id: str
     tx_hash: str | None = Field(alias="transaction_hash")

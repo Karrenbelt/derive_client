@@ -787,7 +787,7 @@ class BaseClient:
         """Get a transaction by its transaction id."""
         url = f"{self.config.base_url}/public/get_transaction"
         payload = {"transaction_id": transaction_id}
-        return DeriveTxResult(**self._send_request(url, json=payload))
+        return DeriveTxResult(**self._send_request(url, json=payload), transaction_id=transaction_id)
 
     def transfer_from_funding_to_subaccount(self, amount: int, asset_name: str, subaccount_id: int) -> DeriveTxResult:
         """
