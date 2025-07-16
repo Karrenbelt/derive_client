@@ -166,6 +166,7 @@ class BridgeClient:
         abi = json.loads(WITHDRAW_WRAPPER_V2_ABI_PATH.read_text())
         return get_contract(w3=self.derive_w3, address=address, abi=abi)
 
+    @functools.lru_cache
     def _make_bridge_context(self, direction: Literal["deposit", "withdraw"], bridge_type: BridgeType, currency: Currency) -> BridgeContext:
         is_deposit = direction == "deposit"
         src_w3, tgt_w3 = (self.remote_w3, self.derive_w3) if is_deposit else (self.derive_w3, self.remote_w3)
@@ -403,10 +404,8 @@ class BridgeClient:
 
     def fetch_lz_event_log(self, tx_result: BridgeTxResult, context: BridgeContext):
 
-        source_tx = tx_result.source_tx
-
         try:
-            source_event = context.source_event.process_log(source_tx.tx_receipt.logs[-1])
+            source_event = context.source_event.process_log(tx_result.source_tx.tx_receipt.logs[-1])
             guid = source_event["args"]["guid"]
         except Exception as e:
             raise BridgeEventParseError(f"Could not decode LayerZero OFTSent guid: {e}") from e
@@ -423,10 +422,8 @@ class BridgeClient:
 
     def fetch_socket_event_log(self, tx_result: BridgeTxResult, context: BridgeContext):
 
-        source_tx = tx_result.source_tx
-
         try:
-            source_event = context.source_event.process_log(source_tx.tx_receipt.logs[-2])
+            source_event = context.source_event.process_log(tx_result.source_tx.tx_receipt.logs[-2])
             message_id = source_event["args"]["msgId"]
         except Exception as e:
             raise BridgeEventParseError(f"Could not decode Socket MessageOutbound event: {e}") from e
