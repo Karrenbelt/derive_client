@@ -52,8 +52,9 @@ from derive_client.data_types import (
     RPCEndPoints,
     SocketAddress,
     TxResult,
+    TxStatus,
 )
-from derive_client.exceptions import BridgeEventParseError
+from derive_client.exceptions import AlreadyFinalizedError, BridgeEventParseError
 from derive_client.utils import (
     build_standard_transaction,
     get_contract,
@@ -443,7 +444,8 @@ class BridgeClient:
         return wait_for_event(context.target_w3, filter_params, condition=matching_message_id)
 
     def poll_bridge_progress(self, tx_result: BridgeTxResult) -> BridgeTxResult:
-        # TODO: handle non-pending status
+        if tx_result.status is not TxStatus.PENDING:
+            raise AlreadyFinalizedError(f"Bridge already in final state: {tx_result.status.name}")
 
         bridge_event_fetchers = {
             BridgeType.SOCKET: self.fetch_socket_event_log,
