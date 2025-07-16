@@ -129,10 +129,6 @@ def send_and_confirm_tx(
         print(f"⏱️ Timeout waiting for tx receipt of {tx_hash.hex()}")
         tx_result.exception = timeout_err
         return tx_result
-    except Exception as wait_err:
-        print(f"⚠️ Error while waiting for tx receipt of {tx_hash.hex()}: {wait_err!r}")
-        tx_result.exception = wait_err
-        return tx_result
 
     if tx_receipt.status == TxStatus.SUCCESS:
         print(f"✅ {action} succeeded for tx {tx_hash.hex()}")
