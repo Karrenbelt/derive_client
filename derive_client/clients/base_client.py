@@ -155,7 +155,7 @@ class BaseClient:
         client = BridgeClient(self.env, chain_id, account=self.signer, wallet=self.wallet)
 
         if currency == Currency.DRV:
-            return client.deposit_drv(amount=amount)
+            return client.deposit_drv(amount=amount, currency=currency)
 
         return client.deposit(amount=amount, currency=currency)
 
@@ -173,7 +173,7 @@ class BaseClient:
         client = BridgeClient(self.env, chain_id, account=self.signer, wallet=self.wallet)
 
         if currency == Currency.DRV:
-            return client.withdraw_drv(amount=amount)
+            return client.withdraw_drv(amount=amount, currency=currency)
 
         return client.withdraw_with_wrapper(amount=amount, currency=currency)
 

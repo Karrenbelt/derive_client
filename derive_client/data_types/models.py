@@ -134,6 +134,7 @@ class TxResult:
 
 @dataclass
 class BridgeTxResult:
+    currency: Currency
     bridge: BridgeType
     source_chain: ChainID
     target_chain: ChainID
