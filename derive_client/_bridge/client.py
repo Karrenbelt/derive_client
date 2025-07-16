@@ -52,12 +52,11 @@ from derive_client.data_types import (
     RPCEndPoints,
     SocketAddress,
     TxResult,
-    TxStatus,
 )
+from derive_client.exceptions import BridgeEventParseError
 from derive_client.utils import (
     build_standard_transaction,
     get_contract,
-    get_erc20_contract,
     get_prod_derive_addresses,
     get_w3_connection,
     make_filter_params,
@@ -409,9 +408,7 @@ class BridgeClient:
             source_event = context.source_event.process_log(source_tx.tx_receipt.logs[-1])
             guid = source_event["args"]["guid"]
         except Exception as e:
-            msg = f"Could not decode OFTSent guid: {e}"
-            source_tx.exception = ValueError(msg)
-            return tx_result
+            raise BridgeEventParseError(f"Could not decode LayerZero OFTSent guid: {e}") from e
 
         print(f"🔖 Source [{tx_result.source_chain.name}] OFTSent GUID: {guid.hex()}")
         filter_params = make_filter_params(
@@ -431,9 +428,7 @@ class BridgeClient:
             source_event = context.source_event.process_log(source_tx.tx_receipt.logs[-2])
             message_id = source_event["args"]["msgId"]
         except Exception as e:
-            msg = f"Failed to retrieve `msgId` from the Socket MessageOutbound event log from source tx_receipt: {e}"
-            source_tx.exception = ValueError(msg)
-            return tx_result
+            raise BridgeEventParseError(f"Could not decode Socket MessageOutbound event: {e}") from e
 
         print(f"🔖 Source [{tx_result.source_chain.name}] MessageOutbound msgId: {message_id.hex()}")
         filter_params = context.target_event._get_event_filter_params(
@@ -464,16 +459,17 @@ class BridgeClient:
             currency=tx_result.currency,
         )
 
-        # 1. Timeout during source_tx.tx_receipt
+        # 1. TimeoutError as exception during source_tx.tx_receipt
         if not tx_result.source_tx.tx_receipt:
             print(f"⏳ Checking source chain [{tx_result.source_chain.name}] tx receipt for {tx_result.source_tx.tx_hash}")
+            tx_result.source_tx.exception = None
             try:
                 tx_result.source_tx.tx_receipt = wait_for_tx_receipt(w3=context.source_w3, tx_hash=tx_result.source_tx.tx_hash)
             except Exception as e:
                 tx_result.source_tx.exception = e
 
         try:
-            # 2. Timeout waiting for event_log on target chain
+            # 2. target_tx is None OR TimeoutError as exception waiting for event_log on target chain
             if not tx_result.target_tx:
                 event_log = fetch_event(tx_result, context)
                 tx_result.target_tx = TxResult(event_log["transactionHash"].to_0x_hex(), None, None)
