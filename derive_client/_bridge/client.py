@@ -235,12 +235,12 @@ class BridgeClient:
         context = self._make_bridge_context("deposit", bridge_type=BridgeType.SOCKET, currency=currency)
 
         # record on target chain when we start polling
-        target_from_block = self.derive_w3.eth.block_number
+        target_from_block = context.target_w3.eth.block_number
         spender = token_data.Vault if token_data.isNewBridge else self.deposit_helper.address
 
         ensure_balance(context.source_token, self.owner, amount)
         ensure_allowance(
-            w3=self.remote_w3,
+            w3=context.source_w3,
             token_contract=context.source_token,
             owner=self.owner,
             spender=spender,
@@ -276,7 +276,7 @@ class BridgeClient:
         context = self._make_bridge_context("withdraw", bridge_type=BridgeType.SOCKET, currency=currency)
 
         # record on target chain when we start polling
-        target_from_block = self.remote_w3.eth.block_number
+        target_from_block = context.target_w3.eth.block_number
 
         self._ensure_derive_eth_balance()
         self._check_bridge_funds(token_data, connector, amount)
@@ -300,14 +300,14 @@ class BridgeClient:
             func=[approve_data, bridge_data],
         )
 
-        tx = build_standard_transaction(func=func, account=self.account, w3=self.derive_w3, value=0)
+        tx = build_standard_transaction(func=func, account=self.account, w3=context.source_w3, value=0)
 
-        source_tx = send_and_confirm_tx(w3=self.derive_w3, tx=tx, private_key=self.private_key, action="executeBatch()")
+        source_tx = send_and_confirm_tx(w3=context.source_w3, tx=tx, private_key=self.private_key, action="executeBatch()")
         tx_result = BridgeTxResult(
             currency=currency,
             bridge=BridgeType.SOCKET,
-            source_chain=ChainID.DERIVE,
-            target_chain=self.remote_chain_id,
+            source_chain=context.source_chain,
+            target_chain=context.target_chain,
             source_tx=source_tx,
             target_from_block=target_from_block,
         )
@@ -360,8 +360,8 @@ class BridgeClient:
         tx_result = BridgeTxResult(
             currency=currency,
             bridge=BridgeType.LAYERZERO,
-            source_chain=self.remote_chain_id,
-            target_chain=ChainID.DERIVE,
+            source_chain=context.source_chain,
+            target_chain=context.target_chain,
             source_tx=source_tx,
             target_from_block=target_from_block,
         )
@@ -382,7 +382,7 @@ class BridgeClient:
         if balance < amount:
             raise ValueError(f"Not enough tokens to withdraw: {amount} < {balance} ({(balance / amount * 100):.2f}%) ")
 
-        destEID = LayerZeroChainIDv2[self.remote_chain_id.name]
+        destEID = LayerZeroChainIDv2[context.target_chain.name]
         fee = withdraw_wrapper.functions.getFeeInToken(context.source_token.address, amount, destEID).call()
         if amount < fee:
             raise ValueError(f"Withdraw amount < fee: {amount} < {fee} ({(fee / amount * 100):.2f}%)")
@@ -408,8 +408,8 @@ class BridgeClient:
         tx_result = BridgeTxResult(
             currency=currency,
             bridge=BridgeType.LAYERZERO,
-            source_chain=ChainID.DERIVE,
-            target_chain=self.remote_chain_id,
+            source_chain=context.source_chain,
+            target_chain=context.target_chain,
             source_tx=source_tx,
             target_from_block=target_from_block,
         )
