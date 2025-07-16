@@ -54,7 +54,7 @@ from derive_client.data_types import (
     TxResult,
     TxStatus,
 )
-from derive_client.exceptions import AlreadyFinalizedError, BridgeEventParseError
+from derive_client.exceptions import AlreadyFinalizedError, BridgeEventParseError, BridgeRouteError
 from derive_client.utils import (
     build_standard_transaction,
     get_contract,
@@ -207,11 +207,11 @@ class BridgeClient:
         Deposit funds by preparing, signing, and sending a bridging transaction.
         """
 
-        if (token_data := self.derive_addresses.chains[self.remote_chain_id].get(currency)) is None:
-            msg = f"Currency {currency} not found in Derive addresses for chain {self.remote_chain_id}."
-            raise ValueError(msg)
-
         context = self._make_bridge_context("deposit", bridge_type=BridgeType.SOCKET, currency=currency)
+
+        if (token_data := self.derive_addresses.chains[context.target_chain].get(currency)) is None:
+            msg = f"No bridge path for {currency.name} from {context.source_chain.name} to {context.target_chain.name}."
+            raise BridgeRouteError(msg)
 
         # record on target chain when we start polling
         target_from_block = self.derive_w3.eth.block_number
@@ -252,6 +252,10 @@ class BridgeClient:
         # TODO: if token balance is insufficient one gets web3.exceptions.ContractCustomError
 
         context = self._make_bridge_context("withdraw", bridge_type=BridgeType.SOCKET, currency=currency)
+
+        if (token_data := self.derive_addresses.chains[context.target_chain].get(currency)) is None:
+            msg = f"No bridge path for {currency.name} from {context.source_chain.name} to {context.target_chain.name}."
+            raise BridgeRouteError(msg)
 
         # record on target chain when we start polling
         chain_id = self.remote_chain_id

@@ -15,3 +15,7 @@ class BridgeEventParseError(Exception):
 
 class AlreadyFinalizedError(Exception):
     """Raised when attempting to poll a BridgeTxResult who'se status is not TxStatus.PENDING."""
+
+
+class BridgeRouteError(Exception):
+    """Raised when no bridge route exists for the given currency and chains."""
