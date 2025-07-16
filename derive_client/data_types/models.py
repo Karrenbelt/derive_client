@@ -10,6 +10,7 @@ from pydantic import BaseModel, ConfigDict, Field, GetCoreSchemaHandler, GetJson
 from pydantic_core import core_schema
 from web3 import Web3
 from web3.contract import Contract
+from web3.contract.contract import ContractEvent
 from web3.datastructures import AttributeDict
 
 from .enums import BridgeType, ChainID, Currency, DeriveTxStatus, MainnetCurrency, MarginType, SessionKeyScope, TxStatus
@@ -100,11 +101,12 @@ class ManagerAddress(BaseModel):
 
 
 @dataclass
-class BridgePair:
+class BridgeContext:
     source_w3: Web3
     target_w3: Web3
     source_token: Contract
-    target_token: Contract
+    source_event: ContractEvent
+    target_event: ContractEvent
 
     @property
     def source_chain(self) -> ChainID:
