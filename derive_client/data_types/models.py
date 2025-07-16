@@ -168,11 +168,11 @@ class BridgeContext:
         return ChainID(self.target_w3.eth.chain_id)
 
 
-@dataclass
+@dataclass(config=ConfigDict(validate_assignment=True))
 class TxResult:
     tx_hash: TxHash
-    tx_receipt: PAttributeDict
-    exception: PException
+    tx_receipt: PAttributeDict | None = None
+    exception: PException | None = None
 
     @property
     def status(self) -> TxStatus:
@@ -183,14 +183,14 @@ class TxResult:
         return TxStatus.ERROR
 
 
-@dataclass
+@dataclass(config=ConfigDict(validate_assignment=True))
 class BridgeTxResult:
     currency: Currency
     bridge: BridgeType
     source_chain: ChainID
     target_chain: ChainID
     source_tx: TxResult
-    target_tx: TxResult
+    target_tx: TxResult | None = None
     target_from_block: int
 
     @property
