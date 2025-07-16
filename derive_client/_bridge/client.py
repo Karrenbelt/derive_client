@@ -225,7 +225,7 @@ class BridgeClient:
             target_tx=target_tx,
             target_from_block=target_from_block,
         )
-        if not source_tx.status == TxStatus.SUCCESS:
+        if source_tx.status is not TxStatus.SUCCESS:
             return tx_result
 
         return self.poll_bridge_progress(tx_result)
@@ -284,7 +284,7 @@ class BridgeClient:
             target_tx=target_tx,
             target_from_block=target_from_block,
         )
-        if not source_tx.status == TxStatus.SUCCESS:
+        if source_tx.status is not TxStatus.SUCCESS:
             return tx_result
 
         return self.poll_bridge_progress(tx_result)
@@ -342,7 +342,7 @@ class BridgeClient:
             target_tx=target_tx,
             target_from_block=target_from_block,
         )
-        if not source_tx.status == TxStatus.SUCCESS:
+        if source_tx.status is not TxStatus.SUCCESS:
             return tx_result
 
         return self.poll_bridge_progress(tx_result)
@@ -393,7 +393,7 @@ class BridgeClient:
             target_tx=target_tx,
             target_from_block=target_from_block,
         )
-        if not source_tx.status == TxStatus.SUCCESS:
+        if source_tx.status is not TxStatus.SUCCESS:
             return tx_result
 
         return self.poll_bridge_progress(tx_result)
