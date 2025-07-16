@@ -231,7 +231,6 @@ class BridgeClient:
         else:
             tx = self._prepare_old_style_deposit(token_data, amount)
 
-        target_tx = TxResult(tx_hash="", tx_receipt=None, exception=None)
         source_tx = send_and_confirm_tx(w3=context.source_w3, tx=tx, private_key=self.private_key, action="bridge()")
         tx_result = BridgeTxResult(
             currency=currency,
@@ -239,11 +238,8 @@ class BridgeClient:
             source_chain=context.source_chain,
             target_chain=context.target_chain,
             source_tx=source_tx,
-            target_tx=target_tx,
             target_from_block=target_from_block,
         )
-        if source_tx.status is not TxStatus.SUCCESS:
-            return tx_result
 
         return self.poll_bridge_progress(tx_result)
 
@@ -291,7 +287,6 @@ class BridgeClient:
 
         tx = build_standard_transaction(func=func, account=self.account, w3=self.derive_w3, value=0)
 
-        target_tx = TxResult(tx_hash="", tx_receipt=None, exception=None)
         source_tx = send_and_confirm_tx(w3=self.derive_w3, tx=tx, private_key=self.private_key, action="executeBatch()")
         tx_result = BridgeTxResult(
             currency=currency,
@@ -299,11 +294,8 @@ class BridgeClient:
             source_chain=ChainID.DERIVE,
             target_chain=self.remote_chain_id,
             source_tx=source_tx,
-            target_tx=target_tx,
             target_from_block=target_from_block,
         )
-        if source_tx.status is not TxStatus.SUCCESS:
-            return tx_result
 
         return self.poll_bridge_progress(tx_result)
 
@@ -349,8 +341,6 @@ class BridgeClient:
         func = context.source_token.functions.send(send_params, fees, refund_address)
         tx = build_standard_transaction(func=func, account=self.account, w3=context.source_w3, value=native_fee)
 
-        # Setup the BridgeTxResult and send the tx on the source chain
-        target_tx = TxResult(tx_hash="", tx_receipt=None, exception=None)
         source_tx = send_and_confirm_tx(w3=context.source_w3, tx=tx, private_key=self.private_key, action="executeBatch()")
         tx_result = BridgeTxResult(
             currency=currency,
@@ -358,11 +348,8 @@ class BridgeClient:
             source_chain=self.remote_chain_id,
             target_chain=ChainID.DERIVE,
             source_tx=source_tx,
-            target_tx=target_tx,
             target_from_block=target_from_block,
         )
-        if source_tx.status is not TxStatus.SUCCESS:
-            return tx_result
 
         return self.poll_bridge_progress(tx_result)
 
@@ -402,7 +389,6 @@ class BridgeClient:
 
         tx = build_standard_transaction(func=func, account=self.account, w3=context.source_w3, value=0)
 
-        target_tx = TxResult(tx_hash="", tx_receipt=None, exception=None)
         source_tx = send_and_confirm_tx(w3=context.source_w3, tx=tx, private_key=self.private_key, action="executeBatch()")
         tx_result = BridgeTxResult(
             currency=currency,
@@ -410,11 +396,8 @@ class BridgeClient:
             source_chain=ChainID.DERIVE,
             target_chain=self.remote_chain_id,
             source_tx=source_tx,
-            target_tx=target_tx,
             target_from_block=target_from_block,
         )
-        if source_tx.status is not TxStatus.SUCCESS:
-            return tx_result
 
         return self.poll_bridge_progress(tx_result)
 
@@ -470,9 +453,6 @@ class BridgeClient:
     def poll_bridge_progress(self, tx_result: BridgeTxResult) -> BridgeTxResult:
         # TODO: handle non-pending status
 
-        source_tx = tx_result.source_tx
-        target_tx = tx_result.target_tx
-
         direction = "withdraw" if tx_result.source_chain == ChainID.DERIVE else "deposit"
         context = self._make_bridge_context(
             direction=direction,
@@ -481,12 +461,12 @@ class BridgeClient:
         )
 
         # 1. Timeout during source_tx.tx_receipt
-        if not source_tx.tx_receipt:
-            print(f"⏳ Checking source chain [{tx_result.source_chain.name}] tx receipt for {source_tx.tx_hash}")
-            source_tx.tx_receipt = wait_for_tx_receipt(w3=context.source_w3, tx_hash=source_tx.tx_hash)
+        if not tx_result.source_tx.tx_receipt:
+            print(f"⏳ Checking source chain [{tx_result.source_chain.name}] tx receipt for {tx_result.source_tx.tx_hash}")
+            tx_result.source_tx.tx_receipt = wait_for_tx_receipt(w3=context.source_w3, tx_hash=tx_result.source_tx.tx_hash)
 
         # 2. Timeout waiting for event_log on target chain
-        if not target_tx.tx_hash:
+        if not tx_result.target_tx:
             match tx_result.bridge:
                 case BridgeType.SOCKET:
                     event_log = self.fetch_socket_event_log(tx_result, context)
@@ -494,12 +474,12 @@ class BridgeClient:
                     event_log = self.fetch_lz_event_log(tx_result, context)
                 case _:
                     raise ValueError()
-            target_tx.tx_hash = event_log["transactionHash"].to_0x_hex()
+            tx_result.target_tx = TxResult(event_log["transactionHash"].to_0x_hex(), None, None)
 
         # 3. Timeout waiting for target_tx.tx_receipt
-        if not target_tx.tx_receipt:
-            print(f"⏳ Checking target chain [{tx_result.target_chain.name}] tx receipt for {target_tx.tx_hash}")
-            target_tx.tx_receipt = wait_for_tx_receipt(w3=context.target_w3, tx_hash=target_tx.tx_hash)
+        if not tx_result.target_tx.tx_receipt:
+            print(f"⏳ Checking target chain [{tx_result.target_chain.name}] tx receipt for {tx_result.target_tx.tx_hash}")
+            tx_result.target_tx.tx_receipt = wait_for_tx_receipt(w3=context.target_w3, tx_hash=tx_result.target_tx.tx_hash)
 
         return tx_result
 

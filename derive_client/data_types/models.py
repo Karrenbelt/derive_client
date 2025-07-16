@@ -190,8 +190,8 @@ class BridgeTxResult:
     source_chain: ChainID
     target_chain: ChainID
     source_tx: TxResult
-    target_tx: TxResult | None = None
     target_from_block: int
+    target_tx: TxResult | None = None
 
     @property
     def status(self) -> TxStatus:
