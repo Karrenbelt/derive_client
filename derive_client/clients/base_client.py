@@ -53,15 +53,12 @@ from derive_client.data_types import (
     UnderlyingCurrency,
     WithdrawResult,
 )
+from derive_client.exceptions import ApiException
 from derive_client.utils import get_logger, wait_until
 
 
 def _is_final_tx(res: DeriveTxResult) -> bool:
     return res.status not in (DeriveTxStatus.REQUESTED, DeriveTxStatus.PENDING)
-
-
-class ApiException(Exception):
-    """Exception for API errors."""
 
 
 class BaseClient:

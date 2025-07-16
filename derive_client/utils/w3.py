@@ -11,11 +11,8 @@ from web3.datastructures import AttributeDict
 
 from derive_client.constants import ABI_DATA_DIR, GAS_FEE_BUFFER
 from derive_client.data_types import ChainID, RPCEndPoints, TxResult, TxStatus
+from derive_client.exceptions import TxSubmissionError
 from derive_client.utils.retry import exp_backoff_retry
-
-
-class TxSubmissionError(Exception):
-    """Raised when a transaction could not be submitted."""
 
 
 def get_w3_connection(chain_id: ChainID) -> Web3:
