@@ -450,6 +450,13 @@ class BridgeClient:
     def poll_bridge_progress(self, tx_result: BridgeTxResult) -> BridgeTxResult:
         # TODO: handle non-pending status
 
+        bridge_event_fetchers = {
+            BridgeType.SOCKET: self.fetch_socket_event_log,
+            BridgeType.LAYERZERO: self.fetch_lz_event_log,
+        }
+        if (fetch_event := bridge_event_fetchers.get(tx_result.bridge)) is None:
+            raise ValueError(f"Invalid bridge_type: {tx_result.bridge}")
+
         direction = "withdraw" if tx_result.source_chain == ChainID.DERIVE else "deposit"
         context = self._make_bridge_context(
             direction=direction,
@@ -460,23 +467,23 @@ class BridgeClient:
         # 1. Timeout during source_tx.tx_receipt
         if not tx_result.source_tx.tx_receipt:
             print(f"⏳ Checking source chain [{tx_result.source_chain.name}] tx receipt for {tx_result.source_tx.tx_hash}")
-            tx_result.source_tx.tx_receipt = wait_for_tx_receipt(w3=context.source_w3, tx_hash=tx_result.source_tx.tx_hash)
+            try:
+                tx_result.source_tx.tx_receipt = wait_for_tx_receipt(w3=context.source_w3, tx_hash=tx_result.source_tx.tx_hash)
+            except Exception as e:
+                tx_result.source_tx.exception = e
 
-        # 2. Timeout waiting for event_log on target chain
-        if not tx_result.target_tx:
-            match tx_result.bridge:
-                case BridgeType.SOCKET:
-                    event_log = self.fetch_socket_event_log(tx_result, context)
-                case BridgeType.LAYERZERO:
-                    event_log = self.fetch_lz_event_log(tx_result, context)
-                case _:
-                    raise ValueError()
-            tx_result.target_tx = TxResult(event_log["transactionHash"].to_0x_hex(), None, None)
+        try:
+            # 2. Timeout waiting for event_log on target chain
+            if not tx_result.target_tx:
+                event_log = fetch_event(tx_result, context)
+                tx_result.target_tx = TxResult(event_log["transactionHash"].to_0x_hex(), None, None)
 
-        # 3. Timeout waiting for target_tx.tx_receipt
-        if not tx_result.target_tx.tx_receipt:
-            print(f"⏳ Checking target chain [{tx_result.target_chain.name}] tx receipt for {tx_result.target_tx.tx_hash}")
-            tx_result.target_tx.tx_receipt = wait_for_tx_receipt(w3=context.target_w3, tx_hash=tx_result.target_tx.tx_hash)
+            # 3. Timeout waiting for target_tx.tx_receipt
+            if not tx_result.target_tx.tx_receipt:
+                print(f"⏳ Checking target chain [{tx_result.target_chain.name}] tx receipt for {tx_result.target_tx.tx_hash}")
+                tx_result.target_tx.tx_receipt = wait_for_tx_receipt(w3=context.target_w3, tx_hash=tx_result.target_tx.tx_hash)
+        except Exception as e:
+            tx_result.target_tx.exception = e
 
         return tx_result
 
