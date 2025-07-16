@@ -167,22 +167,17 @@ class BridgeClient:
         return get_contract(w3=self.derive_w3, address=address, abi=abi)
 
     def _make_bridge_context(self, direction: Literal["deposit", "withdraw"], bridge_type: BridgeType, currency: Currency) -> BridgeContext:
+        is_deposit = direction == "deposit"
+        src_w3, tgt_w3 = (self.remote_w3, self.derive_w3) if is_deposit else (self.derive_w3, self.remote_w3)
+        src_chain, tgt_chain = (self.remote_chain_id, ChainID.DERIVE) if is_deposit else (ChainID.DERIVE, self.remote_chain_id)
+
         if bridge_type == BridgeType.LAYERZERO and currency is Currency.DRV:
-            derive_addr = DeriveTokenAddresses.DERIVE.value
-            remote_addr = DeriveTokenAddresses[self.remote_chain_id.name].value
+            src_addr = DeriveTokenAddresses[src_chain.name].value
+            tgt_addr = DeriveTokenAddresses[tgt_chain.name].value
             derive_abi = json.loads(DERIVE_L2_ABI_PATH.read_text())
             remote_abi_path = DERIVE_ABI_PATH if self.remote_chain_id == ChainID.ETH else DERIVE_L2_ABI_PATH
             remote_abi = json.loads(remote_abi_path.read_text())
-
-            if direction == "deposit":
-                src_w3, tgt_w3 = self.remote_w3, self.derive_w3
-                src_addr, tgt_addr = remote_addr, derive_addr
-                src_abi, tgt_abi = remote_abi, derive_abi
-            else:
-                src_w3, tgt_w3 = self.derive_w3, self.remote_w3
-                src_addr, tgt_addr = derive_addr, remote_addr
-                src_abi, tgt_abi = derive_abi, remote_abi
-
+            src_abi, tgt_abi = (remote_abi, derive_abi) if is_deposit else (derive_abi, remote_abi)
             src = get_contract(src_w3, src_addr, abi=src_abi)
             tgt = get_contract(tgt_w3, tgt_addr, abi=tgt_abi)
             return BridgeContext(src_w3, tgt_w3, src, src.events.OFTSent(), tgt.events.OFTReceived())
@@ -191,22 +186,20 @@ class BridgeClient:
             erc20_abi = json.loads(ERC20_ABI_PATH.read_text())
             socket_abi = json.loads(SOCKET_ABI_PATH.read_text())
 
-            if direction == "deposit":
-                src_w3, tgt_w3 = self.remote_w3, self.derive_w3
+            if is_deposit:
                 token_data: NonMintableTokenData = self.derive_addresses.chains[self.remote_chain_id][currency]
                 token_contract = get_contract(src_w3, token_data.NonMintableToken, abi=erc20_abi)
-                source_address = SocketAddress[self.remote_chain_id.name].value
-                target_address = SocketAddress[ChainID.DERIVE.name].value
             else:
-                src_w3, tgt_w3 = self.derive_w3, self.remote_w3
                 token_data: MintableTokenData = self.derive_addresses.chains[ChainID.DERIVE][currency]
                 token_contract = get_contract(src_w3, token_data.MintableToken, abi=erc20_abi)
-                source_address = SocketAddress[ChainID.DERIVE.name].value
-                target_address = SocketAddress[self.remote_chain_id.name].value
-            source_socket = get_contract(src_w3, address=source_address, abi=socket_abi)
-            target_socket = get_contract(tgt_w3, address=target_address, abi=socket_abi)
+
+            src_addr = SocketAddress[src_chain.name].value
+            tgt_addr = SocketAddress[tgt_chain.name].value
+            source_socket = get_contract(src_w3, address=src_addr, abi=socket_abi)
+            target_socket = get_contract(tgt_w3, address=tgt_addr, abi=socket_abi)
             return BridgeContext(src_w3, tgt_w3, token_contract, source_socket.events.MessageOutbound(), target_socket.events.ExecutionSuccess())
-        raise RuntimeError("")
+
+        raise ValueError(f"Unsupported bridge_type={bridge_type} for currency={currency}.")
 
     def deposit(self, amount: int, currency: Currency) -> BridgeTxResult:
         """
