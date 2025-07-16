@@ -468,18 +468,21 @@ class BridgeClient:
             except Exception as e:
                 tx_result.source_tx.exception = e
 
-        try:
-            # 2. target_tx is None OR TimeoutError as exception waiting for event_log on target chain
-            if not tx_result.target_tx:
+        # 2. target_tx is None (i.e. TimeoutError when waiting for event_log on target chain)
+        if not tx_result.target_tx:
+            try:
                 event_log = fetch_event(tx_result, context)
-                tx_result.target_tx = TxResult(event_log["transactionHash"].to_0x_hex(), None, None)
+                tx_result.target_tx = TxResult(event_log["transactionHash"].to_0x_hex())
+            except TimeoutError:
+                return tx_result
 
-            # 3. Timeout waiting for target_tx.tx_receipt
-            if not tx_result.target_tx.tx_receipt:
-                print(f"⏳ Checking target chain [{tx_result.target_chain.name}] tx receipt for {tx_result.target_tx.tx_hash}")
+        # 3. Timeout waiting for target_tx.tx_receipt
+        if not tx_result.target_tx.tx_receipt:
+            print(f"⏳ Checking target chain [{tx_result.target_chain.name}] tx receipt for {tx_result.target_tx.tx_hash}")
+            try:
                 tx_result.target_tx.tx_receipt = wait_for_tx_receipt(w3=context.target_w3, tx_hash=tx_result.target_tx.tx_hash)
-        except Exception as e:
-            tx_result.target_tx.exception = e
+            except Exception as e:
+                tx_result.target_tx.exception = e
 
         return tx_result
 
