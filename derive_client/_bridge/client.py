@@ -441,11 +441,8 @@ class BridgeClient:
         )
 
         def matching_message_id(log: AttributeDict) -> bool:
-            try:
-                decoded = context.target_event.process_log(log)
-                return decoded["args"].get("msgId") == message_id
-            except Exception:
-                return False
+            decoded = context.target_event.process_log(log)
+            return decoded.get("args", {}).get("msgId") == message_id
 
         print(f"🔍 Listening for ExecutionSuccess on [{tx_result.target_chain.name}] at {context.target_event.address}")
         return wait_for_event(context.target_w3, filter_params, condition=matching_message_id)
