@@ -500,7 +500,7 @@ class BridgeClient:
                 tx_result.source_tx.tx_receipt = wait_for_tx_receipt(
                     w3=context.source_w3, tx_hash=tx_result.source_tx.tx_hash
                 )
-            except Exception as e:
+            except TimeoutError as e:
                 tx_result.source_tx.exception = e
 
         # 2. target_tx is None (i.e. TimeoutError when waiting for event log on target chain)
@@ -521,7 +521,7 @@ class BridgeClient:
                 tx_result.target_tx.tx_receipt = wait_for_tx_receipt(
                     w3=context.target_w3, tx_hash=tx_result.target_tx.tx_hash
                 )
-            except Exception as e:
+            except TimeoutError as e:
                 tx_result.target_tx.exception = e
 
         return tx_result
