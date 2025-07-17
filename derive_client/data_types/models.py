@@ -191,6 +191,7 @@ class BridgeTxResult:
     target_chain: ChainID
     source_tx: TxResult
     target_from_block: int
+    event_id: str | None = None
     target_tx: TxResult | None = None
 
     @property

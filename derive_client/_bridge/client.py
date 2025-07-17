@@ -435,7 +435,9 @@ class BridgeClient:
         except Exception as e:
             raise BridgeEventParseError(f"Could not decode LayerZero OFTSent guid: {e}") from e
 
-        print(f"🔖 Source [{tx_result.source_chain.name}] OFTSent GUID: {guid.hex()}")
+        tx_result.event_id = guid.hex()
+        print(f"🔖 Source [{tx_result.source_chain.name}] OFTSent GUID: {tx_result.event_id}")
+
         filter_params = make_filter_params(
             event=context.target_event,
             from_block=tx_result.target_from_block,
@@ -453,7 +455,8 @@ class BridgeClient:
         except Exception as e:
             raise BridgeEventParseError(f"Could not decode Socket MessageOutbound event: {e}") from e
 
-        print(f"🔖 Source [{tx_result.source_chain.name}] MessageOutbound msgId: {message_id.hex()}")
+        tx_result.event_id = message_id.hex()
+        print(f"🔖 Source [{tx_result.source_chain.name}] MessageOutbound msgId: {tx_result.event_id}")
         filter_params = context.target_event._get_event_filter_params(
             fromBlock=tx_result.target_from_block, abi=context.target_event.abi
         )
