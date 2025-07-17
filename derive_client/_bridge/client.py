@@ -4,6 +4,7 @@ Bridge client to deposit funds to the Derive smart contract funding account
 
 from __future__ import annotations
 
+import copy
 import functools
 import json
 from typing import Literal
@@ -270,7 +271,7 @@ class BridgeClient:
             target_from_block=target_from_block,
         )
 
-        return self.poll_bridge_progress(tx_result)
+        return tx_result
 
     def withdraw_with_wrapper(self, amount: int, currency: Currency) -> BridgeTxResult:
         """
@@ -321,7 +322,7 @@ class BridgeClient:
             target_from_block=target_from_block,
         )
 
-        return self.poll_bridge_progress(tx_result)
+        return tx_result
 
     def deposit_drv(self, amount: int, currency: Currency) -> BridgeTxResult:
         """
@@ -377,7 +378,7 @@ class BridgeClient:
             target_from_block=target_from_block,
         )
 
-        return self.poll_bridge_progress(tx_result)
+        return tx_result
 
     def withdraw_drv(self, amount: int, currency: Currency) -> BridgeTxResult:
         self._ensure_derive_eth_balance()
@@ -425,7 +426,7 @@ class BridgeClient:
             target_from_block=target_from_block,
         )
 
-        return self.poll_bridge_progress(tx_result)
+        return tx_result
 
     def fetch_lz_event_log(self, tx_result: BridgeTxResult, context: BridgeContext):
 
@@ -472,6 +473,9 @@ class BridgeClient:
         if tx_result.status is not TxStatus.PENDING:
             raise AlreadyFinalizedError(f"Bridge already in final state: {tx_result.status.name}")
 
+        # Do not mutate the input in-place
+        tx_result = copy.deepcopy(tx_result)
+
         bridge_event_fetchers = {
             BridgeType.SOCKET: self.fetch_socket_event_log,
             BridgeType.LAYERZERO: self.fetch_lz_event_log,
@@ -499,7 +503,7 @@ class BridgeClient:
             except Exception as e:
                 tx_result.source_tx.exception = e
 
-        # 2. target_tx is None (i.e. TimeoutError when waiting for event_log on target chain)
+        # 2. target_tx is None (i.e. TimeoutError when waiting for event log on target chain)
         if not tx_result.target_tx:
             try:
                 event_log = fetch_event(tx_result, context)

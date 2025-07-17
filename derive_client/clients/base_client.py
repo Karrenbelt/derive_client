@@ -140,12 +140,14 @@ class BaseClient:
 
     @validate_call
     def deposit_to_derive(self, chain_id: ChainID, currency: Currency, amount: float) -> BridgeTxResult:
-        """Deposit funds via socket superbridge to Derive chain smart contract funding account.
+        """
+        Submit a deposit into the Derive chain funding contract and return its initial BridgeTxResult
+        without waiting for completion.
 
         Parameters:
             chain_id (ChainID): The chain you are bridging FROM.
             currency (Currency): The asset being bridged.
-            amount (int): The amount to deposit, in Wei.
+            amount (float): amount to deposit, in human units (will be scaled to Wei).
         """
 
         amount = int(amount * 10 ** TOKEN_DECIMALS[UnderlyingCurrency[currency.name.upper()]])
@@ -158,12 +160,14 @@ class BaseClient:
 
     @validate_call
     def withdraw_from_derive(self, chain_id: ChainID, currency: Currency, amount: float) -> BridgeTxResult:
-        """Deposit funds via socket superbridge to Derive chain smart contract funding account.
+        """
+        Submit a withdrawal from the Derive chain funding contract and return its initial BridgeTxResult
+        without waiting for completion.
 
         Parameters:
             chain_id (ChainID): The chain you are bridging TO.
             currency (Currency): The asset being bridged.
-            amount (int): The amount to withdraw, in Wei.
+            amount (float): amount to withdraw, in human units (will be scaled to Wei).
         """
 
         amount = int(amount * 10 ** TOKEN_DECIMALS[UnderlyingCurrency[currency.name.upper()]])
@@ -175,10 +179,12 @@ class BaseClient:
         return client.withdraw_with_wrapper(amount=amount, currency=currency)
 
     def poll_bridge_progress(self, tx_result: BridgeTxResult) -> BridgeTxResult:
-        """Resume polling a pending bridge transaction to completion.
+        """
+        Given a pending BridgeTxResult, return a new BridgeTxResult with updated status.
+        Raises AlreadyFinalizedError if tx_result is not in PENDING status.
 
         Parameters:
-            tx_result (BridgeTxResult):
+            tx_result (BridgeTxResult): the result to refresh.
         """
 
         chain_id = tx_result.source_chain if tx_result.source_chain != ChainID.DERIVE else tx_result.target_chain
