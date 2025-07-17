@@ -158,14 +158,15 @@ def deposit(ctx, chain_id, currency, amount):
     client: BaseClient = ctx.obj["client"]
 
     bridge_tx_result = client.deposit_to_derive(chain_id=chain_id, currency=currency, amount=amount)
+    bridge_tx_result = client.poll_bridge_progress(bridge_tx_result)
 
     match bridge_tx_result.status:
         case TxStatus.SUCCESS:
-            print(f"[bold green]Deposit from {chain_id.name} to Derive successful![/bold green]")
+            print(f"[bold green]Bridging {currency.name} from {chain_id.name} to DERIVE successful![/bold green]")
         case TxStatus.FAILED:
-            print(f"[bold red]Deposit from {chain_id.name} to Derive failed.[/bold red]")
+            print(f"[bold red]Bridging {currency.name} from {chain_id.name} to DERIVE failed.[/bold red]")
         case TxStatus.PENDING:
-            print(f"[yellow]Deposit from {chain_id.name} to Derive is pending...[/yellow]")
+            print(f"[yellow]Bridging {currency.name} from {chain_id.name} to DERIVE is pending...[/yellow]")
         case _:
             raise click.ClickException(f"Exception attempting to deposit:\n{bridge_tx_result}")
 
@@ -206,19 +207,16 @@ def withdraw(ctx, chain_id, currency, amount):
 
     client: DeriveClient = ctx.obj["client"]
 
-    bridge_tx_result = client.withdraw_from_derive(
-        chain_id=chain_id,
-        currency=currency,
-        amount=amount,
-    )
+    bridge_tx_result = client.withdraw_from_derive(chain_id=chain_id, currency=currency, amount=amount)
+    bridge_tx_result = client.poll_bridge_progress(bridge_tx_result)
 
     match bridge_tx_result.status:
         case TxStatus.SUCCESS:
-            print(f"[bold green]Withdrawal from Derive to {chain_id.name} successful![/bold green]")
+            print(f"[bold green]Bridging {currency.name} from DERIVE to {chain_id.name} successful![/bold green]")
         case TxStatus.FAILED:
-            print(f"[bold red]Withdrawal from Derive to {chain_id.name} failed.[/bold red]")
+            print(f"[bold red]Bridging {currency.name} from DERIVE to {chain_id.name} failed.[/bold red]")
         case TxStatus.PENDING:
-            print(f"[yellow]Withdrawal from Derive to {chain_id.name} is pending...[/yellow]")
+            print(f"[yellow]Bridging {currency.name} from DERIVE to {chain_id.name} is pending...[/yellow]")
         case _:
             raise click.ClickException(f"Exception attempting to withdraw:\n{bridge_tx_result}")
 
