@@ -11,6 +11,7 @@ from web3.datastructures import AttributeDict
 
 from derive_client.constants import ABI_DATA_DIR, GAS_FEE_BUFFER
 from derive_client.data_types import ChainID, RPCEndPoints, TxResult, TxStatus
+from derive_client.exceptions import TxSubmissionError
 from derive_client.utils.retry import exp_backoff_retry
 
 
@@ -108,17 +109,15 @@ def send_and_confirm_tx(
     *,
     action: str,  # e.g. "approve()", "deposit()", "withdraw()"
 ) -> TxResult:
-    """Send and confirm transactions, after simulating."""
-
-    tx_result = TxResult(tx_hash="", tx_receipt=None, exception=None)
+    """Send and confirm transactions."""
 
     try:
         tx_hash = sign_and_send_tx(w3=w3, tx=tx, private_key=private_key)
-        tx_result.tx_hash = tx_hash.hex()
+        tx_result = TxResult(tx_hash=tx_hash.to_0x_hex(), tx_receipt=None, exception=None)
     except Exception as send_err:
-        print(f"❌ Failed to send tx for {action}, error: {send_err!r}")
-        tx_result.exception = send_err
-        return tx_result
+        msg = f"❌ Failed to send tx for {action}, error: {send_err!r}"
+        print(msg)
+        raise TxSubmissionError(msg) from send_err
 
     try:
         tx_receipt = wait_for_tx_receipt(w3=w3, tx_hash=tx_hash)
@@ -126,10 +125,6 @@ def send_and_confirm_tx(
     except TimeoutError as timeout_err:
         print(f"⏱️ Timeout waiting for tx receipt of {tx_hash.hex()}")
         tx_result.exception = timeout_err
-        return tx_result
-    except Exception as wait_err:
-        print(f"⚠️ Error while waiting for tx receipt of {tx_hash.hex()}: {wait_err!r}")
-        tx_result.exception = wait_err
         return tx_result
 
     if tx_receipt.status == TxStatus.SUCCESS:
