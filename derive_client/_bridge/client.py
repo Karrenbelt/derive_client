@@ -4,6 +4,7 @@ Bridge client to deposit funds to the Derive smart contract funding account
 
 from __future__ import annotations
 
+import copy
 import functools
 import json
 from typing import Literal
@@ -24,6 +25,7 @@ from derive_client.constants import (
     DEPOSIT_HOOK_ABI_PATH,
     DERIVE_ABI_PATH,
     DERIVE_L2_ABI_PATH,
+    ERC20_ABI_PATH,
     L1_STANDARD_BRIDGE_ABI_PATH,
     LIGHT_ACCOUNT_ABI_PATH,
     LYRA_OFT_WITHDRAW_WRAPPER_ABI_PATH,
@@ -38,8 +40,9 @@ from derive_client.constants import (
 )
 from derive_client.data_types import (
     Address,
-    BridgePair,
+    BridgeContext,
     BridgeTxResult,
+    BridgeType,
     ChainID,
     Currency,
     DeriveTokenAddresses,
@@ -52,10 +55,10 @@ from derive_client.data_types import (
     TxResult,
     TxStatus,
 )
+from derive_client.exceptions import AlreadyFinalizedError, BridgeEventParseError, BridgeRouteError
 from derive_client.utils import (
     build_standard_transaction,
     get_contract,
-    get_erc20_contract,
     get_prod_derive_addresses,
     get_w3_connection,
     make_filter_params,
@@ -164,51 +167,89 @@ class BridgeClient:
         abi = json.loads(WITHDRAW_WRAPPER_V2_ABI_PATH.read_text())
         return get_contract(w3=self.derive_w3, address=address, abi=abi)
 
-    def _make_bridge_pair(self, direction: Literal["deposit", "withdraw"]) -> BridgePair:
-        derive_addr = DeriveTokenAddresses.DERIVE.value
-        remote_addr = DeriveTokenAddresses[self.remote_chain_id.name].value
-        derive_abi = json.loads(DERIVE_L2_ABI_PATH.read_text())
-        remote_abi = json.loads(
-            DERIVE_ABI_PATH.read_text() if self.remote_chain_id == ChainID.ETH else DERIVE_L2_ABI_PATH.read_text()
+    @functools.lru_cache
+    def _make_bridge_context(
+        self, direction: Literal["deposit", "withdraw"], bridge_type: BridgeType, currency: Currency
+    ) -> BridgeContext:
+        is_deposit = direction == "deposit"
+        src_w3, tgt_w3 = (self.remote_w3, self.derive_w3) if is_deposit else (self.derive_w3, self.remote_w3)
+        src_chain, tgt_chain = (
+            (self.remote_chain_id, ChainID.DERIVE) if is_deposit else (ChainID.DERIVE, self.remote_chain_id)
         )
 
-        if direction == "deposit":
-            src_w3, tgt_w3 = self.remote_w3, self.derive_w3
-            src_addr, tgt_addr = remote_addr, derive_addr
-            src_abi, tgt_abi = remote_abi, derive_abi
-        else:
-            src_w3, tgt_w3 = self.derive_w3, self.remote_w3
-            src_addr, tgt_addr = derive_addr, remote_addr
-            src_abi, tgt_abi = derive_abi, remote_abi
+        if bridge_type == BridgeType.LAYERZERO and currency is Currency.DRV:
+            src_addr = DeriveTokenAddresses[src_chain.name].value
+            tgt_addr = DeriveTokenAddresses[tgt_chain.name].value
+            derive_abi = json.loads(DERIVE_L2_ABI_PATH.read_text())
+            remote_abi_path = DERIVE_ABI_PATH if self.remote_chain_id == ChainID.ETH else DERIVE_L2_ABI_PATH
+            remote_abi = json.loads(remote_abi_path.read_text())
+            src_abi, tgt_abi = (remote_abi, derive_abi) if is_deposit else (derive_abi, remote_abi)
+            src = get_contract(src_w3, src_addr, abi=src_abi)
+            tgt = get_contract(tgt_w3, tgt_addr, abi=tgt_abi)
+            src_event, tgt_event = src.events.OFTSent(), tgt.events.OFTReceived()
+            return BridgeContext(src_w3, tgt_w3, src, src_event, tgt_event)
 
-        src = get_contract(src_w3, src_addr, abi=src_abi)
-        tgt = get_contract(tgt_w3, tgt_addr, abi=tgt_abi)
-        return BridgePair(src_w3, tgt_w3, src, tgt)
+        elif bridge_type == BridgeType.SOCKET and currency is not Currency.DRV:
+            erc20_abi = json.loads(ERC20_ABI_PATH.read_text())
+            socket_abi = json.loads(SOCKET_ABI_PATH.read_text())
+
+            if is_deposit:
+                token_data: NonMintableTokenData = self.derive_addresses.chains[self.remote_chain_id][currency]
+                token_contract = get_contract(src_w3, token_data.NonMintableToken, abi=erc20_abi)
+            else:
+                token_data: MintableTokenData = self.derive_addresses.chains[ChainID.DERIVE][currency]
+                token_contract = get_contract(src_w3, token_data.MintableToken, abi=erc20_abi)
+
+            src_addr = SocketAddress[src_chain.name].value
+            tgt_addr = SocketAddress[tgt_chain.name].value
+            src_socket = get_contract(src_w3, address=src_addr, abi=socket_abi)
+            tgt_socket = get_contract(tgt_w3, address=tgt_addr, abi=socket_abi)
+            src_event, tgt_event = src_socket.events.MessageOutbound(), tgt_socket.events.ExecutionSuccess()
+            return BridgeContext(src_w3, tgt_w3, token_contract, src_event, tgt_event)
+
+        raise ValueError(f"Unsupported bridge_type={bridge_type} for currency={currency}.")
+
+    def _resolve_socket_route(
+        self,
+        direction: Literal["deposit", "withdraw"],
+        currency: Currency,
+    ) -> tuple[MintableTokenData | NonMintableTokenData, Address]:
+        is_deposit = direction == "deposit"
+        src_chain, tgt_chain = (
+            (self.remote_chain_id, ChainID.DERIVE) if is_deposit else (ChainID.DERIVE, self.remote_chain_id)
+        )
+
+        if (src_token_data := self.derive_addresses.chains[src_chain].get(currency)) is None:
+            msg = f"No bridge path for {currency.name} from {src_chain.name} to {tgt_chain.name}."
+            raise BridgeRouteError(msg)
+        if (tgt_token_data := self.derive_addresses.chains[tgt_chain].get(currency)) is None:
+            msg = f"No bridge path for {currency.name} from {tgt_chain.name} to {src_chain.name}."
+            raise BridgeRouteError(msg)
+
+        if tgt_chain not in src_token_data.connectors:
+            msg = f"Target chain {tgt_chain.name} not found in {src_chain.name} connectors."
+            raise BridgeRouteError(msg)
+        if src_chain not in tgt_token_data.connectors:
+            msg = f"Target chain {src_chain.name} not found in {tgt_chain.name} connectors."
+            raise BridgeRouteError(msg)
+
+        return src_token_data, src_token_data.connectors[tgt_chain][TARGET_SPEED]
 
     def deposit(self, amount: int, currency: Currency) -> BridgeTxResult:
         """
         Deposit funds by preparing, signing, and sending a bridging transaction.
         """
 
-        if (token_data := self.derive_addresses.chains[self.remote_chain_id].get(currency)) is None:
-            msg = f"Currency {currency} not found in Derive addresses for chain {self.remote_chain_id}."
-            raise ValueError(msg)
-
-        chain_id = self.remote_chain_id
-        from_block = self.derive_w3.eth.block_number
+        # record on target chain when we start polling
+        token_data, _connector = self._resolve_socket_route("deposit", currency=currency)
+        context = self._make_bridge_context("deposit", bridge_type=BridgeType.SOCKET, currency=currency)
+        target_from_block = context.target_w3.eth.block_number
 
         spender = token_data.Vault if token_data.isNewBridge else self.deposit_helper.address
-
-        # Get the token contract and socket contract instances.
-        abi = json.loads(SOCKET_ABI_PATH.read_text())
-        source_socket = get_contract(self.remote_w3, address=SocketAddress[chain_id.name].value, abi=abi)
-        target_socket = get_contract(self.derive_w3, address=SocketAddress.DERIVE.value, abi=abi)
-        token_contract = get_erc20_contract(self.remote_w3, token_data.NonMintableToken)
-
-        ensure_balance(token_contract, self.owner, amount)
+        ensure_balance(context.source_token, self.owner, amount)
         ensure_allowance(
-            w3=self.remote_w3,
-            token_contract=token_contract,
+            w3=context.source_w3,
+            token_contract=context.source_token,
             owner=self.owner,
             spender=spender,
             amount=amount,
@@ -220,47 +261,36 @@ class BridgeClient:
         else:
             tx = self._prepare_old_style_deposit(token_data, amount)
 
-        target_tx = TxResult(tx_hash="", tx_receipt=None, exception=None)
-        source_tx = send_and_confirm_tx(w3=self.remote_w3, tx=tx, private_key=self.private_key, action="bridge()")
+        source_tx = send_and_confirm_tx(w3=context.source_w3, tx=tx, private_key=self.private_key, action="bridge()")
         tx_result = BridgeTxResult(
-            source_chain=self.remote_chain_id,
-            target_chain=ChainID.DERIVE,
+            currency=currency,
+            bridge=BridgeType.SOCKET,
+            source_chain=context.source_chain,
+            target_chain=context.target_chain,
             source_tx=source_tx,
-            target_tx=target_tx,
+            target_from_block=target_from_block,
         )
-        if not source_tx.status == TxStatus.SUCCESS:
-            return tx_result
 
-        return self._wait_for_socket_settlement(self.derive_w3, from_block, tx_result, source_socket, target_socket)
+        return tx_result
 
     def withdraw_with_wrapper(self, amount: int, currency: Currency) -> BridgeTxResult:
         """
         Checks if sufficent gas is available in derive, if not funds the wallet.
         Prepares, signs, and sends a withdrawal transaction using the withdraw wrapper.
         """
-        # TODO: if token balance is insufficient one gets web3.exceptions.ContractCustomError
 
-        token_data: MintableTokenData = self.derive_addresses.chains[ChainID.DERIVE][currency]
-        chain_id = self.remote_chain_id
-        from_block = self.remote_w3.eth.block_number  # record on target chain before tx submission on source chain
+        # record on target chain when we start polling
+        token_data, connector = self._resolve_socket_route("withdraw", currency=currency)
+        context = self._make_bridge_context("withdraw", bridge_type=BridgeType.SOCKET, currency=currency)
+        target_from_block = context.target_w3.eth.block_number
 
-        if chain_id not in token_data.connectors:
-            msg = f"Target chain {chain_id} not found in token data connectors. Please check input configuration."
-            raise ValueError(msg)
+        ensure_balance(context.source_token, self.wallet, amount)
 
         self._ensure_derive_eth_balance()
-        connector = token_data.connectors[chain_id][TARGET_SPEED]
-
-        # Get the token contract and socket contract instances.
-        abi = json.loads(SOCKET_ABI_PATH.read_text())
-        source_socket = get_contract(self.derive_w3, address=SocketAddress.DERIVE.value, abi=abi)
-        target_socket = get_contract(self.remote_w3, address=SocketAddress[chain_id.name].value, abi=abi)
-        token_contract = get_erc20_contract(self.derive_w3, token_data.MintableToken)
-
         self._check_bridge_funds(token_data, connector, amount)
 
         kwargs = {
-            "token": token_contract.address,
+            "token": context.source_token.address,
             "amount": amount,
             "recipient": self.owner,
             "socketController": token_data.Controller,
@@ -269,80 +299,47 @@ class BridgeClient:
         }
 
         # Encode the token approval and withdrawToChain for the withdraw wrapper.
-        approve_data = token_contract.encodeABI(fn_name="approve", args=[self.withdraw_wrapper.address, amount])
+        approve_data = context.source_token.encodeABI(fn_name="approve", args=[self.withdraw_wrapper.address, amount])
         bridge_data = self.withdraw_wrapper.encodeABI(fn_name="withdrawToChain", args=list(kwargs.values()))
 
         # Build the batch execution call via the Light Account.
         func = self.light_account.functions.executeBatch(
-            dest=[token_contract.address, self.withdraw_wrapper.address],
+            dest=[context.source_token.address, self.withdraw_wrapper.address],
             func=[approve_data, bridge_data],
         )
 
-        tx = build_standard_transaction(func=func, account=self.account, w3=self.derive_w3, value=0)
+        tx = build_standard_transaction(func=func, account=self.account, w3=context.source_w3, value=0)
 
-        target_tx = TxResult(tx_hash="", tx_receipt=None, exception=None)
-        source_tx = send_and_confirm_tx(w3=self.derive_w3, tx=tx, private_key=self.private_key, action="executeBatch()")
-        tx_result = BridgeTxResult(
-            source_chain=ChainID.DERIVE,
-            target_chain=self.remote_chain_id,
-            source_tx=source_tx,
-            target_tx=target_tx,
+        source_tx = send_and_confirm_tx(
+            w3=context.source_w3, tx=tx, private_key=self.private_key, action="executeBatch()"
         )
-        if not source_tx.status == TxStatus.SUCCESS:
-            return tx_result
-
-        return self._wait_for_socket_settlement(self.remote_w3, from_block, tx_result, source_socket, target_socket)
-
-    def _wait_for_socket_settlement(self, target_w3, from_block, tx_result, source_socket, target_socket):
-
-        source_tx = tx_result.source_tx
-        target_tx = tx_result.target_tx
-
-        try:
-            source_event = source_socket.events.MessageOutbound().process_log(source_tx.tx_receipt.logs[-2])
-            message_id = source_event["args"]["msgId"]
-        except Exception as e:
-            msg = f"Failed to retrieve `msgId` from the Socket MessageOutbound event log from source tx_receipt: {e}"
-            source_tx.exception = ValueError(msg)
-            return tx_result
-
-        print(f"🔖 Source [{tx_result.source_chain.name}] MessageOutbound msgId: {message_id.hex()}")
-        target_event = target_socket.events.ExecutionSuccess()
-        filter_params = target_event._get_event_filter_params(fromBlock=from_block, abi=target_event.abi)
-
-        def matching_message_id(log: AttributeDict) -> bool:
-            try:
-                decoded = target_event.process_log(log)
-                return decoded["args"].get("msgId") == message_id
-            except Exception:
-                return False
-
-        print(f"🔍 Listening for ExecutionSuccess on [{tx_result.target_chain.name}] at {target_socket.address}")
-        try:
-            event_log = wait_for_event(target_w3, filter_params, condition=matching_message_id)
-            target_tx.tx_hash = event_log["transactionHash"].to_0x_hex()
-            target_tx.tx_receipt = wait_for_tx_receipt(w3=target_w3, tx_hash=target_tx.tx_hash)
-        except Exception as e:
-            target_tx.exception = e
+        tx_result = BridgeTxResult(
+            currency=currency,
+            bridge=BridgeType.SOCKET,
+            source_chain=context.source_chain,
+            target_chain=context.target_chain,
+            source_tx=source_tx,
+            target_from_block=target_from_block,
+        )
 
         return tx_result
 
-    def deposit_drv(self, amount: int) -> BridgeTxResult:
+    def deposit_drv(self, amount: int, currency: Currency) -> BridgeTxResult:
         """
         Deposit funds by preparing, signing, and sending a bridging transaction.
         """
 
         # record on target chain when we start polling
-        pair = self._make_bridge_pair("deposit")
-        from_block = pair.target_w3.eth.block_number
+        context = self._make_bridge_context("deposit", bridge_type=BridgeType.LAYERZERO, currency=currency)
+        target_from_block = context.target_w3.eth.block_number
 
         # check allowance, if needed approve
-        ensure_balance(pair.source_token, self.owner, amount)
+        ensure_balance(context.source_token, self.owner, amount)
         ensure_allowance(
-            w3=pair.source_w3,
-            token_contract=pair.source_token,
+            w3=context.source_w3,
+            token_contract=context.source_token,
             owner=self.owner,
-            spender=pair.source_token.address,
+            spender=context.source_token.address,
             amount=amount,
             private_key=self.private_key,
         )
@@ -362,104 +359,170 @@ class BridgeClient:
 
         pay_in_lz_token = False
         send_params = tuple(kwargs.values())
-        fees = pair.source_token.functions.quoteSend(send_params, pay_in_lz_token).call()
+        fees = context.source_token.functions.quoteSend(send_params, pay_in_lz_token).call()
         native_fee, lz_token_fee = fees
         refund_address = self.owner
 
-        func = pair.source_token.functions.send(send_params, fees, refund_address)
-        tx = build_standard_transaction(func=func, account=self.account, w3=pair.source_w3, value=native_fee)
+        func = context.source_token.functions.send(send_params, fees, refund_address)
+        tx = build_standard_transaction(func=func, account=self.account, w3=context.source_w3, value=native_fee)
 
-        # Setup the BridgeTxResult and send the tx on the source chain
-        target_tx = TxResult(tx_hash="", tx_receipt=None, exception=None)
-        source_tx = send_and_confirm_tx(w3=pair.source_w3, tx=tx, private_key=self.private_key, action="executeBatch()")
-        tx_result = BridgeTxResult(
-            source_chain=self.remote_chain_id,
-            target_chain=ChainID.DERIVE,
-            source_tx=source_tx,
-            target_tx=target_tx,
+        source_tx = send_and_confirm_tx(
+            w3=context.source_w3, tx=tx, private_key=self.private_key, action="executeBatch()"
         )
-        if not source_tx.status == TxStatus.SUCCESS:
-            return tx_result
+        tx_result = BridgeTxResult(
+            currency=currency,
+            bridge=BridgeType.LAYERZERO,
+            source_chain=context.source_chain,
+            target_chain=context.target_chain,
+            source_tx=source_tx,
+            target_from_block=target_from_block,
+        )
 
-        return self._wait_for_lz_settlement(pair, from_block, tx_result)
+        return tx_result
 
-    def withdraw_drv(self, amount: int) -> BridgeTxResult:
+    def withdraw_drv(self, amount: int, currency: Currency) -> BridgeTxResult:
         self._ensure_derive_eth_balance()
 
         # record on target chain when we start polling
-        pair = self._make_bridge_pair("withdraw")
-        from_block = pair.target_w3.eth.block_number
+        context = self._make_bridge_context("withdraw", bridge_type=BridgeType.LAYERZERO, currency=currency)
+        target_from_block = context.target_w3.eth.block_number
 
         abi = json.loads(LYRA_OFT_WITHDRAW_WRAPPER_ABI_PATH.read_text())
-        withdraw_wrapper = get_contract(pair.source_w3, LYRA_OFT_WITHDRAW_WRAPPER_ADDRESS, abi=abi)
+        withdraw_wrapper = get_contract(context.source_w3, LYRA_OFT_WITHDRAW_WRAPPER_ADDRESS, abi=abi)
 
-        balance = pair.source_token.functions.balanceOf(self.wallet).call()
-        if balance < amount:
-            raise ValueError(f"Not enough tokens to withdraw: {amount} < {balance} ({(balance / amount * 100):.2f}%) ")
+        ensure_balance(context.source_token, self.wallet, amount)
 
-        destEID = LayerZeroChainIDv2[self.remote_chain_id.name]
-        fee = withdraw_wrapper.functions.getFeeInToken(pair.source_token.address, amount, destEID).call()
+        destEID = LayerZeroChainIDv2[context.target_chain.name]
+        fee = withdraw_wrapper.functions.getFeeInToken(context.source_token.address, amount, destEID).call()
         if amount < fee:
             raise ValueError(f"Withdraw amount < fee: {amount} < {fee} ({(fee / amount * 100):.2f}%)")
 
         kwargs = {
-            "token": pair.source_token.address,
+            "token": context.source_token.address,
             "amount": amount,
             "toAddress": self.owner,
             "destEID": destEID,
         }
 
-        approve_data = pair.source_token.encodeABI(fn_name="approve", args=[withdraw_wrapper.address, amount])
+        approve_data = context.source_token.encodeABI(fn_name="approve", args=[withdraw_wrapper.address, amount])
         bridge_data = withdraw_wrapper.encodeABI(fn_name="withdrawToChain", args=list(kwargs.values()))
 
         func = self.light_account.functions.executeBatch(
-            dest=[pair.source_token.address, withdraw_wrapper.address],
+            dest=[context.source_token.address, withdraw_wrapper.address],
             func=[approve_data, bridge_data],
         )
 
-        tx = build_standard_transaction(func=func, account=self.account, w3=pair.source_w3, value=0)
+        tx = build_standard_transaction(func=func, account=self.account, w3=context.source_w3, value=0)
 
-        target_tx = TxResult(tx_hash="", tx_receipt=None, exception=None)
-        source_tx = send_and_confirm_tx(w3=pair.source_w3, tx=tx, private_key=self.private_key, action="executeBatch()")
-        tx_result = BridgeTxResult(
-            source_chain=ChainID.DERIVE,
-            target_chain=self.remote_chain_id,
-            source_tx=source_tx,
-            target_tx=target_tx,
+        source_tx = send_and_confirm_tx(
+            w3=context.source_w3, tx=tx, private_key=self.private_key, action="executeBatch()"
         )
-        if not source_tx.status == TxStatus.SUCCESS:
-            return tx_result
+        tx_result = BridgeTxResult(
+            currency=currency,
+            bridge=BridgeType.LAYERZERO,
+            source_chain=context.source_chain,
+            target_chain=context.target_chain,
+            source_tx=source_tx,
+            target_from_block=target_from_block,
+        )
 
-        return self._wait_for_lz_settlement(pair, from_block, tx_result)
+        return tx_result
 
-    def _wait_for_lz_settlement(self, pair, from_block, tx_result):
+    def fetch_lz_event_log(self, tx_result: BridgeTxResult, context: BridgeContext):
 
-        source_tx = tx_result.source_tx
-        target_tx = tx_result.target_tx
-
-        # Get the LayerZero GUID out of the OFTSent event on from the source chain
         try:
-            event = pair.source_token.events.OFTSent().process_log(source_tx.tx_receipt.logs[-1])
-            guid = event["args"]["guid"]
+            source_event = context.source_event.process_log(tx_result.source_tx.tx_receipt.logs[-1])
+            guid = source_event["args"]["guid"]
         except Exception as e:
-            msg = f"Could not decode OFTSent guid: {e}"
-            source_tx.exception = ValueError(msg)
-            return tx_result
+            raise BridgeEventParseError(f"Could not decode LayerZero OFTSent guid: {e}") from e
 
-        print(f"🔖 Source [{tx_result.source_chain.name}] OFTSent GUID: {guid.hex()}")
+        tx_result.event_id = guid.hex()
+        print(f"🔖 Source [{tx_result.source_chain.name}] OFTSent GUID: {tx_result.event_id}")
+
         filter_params = make_filter_params(
-            event=pair.target_token.events.OFTReceived(),
-            from_block=from_block,
+            event=context.target_event,
+            from_block=tx_result.target_from_block,
             argument_filters={"guid": guid},
         )
 
-        print(f"🔍 Listening for OFTReceived on [{tx_result.target_chain.name}] at {pair.target_token.address}")
+        print(f"🔍 Listening for OFTReceived on [{tx_result.target_chain.name}] at {context.target_event.address}")
+        return wait_for_event(context.target_w3, filter_params)
+
+    def fetch_socket_event_log(self, tx_result: BridgeTxResult, context: BridgeContext):
+
         try:
-            event_log = wait_for_event(pair.target_w3, filter_params)
-            target_tx.tx_hash = event_log["transactionHash"].to_0x_hex()
-            target_tx.tx_receipt = wait_for_tx_receipt(w3=pair.target_w3, tx_hash=target_tx.tx_hash)
+            source_event = context.source_event.process_log(tx_result.source_tx.tx_receipt.logs[-2])
+            message_id = source_event["args"]["msgId"]
         except Exception as e:
-            target_tx.exception = e
+            raise BridgeEventParseError(f"Could not decode Socket MessageOutbound event: {e}") from e
+
+        tx_result.event_id = message_id.hex()
+        print(f"🔖 Source [{tx_result.source_chain.name}] MessageOutbound msgId: {tx_result.event_id}")
+        filter_params = context.target_event._get_event_filter_params(
+            fromBlock=tx_result.target_from_block, abi=context.target_event.abi
+        )
+
+        def matching_message_id(log: AttributeDict) -> bool:
+            decoded = context.target_event.process_log(log)
+            return decoded.get("args", {}).get("msgId") == message_id
+
+        print(f"🔍 Listening for ExecutionSuccess on [{tx_result.target_chain.name}] at {context.target_event.address}")
+        return wait_for_event(context.target_w3, filter_params, condition=matching_message_id)
+
+    def poll_bridge_progress(self, tx_result: BridgeTxResult) -> BridgeTxResult:
+        if tx_result.status is not TxStatus.PENDING:
+            raise AlreadyFinalizedError(f"Bridge already in final state: {tx_result.status.name}")
+
+        # Do not mutate the input in-place
+        tx_result = copy.deepcopy(tx_result)
+
+        bridge_event_fetchers = {
+            BridgeType.SOCKET: self.fetch_socket_event_log,
+            BridgeType.LAYERZERO: self.fetch_lz_event_log,
+        }
+        if (fetch_event := bridge_event_fetchers.get(tx_result.bridge)) is None:
+            raise ValueError(f"Invalid bridge_type: {tx_result.bridge}")
+
+        direction = "withdraw" if tx_result.source_chain == ChainID.DERIVE else "deposit"
+        context = self._make_bridge_context(
+            direction=direction,
+            bridge_type=tx_result.bridge,
+            currency=tx_result.currency,
+        )
+
+        # 1. TimeoutError as exception during source_tx.tx_receipt
+        if not tx_result.source_tx.tx_receipt:
+            print(
+                f"⏳ Checking source chain [{tx_result.source_chain.name}] tx receipt for {tx_result.source_tx.tx_hash}"
+            )
+            tx_result.source_tx.exception = None
+            try:
+                tx_result.source_tx.tx_receipt = wait_for_tx_receipt(
+                    w3=context.source_w3, tx_hash=tx_result.source_tx.tx_hash
+                )
+            except TimeoutError as e:
+                tx_result.source_tx.exception = e
+
+        # 2. target_tx is None (i.e. TimeoutError when waiting for event log on target chain)
+        if not tx_result.target_tx:
+            try:
+                event_log = fetch_event(tx_result, context)
+                tx_result.target_tx = TxResult(event_log["transactionHash"].to_0x_hex())
+            except TimeoutError:
+                return tx_result
+
+        # 3. Timeout waiting for target_tx.tx_receipt
+        if not tx_result.target_tx.tx_receipt:
+            print(
+                f"⏳ Checking target chain [{tx_result.target_chain.name}] tx receipt for {tx_result.target_tx.tx_hash}"
+            )
+            tx_result.target_tx.exception = None
+            try:
+                tx_result.target_tx.tx_receipt = wait_for_tx_receipt(
+                    w3=context.target_w3, tx_hash=tx_result.target_tx.tx_hash
+                )
+            except TimeoutError as e:
+                tx_result.target_tx.exception = e
 
         return tx_result
 

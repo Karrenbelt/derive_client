@@ -21,6 +21,11 @@ class DeriveTxStatus(Enum):
     TIMED_OUT = "timed_out"
 
 
+class BridgeType(Enum):
+    SOCKET = "socket"
+    LAYERZERO = "layerzero"
+
+
 class ChainID(IntEnum):
     ETH = 1
     OPTIMISM = 10
