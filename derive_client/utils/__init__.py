@@ -3,7 +3,7 @@
 from .abi import download_prod_address_abis
 from .logger import get_logger
 from .prod_addresses import get_prod_derive_addresses
-from .retry import exp_backoff_retry, get_retry_session
+from .retry import exp_backoff_retry, get_retry_session, wait_until
 from .w3 import (
     build_standard_transaction,
     estimate_fees,
@@ -21,6 +21,7 @@ __all__ = [
     "get_prod_derive_addresses",
     "exp_backoff_retry",
     "get_retry_session",
+    "wait_until",
     "get_w3_connection",
     "get_contract",
     "get_erc20_contract",
