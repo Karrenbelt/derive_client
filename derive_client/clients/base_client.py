@@ -53,7 +53,7 @@ from derive_client.data_types import (
     UnderlyingCurrency,
     WithdrawResult,
 )
-from derive_client.utils import get_logger, get_prod_derive_addresses, get_w3_connection, wait_until
+from derive_client.utils import get_logger, get_prod_derive_addresses, wait_until
 
 
 def _is_final_tx(res: DeriveTxResult) -> bool:
@@ -151,19 +151,13 @@ class BaseClient:
             amount (int): The amount to deposit, in Wei.
         """
 
-        w3 = get_w3_connection(chain_id=chain_id)
         derive_addresses = get_prod_derive_addresses()
         amount = int(amount * 10 ** TOKEN_DECIMALS[UnderlyingCurrency[currency.name.upper()]])
-        client = BridgeClient(self.env, w3=w3, account=self.signer, wallet=self.wallet)
-        chain_id = ChainID(chain_id)
+        client = BridgeClient(self.env, chain_id, account=self.signer, wallet=self.wallet)
 
         if currency == Currency.DRV:
-            if not self.wallet:
-                raise ValueError("Wallet address must be provided for DRV deposits.")
-            return client.deposit_drv(
-                amount=amount,
-                chain_id=chain_id,
-            )
+            return client.deposit_drv(amount=amount)
+
         if currency not in derive_addresses.chains[chain_id]:
             raise ValueError(
                 f"Currency {currency} not found in Derive addresses for chain {chain_id}. Please check the route."
@@ -181,23 +175,15 @@ class BaseClient:
             amount (int): The amount to withdraw, in Wei.
         """
 
-        w3 = get_w3_connection(chain_id=ChainID.DERIVE)
         derive_addresses = get_prod_derive_addresses()
         amount = int(amount * 10 ** TOKEN_DECIMALS[UnderlyingCurrency[currency.name.upper()]])
-        client = BridgeClient(self.env, w3=w3, account=self.signer, wallet=self.wallet)
+        client = BridgeClient(self.env, chain_id, account=self.signer, wallet=self.wallet)
 
         if currency == Currency.DRV:
-            return client.withdraw_drv(
-                amount=amount,
-                target_chain=chain_id,
-            )
+            return client.withdraw_drv(amount=amount)
 
         token_data = derive_addresses.chains[ChainID.DERIVE][currency]
-        return client.withdraw_with_wrapper(
-            amount=amount,
-            token_data=token_data,
-            target_chain=chain_id,
-        )
+        return client.withdraw_with_wrapper(amount=amount, token_data=token_data)
 
     def fetch_instruments(
         self,
