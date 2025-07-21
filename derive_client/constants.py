@@ -56,7 +56,7 @@ CONFIGS: dict[Environment, EnvConfig] = {
     Environment.TEST: EnvConfig(
         base_url="https://api-demo.lyra.finance",
         ws_address="wss://api-demo.lyra.finance/ws",
-        rpc_endpoint="https://rpc-prod-testnet-0eakp60405.t.conduit.xyz",
+        rpc_endpoint="https://testnet-rpc.derive.xyz",
         block_explorer="https://explorer-prod-testnet-0eakp60405.t.conduit.xyz",
         ACTION_TYPEHASH="0x4d7a9f27c403ff9c0f19bce61d76d82f9aa29f8d6d4b0c5474607d9770d1af17",
         DOMAIN_SEPARATOR="0x9bcf4dc06df5d8bf23af818d5716491b995020f377d3b7b64c29ed14e3dd1105",
