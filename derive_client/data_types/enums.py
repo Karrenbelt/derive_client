@@ -10,6 +10,22 @@ class TxStatus(IntEnum):
     ERROR = 3  # local error, e.g. connection, invalid tx
 
 
+class DeriveTxStatus(Enum):
+    """Status code returned in DeriveClient.get_transaction."""
+
+    REQUESTED = "requested"
+    PENDING = "pending"
+    SETTLED = "settled"
+    REVERTED = "reverted"
+    IGNORED = "ignored"
+    TIMED_OUT = "timed_out"
+
+
+class BridgeType(Enum):
+    SOCKET = "socket"
+    LAYERZERO = "layerzero"
+
+
 class ChainID(IntEnum):
     ETH = 1
     OPTIMISM = 10
@@ -26,6 +42,36 @@ class ChainID(IntEnum):
             return next(member for member in cls if member == int_value)
         except (ValueError, TypeError, StopIteration):
             return super()._missing_(value)
+
+
+class LayerZeroChainIDv2(IntEnum):
+    # https://docs.layerzero.network/v2/deployments/deployed-contracts
+    ETH = 30101
+    ARBITRUM = 30110
+    OPTIMISM = 30111
+    BASE = 30184
+    DERIVE = 30311
+
+
+class SocketAddress(Enum):
+    ETH = "0x943ac2775928318653e91d350574436a1b9b16f9"
+    ARBITRUM = "0x37cc674582049b579571e2ffd890a4d99355f6ba"
+    OPTIMISM = "0x301bD265F0b3C16A58CbDb886Ad87842E3A1c0a4"
+    BASE = "0x12E6e58864cE4402cF2B4B8a8E9c75eAD7280156"
+    DERIVE = "0x565810cbfa3Cf1390963E5aFa2fB953795686339"
+
+
+class DeriveTokenAddresses(Enum):
+    # https://www.coingecko.com/en/coins/derive
+    ETH = "0xb1d1eae60eea9525032a6dcb4c1ce336a1de71be"  # impl: 0x4909ad99441ea5311b90a94650c394cea4a881b8 (Derive)
+    OPTIMISM = (
+        "0x33800de7e817a70a694f31476313a7c572bba100"  # impl: 0x1eda1f6e04ae37255067c064ae783349cf10bdc5 (DeriveL2)
+    )
+    BASE = "0x9d0e8f5b25384c7310cb8c6ae32c8fbeb645d083"  # impl: 0x01259207a40925b794c8ac320456f7f6c8fe2636 (DeriveL2)
+    ARBITRUM = (
+        "0x77b7787a09818502305c95d68a2571f090abb135"  # impl: 0x5d22b63d83a9be5e054df0e3882592ceffcef097 (DeriveL2)
+    )
+    DERIVE = "0x2EE0fd70756EDC663AcC9676658A1497C247693A"  # impl: 0x340B51Cb46DBF63B55deD80a78a40aa75Dd4ceDF (DeriveL2)
 
 
 class RPCEndPoints(Enum):
@@ -77,10 +123,11 @@ class UnderlyingCurrency(Enum):
     rsETH = "rseth"
     DAI = "dai"
     USDT = "usdt"
+    OLAS = "olas"
 
 
 class Currency(Enum):
-    """Depositable currencies..."""
+    """Depositable currencies"""
 
     weETH = "weETH"
     rswETH = "rswETH"
@@ -97,14 +144,20 @@ class Currency(Enum):
     sDAI = "sDAI"
     cbBTC = "cbBTC"
     eBTC = "eBTC"
+    AAVE = "AAVE"
+    OLAS = "OLAS"
+
+    # not in prod_lyra_addresses.json
+    DRV = "DRV"
+
     # old style deposits
     WBTC = "WBTC"
     WETH = "WETH"
     USDC = "USDC"
     USDT = "USDT"
-    SNX = "SNX"
     wstETH = "wstETH"
     USDCe = "USDC.e"
+    SNX = "SNX"
 
 
 class OrderSide(Enum):

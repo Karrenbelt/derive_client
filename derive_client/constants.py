@@ -26,6 +26,8 @@ class ContractAddresses(BaseModel, frozen=True):
     L1_CHUG_SPLASH_PROXY: str | None
     WITHDRAW_WRAPPER_V2: str | None
     DEPOSIT_WRAPPER: str | None
+    ARBITRUM_DEPOSIT_WRAPPER: str | None = None
+    OPTIMISM_DEPOSIT_WRAPPER: str | None = None
 
     def __getitem__(self, key):
         return getattr(self, key)
@@ -54,7 +56,7 @@ CONFIGS: dict[Environment, EnvConfig] = {
     Environment.TEST: EnvConfig(
         base_url="https://api-demo.lyra.finance",
         ws_address="wss://api-demo.lyra.finance/ws",
-        rpc_endpoint="https://rpc-prod-testnet-0eakp60405.t.conduit.xyz",
+        rpc_endpoint="https://testnet-rpc.derive.xyz",
         block_explorer="https://explorer-prod-testnet-0eakp60405.t.conduit.xyz",
         ACTION_TYPEHASH="0x4d7a9f27c403ff9c0f19bce61d76d82f9aa29f8d6d4b0c5474607d9770d1af17",
         DOMAIN_SEPARATOR="0x9bcf4dc06df5d8bf23af818d5716491b995020f377d3b7b64c29ed14e3dd1105",
@@ -101,6 +103,8 @@ CONFIGS: dict[Environment, EnvConfig] = {
             L1_CHUG_SPLASH_PROXY="0x61e44dc0dae6888b5a301887732217d5725b0bff",
             WITHDRAW_WRAPPER_V2="0xea8E683D8C46ff05B871822a00461995F93df800",
             DEPOSIT_WRAPPER="0x9628bba16db41ea7fe1fd84f9ce53bc27c63f59b",
+            ARBITRUM_DEPOSIT_WRAPPER="0x076BB6117750e80AD570D98891B68da86C203A88",  # unknown address
+            OPTIMISM_DEPOSIT_WRAPPER="0xC65005131Cfdf06622b99E8E17f72Cf694b586cC",  # unknown address
         ),
     ),
 }
@@ -108,7 +112,8 @@ CONFIGS: dict[Environment, EnvConfig] = {
 
 DEFAULT_REFERER = "0x9135BA0f495244dc0A5F029b25CDE95157Db89AD"
 
-MSG_GAS_LIMIT = 100_000
+GAS_FEE_BUFFER = 1.1  # buffer multiplier to pad maxFeePerGas
+MSG_GAS_LIMIT = 200_000
 DEPOSIT_GAS_LIMIT = 420_000
 PAYLOAD_SIZE = 161
 TARGET_SPEED = "FAST"
@@ -127,6 +132,8 @@ TOKEN_DECIMALS = {
     UnderlyingCurrency.rsETH: 18,
     UnderlyingCurrency.DAI: 18,
     UnderlyingCurrency.USDT: 6,
+    UnderlyingCurrency.OLAS: 18,
+    UnderlyingCurrency.DRV: 18,
 }
 
 NEW_VAULT_ABI_PATH = ABI_DATA_DIR / "socket_superbridge_vault.json"
@@ -139,3 +146,10 @@ LIGHT_ACCOUNT_ABI_PATH = ABI_DATA_DIR / "light_account.json"
 L1_CHUG_SPLASH_PROXY_ABI_PATH = ABI_DATA_DIR / "l1_chug_splash_proxy.json"
 L1_STANDARD_BRIDGE_ABI_PATH = ABI_DATA_DIR / "l1_standard_bridge.json"
 WITHDRAW_WRAPPER_V2_ABI_PATH = ABI_DATA_DIR / "withdraw_wrapper_v2.json"
+DERIVE_ABI_PATH = ABI_DATA_DIR / "Derive.json"
+DERIVE_L2_ABI_PATH = ABI_DATA_DIR / "DeriveL2.json"
+LYRA_OFT_WITHDRAW_WRAPPER_ABI_PATH = ABI_DATA_DIR / "LyraOFTWithdrawWrapper.json"
+ERC20_ABI_PATH = ABI_DATA_DIR / "erc20.json"
+SOCKET_ABI_PATH = ABI_DATA_DIR / "Socket.json"
+
+LYRA_OFT_WITHDRAW_WRAPPER_ADDRESS = "0x9400cc156dad38a716047a67c897973A29A06710"
