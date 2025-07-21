@@ -53,7 +53,7 @@ from derive_client.data_types import (
     UnderlyingCurrency,
     WithdrawResult,
 )
-from derive_client.utils import get_logger, get_prod_derive_addresses, wait_until
+from derive_client.utils import get_logger, wait_until
 
 
 def _is_final_tx(res: DeriveTxResult) -> bool:
@@ -151,19 +151,13 @@ class BaseClient:
             amount (int): The amount to deposit, in Wei.
         """
 
-        derive_addresses = get_prod_derive_addresses()
         amount = int(amount * 10 ** TOKEN_DECIMALS[UnderlyingCurrency[currency.name.upper()]])
         client = BridgeClient(self.env, chain_id, account=self.signer, wallet=self.wallet)
 
         if currency == Currency.DRV:
             return client.deposit_drv(amount=amount)
 
-        if currency not in derive_addresses.chains[chain_id]:
-            raise ValueError(
-                f"Currency {currency} not found in Derive addresses for chain {chain_id}. Please check the route."
-            )
-        token_data = derive_addresses.chains[chain_id][currency]
-        return client.deposit(amount=amount, token_data=token_data)
+        return client.deposit(amount=amount, currency=currency)
 
     @validate_call
     def withdraw_from_derive(self, chain_id: ChainID, currency: Currency, amount: float) -> TxResult:

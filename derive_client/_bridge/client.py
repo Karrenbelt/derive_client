@@ -230,17 +230,26 @@ class BridgeClient:
         tx_result = send_and_confirm_tx(w3=self.remote_w3, tx=tx, private_key=self.private_key, action="bridge()")
         return tx_result
 
-    def deposit(
-        self,
-        amount: int,
-        token_data: NonMintableTokenData | MintableTokenData,
-    ) -> TxResult:
+    def deposit(self, amount: int, currency: Currency) -> BridgeTxResult:
         """
         Deposit funds by preparing, signing, and sending a bridging transaction.
         """
 
+        if (token_data := self.derive_addresses.chains[self.remote_chain_id].get(currency)) is None:
+            msg = f"Currency {currency} not found in Derive addresses for chain {self.remote_chain_id}."
+            raise ValueError(msg)
+
+        chain_id = self.remote_chain_id
+        from_block = self.derive_w3.eth.block_number
+
         spender = token_data.Vault if token_data.isNewBridge else self.deposit_helper.address
+
+        # Get the token contract and socket contract instances.
+        abi = json.loads(SOCKET_ABI_PATH.read_text())
+        source_socket = get_contract(self.remote_w3, address=SocketAddress[chain_id.name].value, abi=abi)
+        target_socket = get_contract(self.derive_w3, address=SocketAddress.DERIVE.value, abi=abi)
         token_contract = get_erc20_contract(self.remote_w3, token_data.NonMintableToken)
+
         ensure_balance(token_contract, self.owner, amount)
         ensure_allowance(
             w3=self.remote_w3,
@@ -252,11 +261,48 @@ class BridgeClient:
         )
 
         if token_data.isNewBridge:
-            tx = self._prepare_new_style_deposit(token_data, amount, self.wallet)
+            tx = self._prepare_new_style_deposit(token_data, amount)
         else:
             tx = self._prepare_old_style_deposit(token_data, amount)
 
-        tx_result = send_and_confirm_tx(w3=self.remote_w3, tx=tx, private_key=self.private_key, action="bridge()")
+        target_tx = TxResult(tx_hash="", tx_receipt=None, exception=None)
+        source_tx = send_and_confirm_tx(w3=self.remote_w3, tx=tx, private_key=self.private_key, action="bridge()")
+        tx_result = BridgeTxResult(
+            source_chain=self.remote_chain_id,
+            target_chain=ChainID.DERIVE,
+            source_tx=source_tx,
+            target_tx=target_tx,
+        )
+        if not source_tx.status == TxStatus.SUCCESS:
+            return tx_result
+
+        try:
+            source_event = source_socket.events.MessageOutbound().process_log(source_tx.tx_receipt.logs[-2])
+            message_id = source_event["args"]["msgId"]
+        except Exception as e:
+            msg = f"Failed to retrieve `msgId` from the Socket MessageOutbound event log from source tx_receipt: {e}"
+            source_tx.exception = ValueError(msg)
+            return tx_result
+
+        print(f"Source chain ({tx_result.source_chain.name}) Socket msgId: {message_id.hex()}")
+        target_event = target_socket.events.ExecutionSuccess()
+        filter_params = target_event._get_event_filter_params(fromBlock=from_block, abi=target_event.abi)
+
+        def matching_message_id(log: AttributeDict) -> bool:
+            try:
+                decoded = target_event.process_log(log)
+                return decoded["args"].get("msgId") == message_id
+            except Exception:
+                return False
+
+        print(f"Searching target chain ({tx_result.target_chain.name}) Socket events: {target_socket.address}")
+        try:
+            event_log = wait_for_event(self.derive_w3, filter_params, condition=matching_message_id)
+            target_tx.tx_hash = event_log["transactionHash"].to_0x_hex()
+            target_tx.tx_receipt = wait_for_tx_receipt(w3=self.derive_w3, tx_hash=target_tx.tx_hash)
+        except Exception as e:
+            target_tx.exception = e
+
         return tx_result
 
     def withdraw_drv(self, amount: int) -> BridgeTxResult:
@@ -359,7 +405,7 @@ class BridgeClient:
         # Get the token contract and socket contract instances.
         abi = json.loads(SOCKET_ABI_PATH.read_text())
         source_socket = get_contract(self.derive_w3, address=SocketAddress.DERIVE.value, abi=abi)
-        target_socket = get_contract(self.derive_w3, address=SocketAddress[chain_id.name].value, abi=abi)
+        target_socket = get_contract(self.remote_w3, address=SocketAddress[chain_id.name].value, abi=abi)
         token_contract = get_erc20_contract(self.derive_w3, token_data.MintableToken)
 
         self._check_bridge_funds(token_data, connector, amount)
@@ -441,17 +487,12 @@ class BridgeClient:
         tx_result = send_and_confirm_tx(w3=w3, tx=tx, private_key=self.private_key, action="bridgeETH()")
         return tx_result
 
-    def _prepare_new_style_deposit(
-        self,
-        token_data: NonMintableTokenData,
-        amount: int,
-        receiver: Address,
-    ) -> dict:
+    def _prepare_new_style_deposit(self, token_data: NonMintableTokenData, amount: int) -> dict:
         vault_contract = _load_vault_contract(w3=self.remote_w3, token_data=token_data)
         connector = token_data.connectors[ChainID.DERIVE][TARGET_SPEED]
         fees = _get_min_fees(bridge_contract=vault_contract, connector=connector, token_data=token_data)
         func = vault_contract.functions.bridge(
-            receiver_=receiver,
+            receiver_=self.wallet,
             amount_=amount,
             msgGasLimit_=MSG_GAS_LIMIT,
             connector_=connector,
