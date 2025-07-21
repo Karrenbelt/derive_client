@@ -2,6 +2,7 @@
 
 from .enums import (
     ActionType,
+    BridgeType,
     ChainID,
     CollateralAsset,
     Currency,
@@ -25,6 +26,7 @@ from .enums import (
 )
 from .models import (
     Address,
+    BridgeContext,
     BridgeTxResult,
     CreateSubAccountData,
     CreateSubAccountDetails,
@@ -42,6 +44,8 @@ from .models import (
 __all__ = [
     "TxStatus",
     "DeriveTxStatus",
+    "BridgeType",
+    "BridgeContext",
     "BridgeTxResult",
     "TxResult",
     "ChainID",

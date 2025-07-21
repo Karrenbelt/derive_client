@@ -29,6 +29,7 @@ from derive_client._bridge import BridgeClient
 from derive_client.constants import CONFIGS, DEFAULT_REFERER, PUBLIC_HEADERS, TOKEN_DECIMALS
 from derive_client.data_types import (
     Address,
+    BridgeTxResult,
     ChainID,
     CollateralAsset,
     CreateSubAccountData,
@@ -49,19 +50,15 @@ from derive_client.data_types import (
     SessionKey,
     SubaccountType,
     TimeInForce,
-    TxResult,
     UnderlyingCurrency,
     WithdrawResult,
 )
+from derive_client.exceptions import ApiException
 from derive_client.utils import get_logger, wait_until
 
 
 def _is_final_tx(res: DeriveTxResult) -> bool:
     return res.status not in (DeriveTxStatus.REQUESTED, DeriveTxStatus.PENDING)
-
-
-class ApiException(Exception):
-    """Exception for API errors."""
 
 
 class BaseClient:
@@ -142,40 +139,57 @@ class BaseClient:
         return True
 
     @validate_call
-    def deposit_to_derive(self, chain_id: ChainID, currency: Currency, amount: float) -> TxResult:
-        """Deposit funds via socket superbridge to Derive chain smart contract funding account.
+    def deposit_to_derive(self, chain_id: ChainID, currency: Currency, amount: float) -> BridgeTxResult:
+        """
+        Submit a deposit into the Derive chain funding contract and return its initial BridgeTxResult
+        without waiting for completion.
 
         Parameters:
             chain_id (ChainID): The chain you are bridging FROM.
             currency (Currency): The asset being bridged.
-            amount (int): The amount to deposit, in Wei.
+            amount (float): amount to deposit, in human units (will be scaled to Wei).
         """
 
         amount = int(amount * 10 ** TOKEN_DECIMALS[UnderlyingCurrency[currency.name.upper()]])
         client = BridgeClient(self.env, chain_id, account=self.signer, wallet=self.wallet)
 
         if currency == Currency.DRV:
-            return client.deposit_drv(amount=amount)
+            return client.deposit_drv(amount=amount, currency=currency)
 
         return client.deposit(amount=amount, currency=currency)
 
     @validate_call
-    def withdraw_from_derive(self, chain_id: ChainID, currency: Currency, amount: float) -> TxResult:
-        """Deposit funds via socket superbridge to Derive chain smart contract funding account.
+    def withdraw_from_derive(self, chain_id: ChainID, currency: Currency, amount: float) -> BridgeTxResult:
+        """
+        Submit a withdrawal from the Derive chain funding contract and return its initial BridgeTxResult
+        without waiting for completion.
 
         Parameters:
             chain_id (ChainID): The chain you are bridging TO.
             currency (Currency): The asset being bridged.
-            amount (int): The amount to withdraw, in Wei.
+            amount (float): amount to withdraw, in human units (will be scaled to Wei).
         """
 
         amount = int(amount * 10 ** TOKEN_DECIMALS[UnderlyingCurrency[currency.name.upper()]])
         client = BridgeClient(self.env, chain_id, account=self.signer, wallet=self.wallet)
 
         if currency == Currency.DRV:
-            return client.withdraw_drv(amount=amount)
+            return client.withdraw_drv(amount=amount, currency=currency)
 
         return client.withdraw_with_wrapper(amount=amount, currency=currency)
+
+    def poll_bridge_progress(self, tx_result: BridgeTxResult) -> BridgeTxResult:
+        """
+        Given a pending BridgeTxResult, return a new BridgeTxResult with updated status.
+        Raises AlreadyFinalizedError if tx_result is not in PENDING status.
+
+        Parameters:
+            tx_result (BridgeTxResult): the result to refresh.
+        """
+
+        chain_id = tx_result.source_chain if tx_result.source_chain != ChainID.DERIVE else tx_result.target_chain
+        client = BridgeClient(self.env, chain_id, account=self.signer, wallet=self.wallet)
+        return client.poll_bridge_progress(tx_result=tx_result)
 
     def fetch_instruments(
         self,
@@ -776,7 +790,7 @@ class BaseClient:
         """Get a transaction by its transaction id."""
         url = f"{self.config.base_url}/public/get_transaction"
         payload = {"transaction_id": transaction_id}
-        return DeriveTxResult(**self._send_request(url, json=payload))
+        return DeriveTxResult(**self._send_request(url, json=payload), transaction_id=transaction_id)
 
     def transfer_from_funding_to_subaccount(self, amount: int, asset_name: str, subaccount_id: int) -> DeriveTxResult:
         """

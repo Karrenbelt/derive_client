@@ -10,7 +10,7 @@ from derive_client.utils import build_standard_transaction, estimate_fees, exp_b
 def ensure_balance(token_contract: Contract, owner: Address, amount: int):
     balance = token_contract.functions.balanceOf(owner).call()
     if amount > balance:
-        raise ValueError(f"Not enough funds: {balance}, tried to send: {amount}")
+        raise ValueError(f"Not enough tokens to withdraw: {amount} < {balance} ({(balance / amount * 100):.2f}%) ")
 
 
 def ensure_allowance(
