@@ -113,6 +113,25 @@ class TxResult:
         return TxStatus.ERROR
 
 
+@dataclass
+class BridgeTxResult:
+    source_chain: ChainID
+    target_chain: ChainID
+    source_tx: TxResult
+    target_tx: TxResult
+
+    @property
+    def status(self) -> TxStatus:
+        statuses = [self.source_tx.status, self.target_tx.status]
+        if all(s == TxStatus.SUCCESS for s in statuses):
+            return TxStatus.SUCCESS
+        if any(s == TxStatus.FAILED for s in statuses):
+            return TxStatus.FAILED
+        if any(s == TxStatus.PENDING for s in statuses):
+            return TxStatus.PENDING
+        return TxStatus.ERROR
+
+
 class DepositResult(BaseModel):
     status: DeriveTxStatus  # should be "REQUESTED"
     transaction_id: str

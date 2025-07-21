@@ -20,8 +20,12 @@ from derive_client.constants import (
     DEPOSIT_GAS_LIMIT,
     DEPOSIT_HELPER_ABI_PATH,
     DEPOSIT_HOOK_ABI_PATH,
+    DERIVE_ABI_PATH,
+    DERIVE_L2_ABI_PATH,
     L1_STANDARD_BRIDGE_ABI_PATH,
     LIGHT_ACCOUNT_ABI_PATH,
+    LYRA_OFT_WITHDRAW_WRAPPER_ABI_PATH,
+    LYRA_OFT_WITHDRAW_WRAPPER_ADDRESS,
     MSG_GAS_LIMIT,
     NEW_VAULT_ABI_PATH,
     OLD_VAULT_ABI_PATH,
@@ -31,6 +35,7 @@ from derive_client.constants import (
 )
 from derive_client.data_types import (
     Address,
+    BridgeTxResult,
     ChainID,
     DeriveTokenAddresses,
     Environment,
@@ -39,6 +44,7 @@ from derive_client.data_types import (
     NonMintableTokenData,
     RPCEndPoints,
     TxResult,
+    TxStatus,
 )
 from derive_client.utils import (
     build_standard_transaction,
@@ -46,6 +52,8 @@ from derive_client.utils import (
     get_erc20_contract,
     get_w3_connection,
     send_and_confirm_tx,
+    wait_for_event,
+    wait_for_tx_receipt,
 )
 
 
@@ -154,9 +162,9 @@ class BridgeClient:
 
         spender = Web3.to_checksum_address(DeriveTokenAddresses[chain_id.name].value)
         if chain_id == ChainID.ETH:
-            abi_path = CONTROLLER_ABI_PATH.parent / "Derive.json"
+            abi_path = DERIVE_ABI_PATH
         else:
-            abi_path = CONTROLLER_ABI_PATH.parent / "DeriveL2.json"
+            abi_path = DERIVE_L2_ABI_PATH
 
         abi = json.loads(abi_path.read_text())
         token_contract = get_contract(self.w3, spender, abi=abi)
@@ -247,18 +255,15 @@ class BridgeClient:
     def withdraw_drv(
         self,
         amount: int,
-        target_chain: int,
-    ):
+        target_chain: ChainID,
+    ) -> BridgeTxResult:
         self._ensure_derive_eth_balance()
-        # proxy contract address for DRV token contract on Derive chain
-        mintable_token = Web3.to_checksum_address("0x2EE0fd70756EDC663AcC9676658A1497C247693A")
 
-        token_contract = get_erc20_contract(self.w3, mintable_token)
+        abi = json.loads(DERIVE_L2_ABI_PATH.read_text())
+        token_contract = get_contract(self.w3, DeriveTokenAddresses.DERIVE.value, abi=abi)
 
-        ABI_PATH = CONTROLLER_ABI_PATH.parent / "LyraOFTWithdrawWrapper.json"
-        address = "0x9400cc156dad38a716047a67c897973A29A06710"
-        abi = json.loads(ABI_PATH.read_text())
-        withdraw_wrapper = get_contract(self.w3, address, abi=abi)
+        abi = json.loads(LYRA_OFT_WITHDRAW_WRAPPER_ABI_PATH.read_text())
+        withdraw_wrapper = get_contract(self.w3, LYRA_OFT_WITHDRAW_WRAPPER_ADDRESS, abi=abi)
 
         balance = token_contract.functions.balanceOf(self.wallet).call()
         if balance < amount:
@@ -286,7 +291,42 @@ class BridgeClient:
 
         tx = build_standard_transaction(func=func, account=self.account, w3=self.w3, value=0)
 
-        tx_result = send_and_confirm_tx(w3=self.w3, tx=tx, private_key=self.private_key, action="executeBatch()")
+        # target chain
+        chain_id = ChainID(target_chain)
+        target_w3 = get_w3_connection(chain_id=chain_id)
+        from_block = target_w3.eth.block_number  # record on target chain before tx submission on source chain
+
+        target_tx = TxResult(tx_hash="", tx_receipt=None, exception=None)
+        source_tx = send_and_confirm_tx(w3=self.w3, tx=tx, private_key=self.private_key, action="executeBatch()")
+        tx_result = BridgeTxResult(
+            source_chain=ChainID.DERIVE,
+            target_chain=target_chain,
+            source_tx=source_tx,
+            target_tx=target_tx,
+        )
+        if not source_tx.status == TxStatus.SUCCESS:
+            return tx_result
+
+        try:
+            event = token_contract.events.OFTSent().process_log(source_tx.tx_receipt.logs[-1])
+            guid = event["args"]["guid"]
+        except Exception as e:
+            msg = f"Failed to retrieve OFTSent log guid from source transaction receipt: {e}"
+            source_tx.exception = ValueError(msg)
+            return tx_result
+
+        log_filter = token_contract.events.OFTReceived.create_filter(
+            fromBlock=from_block, argument_filters={"guid": guid}
+        )
+        # This is hacky, we should instantiate and use target chain token_contract
+        log_filter.filter_params["address"] = Web3.to_checksum_address(DeriveTokenAddresses[chain_id.name].value)
+        try:
+            event_log = wait_for_event(target_w3, log_filter)
+            target_tx.tx_hash = event_log["transactionHash"].to_0x_hex()
+            target_tx.tx_receipt = wait_for_tx_receipt(w3=target_w3, tx_hash=target_tx.tx_hash)
+        except Exception as e:
+            target_tx.exception = e
+
         return tx_result
 
     def _ensure_derive_eth_balance(
@@ -306,14 +346,12 @@ class BridgeClient:
         """
 
         if not self.w3.eth.chain_id == ChainID.DERIVE:
-            raise ValueError(
-                f"Connected to chain ID {self.w3.eth.chain_id}, but expected Derive chain ({ChainID.DERIVE})."
-            )
+            msg = f"Connected to chain ID {self.w3.eth.chain_id}, but expected Derive chain ({ChainID.DERIVE})."
+            raise ValueError(msg)
 
         if target_chain not in token_data.connectors:
-            raise ValueError(
-                f"Target chain {target_chain} not found in token data connectors. Please check input configuration."
-            )
+            msg = f"Target chain {target_chain} not found in token data connectors. Please check input configuration."
+            raise ValueError(msg)
 
         self._ensure_derive_eth_balance()
         connector = token_data.connectors[target_chain][TARGET_SPEED]
@@ -402,9 +440,8 @@ class BridgeClient:
             deposit_hook = controller.functions.hook__().call()
             expected_hook = token_data.LyraTSAShareHandlerDepositHook
             if not deposit_hook == token_data.LyraTSAShareHandlerDepositHook:
-                raise ValueError(
-                    f"Controller deposit hook {deposit_hook} does not match expected address {expected_hook}"
-                )
+                msg = f"Controller deposit hook {deposit_hook} does not match expected address {expected_hook}"
+                raise ValueError(msg)
             deposit_contract = _load_deposit_contract(w3=self.w3, token_data=token_data)
             pool_id = deposit_contract.functions.connectorPoolIds(connector).call()
             locked = deposit_contract.functions.poolLockedAmounts(pool_id).call()
