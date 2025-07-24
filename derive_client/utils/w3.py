@@ -1,18 +1,122 @@
+import heapq
 import json
+import threading
 import time
-from typing import Callable, Generator, Literal
+from http import HTTPStatus
+from typing import Any, Callable, Generator, Literal
 
 from eth_account import Account
 from hexbytes import HexBytes
+from requests import ConnectTimeout, ReadTimeout, RequestException
 from web3 import Web3
 from web3.contract import Contract
 from web3.contract.contract import ContractEvent
 from web3.datastructures import AttributeDict
+from web3.providers.rpc import HTTPProvider
 
 from derive_client.constants import ABI_DATA_DIR, GAS_FEE_BUFFER
 from derive_client.data_types import ChainID, RPCEndPoints, TxResult, TxStatus
 from derive_client.exceptions import TxSubmissionError
 from derive_client.utils.retry import exp_backoff_retry
+
+
+class EndpointState:
+    __slots__ = ("provider", "backoff", "next_available")
+
+    def __init__(self, provider: HTTPProvider):
+        self.provider = provider
+        self.backoff = 0.0
+        self.next_available = 0.0
+
+    def __lt__(self, other: "EndpointState") -> bool:
+        return self.next_available < other.next_available
+
+    def __str__(self) -> str:
+        return f"{self.__class__.__name__}({self.provider.endpoint_uri})"
+
+
+def make_rotating_provider_middleware(
+    endpoints: list[HTTPProvider],
+    initial_backoff: float = 1.0,
+    max_backoff: float = 300.0,
+) -> Callable[[Callable[[str, Any], Any], Web3], Callable[[str, Any], Any]]:
+    """
+    v6.11-style middleware:
+     - round-robin via a min-heap of `next_available` times
+     - on 429: exponential back-off for that endpoint, capped
+    """
+
+    heap: list[EndpointState] = [EndpointState(p) for p in endpoints]
+    heapq.heapify(heap)
+    lock = threading.Lock()
+
+    def middleware_factory(make_request: Callable[[str, Any], Any], w3: Web3) -> Callable[[str, Any], Any]:
+        def rotating_backoff(method: str, params: Any) -> Any:
+            now = time.time()
+
+            while True:
+                # 1) grab the earlies-available endpoint
+                with lock:
+                    state = heapq.heappop(heap)
+
+                # 2) if it's not yet ready, push back and error out
+                if state.next_available > now:
+                    with lock:
+                        heapq.heappush(heap, state)
+                    raise TimeoutError("All available RPC endpoints are on timeout")
+
+                try:
+                    # 3) attempt the request
+                    resp = state.provider.make_request(method, params)
+                    # 4) on success, reset its backoff and re-schedule immediately
+                    state.backoff = 0.0
+                    state.next_available = now
+                    with lock:
+                        heapq.heappush(heap, state)
+                    print(f"State: {state} = SUCCESS")
+                    return resp
+
+                except RequestException as e:
+                    print(f"State: {state} = FAILED: {e}")
+                    # decide if this error is retryable
+                    retryable = False
+
+                    # a) HTTP 429 Too Many Requests
+                    status = getattr(e.response, "status_code", None)
+                    if status == HTTPStatus.TOO_MANY_REQUESTS:
+                        retryable = True
+                        # parse Retry-After header if present
+                        hdr = e.response.headers.get("Retry-After")
+                        try:
+                            backoff = float(hdr)
+                        except (ValueError, TypeError):
+                            backoff = state.backoff * 2 if state.backoff > 0 else initial_backoff
+                    # b) network‐level timeouts or connection errors
+                    elif isinstance(e, (ReadTimeout, ConnectTimeout, ConnectionError)):
+                        retryable = True
+                        backoff = state.backoff * 2 if state.backoff > 0 else initial_backoff
+                    # c) non‑retryable error
+                    else:
+                        backoff = 0.0
+
+                    if retryable:
+                        # cap backoff and schedule
+                        state.backoff = min(backoff, max_backoff)
+                        state.next_available = now + state.backoff
+                        with lock:
+                            heapq.heappush(heap, state)
+                        # try the next endpoint in the heap
+                        continue
+                    else:
+                        # push back immediately and propagate
+                        state.next_available = now
+                        with lock:
+                            heapq.heappush(heap, state)
+                        raise
+
+        return rotating_backoff
+
+    return middleware_factory
 
 
 def get_w3_connection(chain_id: ChainID) -> Web3:
