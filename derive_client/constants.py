@@ -136,6 +136,8 @@ TOKEN_DECIMALS = {
     UnderlyingCurrency.DRV: 18,
 }
 
+DEFAULT_RPC_ENDPOINTS = DATA_DIR / "rpc_endpoints.yaml"
+
 NEW_VAULT_ABI_PATH = ABI_DATA_DIR / "socket_superbridge_vault.json"
 OLD_VAULT_ABI_PATH = ABI_DATA_DIR / "socket_superbridge_vault_old.json"
 DEPOSIT_HELPER_ABI_PATH = ABI_DATA_DIR / "deposit_helper.json"

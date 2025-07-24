@@ -36,6 +36,7 @@ from .models import (
     ManagerAddress,
     MintableTokenData,
     NonMintableTokenData,
+    RPCEndpoints,
     SessionKey,
     TxResult,
     WithdrawResult,
@@ -78,4 +79,5 @@ __all__ = [
     "WithdrawResult",
     "DeriveTxResult",
     "SocketAddress",
+    "RPCEndpoints",
 ]

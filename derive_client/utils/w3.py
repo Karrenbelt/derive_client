@@ -3,8 +3,10 @@ import json
 import threading
 import time
 from http import HTTPStatus
+from pathlib import Path
 from typing import Any, Callable, Generator, Literal
 
+import yaml
 from eth_account import Account
 from hexbytes import HexBytes
 from requests import ConnectTimeout, ReadTimeout, RequestException
@@ -15,7 +17,7 @@ from web3.datastructures import AttributeDict
 from web3.providers.rpc import HTTPProvider
 
 from derive_client.constants import ABI_DATA_DIR, GAS_FEE_BUFFER
-from derive_client.data_types import ChainID, RPCEndPoints, TxResult, TxStatus
+from derive_client.data_types import ChainID, RPCEndPoints, RPCEndpoints, TxResult, TxStatus
 from derive_client.exceptions import TxSubmissionError
 from derive_client.utils.retry import exp_backoff_retry
 
@@ -117,6 +119,10 @@ def make_rotating_provider_middleware(
         return rotating_backoff
 
     return middleware_factory
+
+
+def load_rpc_endpoints(path: Path) -> RPCEndpoints:
+    return RPCEndpoints(**yaml.safe_load(path.read_text()))
 
 
 def get_w3_connection(chain_id: ChainID) -> Web3:
