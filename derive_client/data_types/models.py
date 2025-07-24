@@ -4,7 +4,7 @@ from derive_action_signing.module_data import ModuleData
 from derive_action_signing.utils import decimal_to_big_int
 from eth_abi.abi import encode
 from eth_utils import is_0x_prefixed, is_address, is_hex, to_checksum_address
-from pydantic import BaseModel, ConfigDict, Field, GetCoreSchemaHandler, GetJsonSchemaHandler
+from pydantic import BaseModel, ConfigDict, Field, GetCoreSchemaHandler, GetJsonSchemaHandler, HttpUrl
 from pydantic.dataclasses import dataclass
 from pydantic_core import core_schema
 from web3 import Web3
@@ -217,3 +217,13 @@ class DeriveTxResult(BaseModel):
     error_log: dict
     transaction_id: str
     tx_hash: str | None = Field(alias="transaction_hash")
+
+
+class RPCEndpoints(BaseModel, frozen=True):
+    ETH: list[HttpUrl] = Field(default_factory=list)
+    OPTIMISM: list[HttpUrl] = Field(default_factory=list)
+    BASE: list[HttpUrl] = Field(default_factory=list)
+    ARBITRUM: list[HttpUrl] = Field(default_factory=list)
+    DERIVE: list[HttpUrl] = Field(default_factory=list)
+    MODE: list[HttpUrl] = Field(default_factory=list)
+    BLAST: list[HttpUrl] = Field(default_factory=list)
