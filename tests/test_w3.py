@@ -34,12 +34,12 @@ def test_rotating_middelware(chain, rpc_endpoints):
     # 0) Timeout fast, otherwise any ReadTimeout (default 10s) will cause failure
     request_kwargs = {"timeout": 1}
 
-    # 1) Build your list of HTTPProvider, based on your RPCEndPoints enum:
+    # 1) Build your list of HTTPProvider, based on your RPCEndpoints:
     used = set()
     providers = [TrackingHTTPProvider(url, request_kwargs, used) for url in rpc_endpoints]
 
     # 2) Create Web3 (initial provider is a no-op once middleware is in place)
-    w3 = Web3(providers[0])
+    w3 = Web3()
 
     # 3) Register the rotating-backoff middleware
     rotator = make_rotating_provider_middleware(
