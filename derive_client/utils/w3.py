@@ -238,7 +238,7 @@ def send_and_confirm_tx(
         tx_result.exception = timeout_err
         return tx_result
 
-    if tx_receipt.status == TxStatus.SUCCESS:
+    if tx_result.tx_receipt.status == TxStatus.SUCCESS:
         print(f"✅ {action} succeeded for tx {tx_hash.hex()}")
     else:
         print(f"❌ {action} reverted for tx {tx_hash.hex()}")
