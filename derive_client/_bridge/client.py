@@ -50,7 +50,6 @@ from derive_client.data_types import (
     LayerZeroChainIDv2,
     MintableTokenData,
     NonMintableTokenData,
-    RPCEndPoints,
     SocketAddress,
     TxResult,
     TxStatus,
@@ -539,7 +538,7 @@ class BridgeClient:
         This is the "socket superbridge" method; not required when using the withdraw wrapper.
         """
 
-        w3 = Web3(Web3.HTTPProvider(RPCEndPoints.ETH.value))
+        w3 = get_w3_connection(ChainID.ETH)
 
         address = self.config.contracts.L1_CHUG_SPLASH_PROXY
         bridge_abi = json.loads(L1_STANDARD_BRIDGE_ABI_PATH.read_text())
