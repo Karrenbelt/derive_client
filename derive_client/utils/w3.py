@@ -1,3 +1,4 @@
+import functools
 import heapq
 import json
 import threading
@@ -16,8 +17,8 @@ from web3.contract.contract import ContractEvent
 from web3.datastructures import AttributeDict
 from web3.providers.rpc import HTTPProvider
 
-from derive_client.constants import ABI_DATA_DIR, GAS_FEE_BUFFER
-from derive_client.data_types import ChainID, RPCEndPoints, RPCEndpoints, TxResult, TxStatus
+from derive_client.constants import ABI_DATA_DIR, GAS_FEE_BUFFER, DEFAULT_RPC_ENDPOINTS
+from derive_client.data_types import ChainID, RPCEndpoints, TxResult, TxStatus
 from derive_client.exceptions import TxSubmissionError
 from derive_client.utils.retry import exp_backoff_retry
 
@@ -121,15 +122,23 @@ def make_rotating_provider_middleware(
     return middleware_factory
 
 
+@functools.lru_cache
 def load_rpc_endpoints(path: Path) -> RPCEndpoints:
     return RPCEndpoints(**yaml.safe_load(path.read_text()))
 
 
-def get_w3_connection(chain_id: ChainID) -> Web3:
-    rpc_url = RPCEndPoints[chain_id.name].value
-    w3 = Web3(Web3.HTTPProvider(rpc_url))
-    if not w3.is_connected():
-        raise ConnectionError(f"Failed to connect to RPC at {rpc_url}")
+def get_w3_connection(chain_id: ChainID, rpc_endpoints: RPCEndpoints | None = None) -> Web3:
+    rpc_endpoints = rpc_endpoints or load_rpc_endpoints(DEFAULT_RPC_ENDPOINTS)
+    providers = list(map(HTTPProvider, rpc_endpoints[chain_id]))
+
+    # NOTE: Initial provider is a no-op once middleware is in place
+    w3 = Web3()
+    rotator = make_rotating_provider_middleware(
+        providers,
+        initial_backoff=1.0,
+        max_backoff=60.0,
+    )
+    w3.middleware_onion.add(rotator)
     return w3
 
 
