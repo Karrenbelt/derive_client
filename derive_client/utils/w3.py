@@ -103,6 +103,14 @@ def make_rotating_provider_middleware(
                     msg = "Backing off %s for %.2fs (next_available=%.2f)"
                     logger.info(msg, state.provider.endpoint_uri, backoff, state.next_available)
                     continue
+                except Exception as e:
+                    msg = "Unexpected error calling %s %s on %s; backing off %.2fs and continuing",
+                    logger.exception(msg, method, params, state.provider.endpoint_uri, max_backoff, exc_info=e)
+                    state.backoff = max_backoff
+                    state.next_available = now + state.backoff
+                    with lock:
+                        heapq.heappush(heap, state)
+                    continue
 
         return rotating_backoff
 
