@@ -23,6 +23,30 @@ RETRY_EXCEPTIONS = (
 )
 
 
+def retry(
+    fn: Callable[..., T],
+    *args,
+    retries: int = 3,
+    delay: float = 1.0,
+    exception: Exception = Exception,
+    **kwargs,
+) -> T:
+    """Call fn(*args, **kwargs), retrying up to `retries` times on `exception`, with `delay` seconds."""
+    last_exc: Exception | None = None
+    for attempt in range(1, retries + 1):
+        try:
+            return fn(*args, **kwargs)
+        except exception as e:
+            last_exc = e
+            if attempt < retries:
+                time.sleep(delay)
+            else:
+                raise
+    # mypy guard
+    assert last_exc is not None
+    raise last_exc
+
+
 def exp_backoff_retry(func=None, *, attempts=3, initial_delay=1, exceptions=(Exception,)):
     if func is None:
         return lambda f: exp_backoff_retry(f, attempts=attempts, initial_delay=initial_delay, exceptions=exceptions)
