@@ -227,3 +227,9 @@ class RPCEndpoints(BaseModel, frozen=True):
     DERIVE: list[HttpUrl] = Field(default_factory=list)
     MODE: list[HttpUrl] = Field(default_factory=list)
     BLAST: list[HttpUrl] = Field(default_factory=list)
+
+    def __getitem__(self, key: ChainID | int | str) -> list[HttpUrl]:
+        chain = ChainID[key.upper()] if isinstance(key, str) else ChainID(key)
+        if not (urls := getattr(self, chain.name, [])):
+            raise ValueError(f"No RPC URLs configured for {chain.name}")
+        return urls
