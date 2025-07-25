@@ -22,7 +22,7 @@ from derive_client.constants import ABI_DATA_DIR, GAS_FEE_BUFFER, DEFAULT_RPC_EN
 from derive_client.data_types import ChainID, RPCEndpoints, TxResult, TxStatus
 from derive_client.exceptions import TxSubmissionError
 from derive_client.utils.logger import get_logger
-from derive_client.utils.retry import exp_backoff_retry
+from derive_client.utils.retry import exp_backoff_retry, is_retryable
 
 
 class EndpointState:
@@ -85,28 +85,14 @@ def make_rotating_provider_middleware(
 
                 except RequestException as e:
                     logger.debug("Endpoint %s failed: %s", state.provider.endpoint_uri, e)
-                    # decide if this error is retryable
-                    retryable = False
 
-                    # a) HTTP 429 Too Many Requests
-                    status = getattr(e.response, "status_code", None)
-                    if status == HTTPStatus.TOO_MANY_REQUESTS:
-                        retryable = True
-                        # parse Retry-After header if present
+                    if is_retryable(e):
                         hdr = e.response.headers.get("Retry-After")
                         try:
                             backoff = float(hdr)
                         except (ValueError, TypeError):
                             backoff = state.backoff * 2 if state.backoff > 0 else initial_backoff
-                    # b) network-level timeouts or connection errors
-                    elif isinstance(e, (ReadTimeout, ConnectTimeout, ConnectionError)):
-                        retryable = True
-                        backoff = state.backoff * 2 if state.backoff > 0 else initial_backoff
-                    # c) non-retryable error
-                    else:
-                        backoff = 0.0
 
-                    if retryable:
                         # cap backoff and schedule
                         state.backoff = min(backoff, max_backoff)
                         state.next_available = now + state.backoff
