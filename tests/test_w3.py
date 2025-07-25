@@ -24,7 +24,6 @@ class TrackingHTTPProvider(HTTPProvider):
         return super().make_request(method, params)
 
 
-@pytest.mark.flaky(reruns=3, reruns_delay=1)
 @pytest.mark.parametrize("chain, rpc_endpoints", RPC_ENDPOINTS)
 def test_rotating_middelware(chain, rpc_endpoints):
     # --------------------
@@ -50,9 +49,8 @@ def test_rotating_middelware(chain, rpc_endpoints):
     )
     w3.middleware_onion.add(rotator)
 
-    # 4) Test: fail if less than 2/3rd of endpoints were used
+    # 4) Test: Rotate through all providers
     expected = {p.endpoint_uri for p in providers}
-    max_fail = max(1, len(providers) // 3)
     timeout = time.monotonic() + len(providers)
     while used != expected and time.monotonic() < timeout:
         try:
@@ -61,4 +59,4 @@ def test_rotating_middelware(chain, rpc_endpoints):
             pass
 
     unused = expected - used
-    assert len(unused) <= max_fail, f"Unused {chain} endpoints:\n{unused}"
+    assert not unused, f"Unused {chain} endpoints:\n{unused}"
