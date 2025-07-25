@@ -44,9 +44,9 @@ class PAttributeDict(AttributeDict):
 
     @classmethod
     def _validate(cls, v) -> AttributeDict:
-        if not isinstance(v, AttributeDict):
+        if not isinstance(v, (dict, AttributeDict)):
             raise TypeError(f"Expected AttributeDict, got {v!r}")
-        return v
+        return AttributeDict(v)
 
 
 class Address(str):
