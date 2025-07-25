@@ -6,13 +6,26 @@ from http import HTTPStatus
 import pytest
 from requests.exceptions import RequestException
 from web3 import Web3
+from web3.exceptions import MethodUnavailable
 from web3.providers import HTTPProvider
 
 from derive_client.constants import DEFAULT_RPC_ENDPOINTS
-from derive_client.data_types import ChainID
+from derive_client.data_types import ChainID, JSONRPCErrorCode
 from derive_client.utils import get_logger, load_rpc_endpoints, make_rotating_provider_middleware
+from derive_client.utils.retry import is_retryable
 
 RPC_ENDPOINTS = list(load_rpc_endpoints(DEFAULT_RPC_ENDPOINTS).model_dump().items())
+
+REQUIRED_METHODS = {
+    "eth_blockNumber": [],
+    "eth_chainId": [],
+    "eth_getBalance": ["0x0000000000000000000000000000000000000000", "latest"],
+    "eth_call": [{"to": "0x0000000000000000000000000000000000000000", "data": "0x"}, "latest"],
+    "eth_sendRawTransaction": ["0x"],
+    "eth_getLogs": [
+        {"fromBlock": "latest", "toBlock": "latest"},
+    ],
+}
 
 
 class TrackingHTTPProvider(HTTPProvider):
@@ -71,6 +84,43 @@ def test_rpc_endpoints_reachability_and_chain_id(chain, rpc_endpoints):
     if len(rate_limited) > max_unresponsive:
         msg = "\n".join(f"  {url}" for url in rate_limited)
         pytest.fail(f"[{chain}] Too many unresponsive endpoints " f"({len(rate_limited)}/{len(rpc_endpoints)}):\n{msg}")
+
+
+@pytest.mark.parametrize("chain, rpc_endpoints", RPC_ENDPOINTS)
+def test_rpc_methods_supported(chain, rpc_endpoints):
+
+    missing = {}
+    exceptions = {}
+    for url in rpc_endpoints:
+        prov = HTTPProvider(url)
+        w3 = Web3(prov)
+
+        for method, params in REQUIRED_METHODS.items():
+            try:
+                # use manager.request_blocking to hit exactly that method
+                w3.manager.request_blocking(method, params)
+            except MethodUnavailable:
+                missing.setdefault(url, []).append(method)
+            except RequestException as e:
+                # the method exists (we're hitting the RPC path)
+                # but the provider is choking on our dummy TX payload
+                if method != "eth_sendRawTransaction":
+                    exceptions.setdefault(url, []).append((method, e))
+            except ValueError as e:
+                err = e.args[0]
+                if isinstance(err, dict) and err.get("code") == JSONRPCErrorCode.METHOD_NOT_FOUND:
+                    # still missing
+                    missing.setdefault(url, []).append(method)
+                # else: other error codes (-32000, -32603, etc.) => method exists
+            except AttributeError as e:
+                # RPC endpoints is returning a plain text error message instead of a proper JSON-RPC
+                if "'str' object has no attribute 'get'" in str(e):
+                    print(f"Malformed response from {url} for method {method}")
+                else:
+                    exceptions.setdefault(url, []).append((method, e))
+
+    assert not missing, f"Some RPC endpoints lack required methods: {missing}"
+    assert not exceptions, f"Some RPC endpoints could not be reached: {exceptions}"
 
 
 @pytest.mark.parametrize("chain, rpc_endpoints", RPC_ENDPOINTS)
