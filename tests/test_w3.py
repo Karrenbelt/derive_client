@@ -12,7 +12,6 @@ from web3.providers import HTTPProvider
 from derive_client.constants import DEFAULT_RPC_ENDPOINTS
 from derive_client.data_types import ChainID, JSONRPCErrorCode
 from derive_client.utils import get_logger, load_rpc_endpoints, make_rotating_provider_middleware
-from derive_client.utils.retry import is_retryable
 
 RPC_ENDPOINTS = list(load_rpc_endpoints(DEFAULT_RPC_ENDPOINTS).model_dump().items())
 
