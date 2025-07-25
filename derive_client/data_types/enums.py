@@ -74,16 +74,6 @@ class DeriveTokenAddresses(Enum):
     DERIVE = "0x2EE0fd70756EDC663AcC9676658A1497C247693A"  # impl: 0x340B51Cb46DBF63B55deD80a78a40aa75Dd4ceDF (DeriveL2)
 
 
-class RPCEndPoints(Enum):
-    ETH = "https://eth.drpc.org"
-    OPTIMISM = "https://optimism.drpc.org"
-    BASE = "https://base.drpc.org"
-    MODE = "https://mode.drpc.org"
-    ARBITRUM = "https://arbitrum.drpc.org"
-    BLAST = "https://blast.drpc.org"
-    DERIVE = LYRA = "https://rpc.lyra.finance"
-
-
 class SessionKeyScope(Enum):
     ADMIN = "admin"
     ACCOUNT = "account"
