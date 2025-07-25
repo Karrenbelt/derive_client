@@ -1,11 +1,12 @@
 import functools
 import time
-from typing import Callable, ParamSpec, Sequence, TypeVar
 from http import HTTPStatus
+from typing import Callable, ParamSpec, Sequence, TypeVar
 
 import requests
 from requests.adapters import HTTPAdapter
-from requests.exceptions import RequestException, ReadTimeout, ConnectTimeout, ConnectionError as ReqConnectionError
+from requests.exceptions import ConnectionError as ReqConnectionError
+from requests.exceptions import ConnectTimeout, ReadTimeout, RequestException
 from urllib3.util.retry import Retry
 
 from derive_client.utils.logger import get_logger

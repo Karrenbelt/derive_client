@@ -3,7 +3,6 @@ import heapq
 import json
 import threading
 import time
-from http import HTTPStatus
 from logging import Logger
 from pathlib import Path
 from typing import Any, Callable, Generator, Literal
@@ -11,14 +10,14 @@ from typing import Any, Callable, Generator, Literal
 import yaml
 from eth_account import Account
 from hexbytes import HexBytes
-from requests import ConnectTimeout, ReadTimeout, RequestException
+from requests import RequestException
 from web3 import Web3
 from web3.contract import Contract
 from web3.contract.contract import ContractEvent
 from web3.datastructures import AttributeDict
 from web3.providers.rpc import HTTPProvider
 
-from derive_client.constants import ABI_DATA_DIR, GAS_FEE_BUFFER, DEFAULT_RPC_ENDPOINTS
+from derive_client.constants import ABI_DATA_DIR, DEFAULT_RPC_ENDPOINTS, GAS_FEE_BUFFER
 from derive_client.data_types import ChainID, RPCEndpoints, TxResult, TxStatus
 from derive_client.exceptions import TxSubmissionError
 from derive_client.utils.logger import get_logger
@@ -70,7 +69,8 @@ def make_rotating_provider_middleware(
                 if state.next_available > now:
                     with lock:
                         heapq.heappush(heap, state)
-                    logger.warning("All RPC endpoints are cooling down until %.2f (now=%.2f)", state.next_available, now)
+                    msg = "All RPC endpoints are cooling down until %.2f (now=%.2f)"
+                    logger.warning(msg, state.next_available, now)
                     raise TimeoutError("All available RPC endpoints are on timeout")
 
                 try:
@@ -98,10 +98,8 @@ def make_rotating_provider_middleware(
                         state.next_available = now + state.backoff
                         with lock:
                             heapq.heappush(heap, state)
-                        logger.info(
-                            "Backing off %s for %.2fs (next_available=%.2f)",
-                            state.provider.endpoint_uri, backoff, state.next_available
-                        )
+                        msg = "Backing off %s for %.2fs (next_available=%.2f)"
+                        logger.info(msg, state.provider.endpoint_uri, backoff, state.next_available)
                         continue
                     else:
                         # push back immediately and propagate
