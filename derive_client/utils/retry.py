@@ -1,15 +1,25 @@
 import functools
 import time
 from typing import Callable, ParamSpec, Sequence, TypeVar
+from http import HTTPStatus
 
 import requests
 from requests.adapters import HTTPAdapter
+from requests.exceptions import RequestException, ReadTimeout, ConnectTimeout, ConnectionError as ReqConnectionError
 from urllib3.util.retry import Retry
 
 from derive_client.utils.logger import get_logger
 
 P = ParamSpec('P')
 T = TypeVar('T')
+
+RETRY_STATUS_CODES = {HTTPStatus.REQUEST_TIMEOUT, HTTPStatus.TOO_MANY_REQUESTS} | set(range(500, 600))
+
+RETRY_EXCEPTIONS = (
+    ReadTimeout,
+    ConnectTimeout,
+    ReqConnectionError,
+)
 
 
 def exp_backoff_retry(func=None, *, attempts=3, initial_delay=1, exceptions=(Exception,)):
@@ -96,3 +106,12 @@ def wait_until(
         if time.time() - start_time > timeout:
             raise TimeoutError("Timed out waiting for transaction receipt.")
         time.sleep(poll_interval)
+
+
+def is_retryable(e: RequestException) -> bool:
+    status = getattr(e.response, "status_code", None)
+    if status in RETRY_STATUS_CODES:
+        return True
+    if isinstance(e, RETRY_EXCEPTIONS):
+        return True
+    return False
