@@ -21,7 +21,7 @@ from derive_client.constants import ABI_DATA_DIR, DEFAULT_RPC_ENDPOINTS, GAS_FEE
 from derive_client.data_types import ChainID, RPCEndpoints, TxResult, TxStatus
 from derive_client.exceptions import NoAvailableRPC, TxSubmissionError
 from derive_client.utils.logger import get_logger
-from derive_client.utils.retry import exp_backoff_retry, is_retryable
+from derive_client.utils.retry import exp_backoff_retry
 
 
 class EndpointState:
@@ -86,28 +86,21 @@ def make_rotating_provider_middleware(
                 except RequestException as e:
                     logger.debug("Endpoint %s failed: %s", state.provider.endpoint_uri, e)
 
-                    if is_retryable(e):
-                        hdr = e.response.headers.get("Retry-After")
-                        try:
-                            backoff = float(hdr)
-                        except (ValueError, TypeError):
-                            backoff = state.backoff * 2 if state.backoff > 0 else initial_backoff
+                    # We retry on all exceptions
+                    hdr = e.response.headers.get("Retry-After")
+                    try:
+                        backoff = float(hdr)
+                    except (ValueError, TypeError):
+                        backoff = state.backoff * 2 if state.backoff > 0 else initial_backoff
 
-                        # cap backoff and schedule
-                        state.backoff = min(backoff, max_backoff)
-                        state.next_available = now + state.backoff
-                        with lock:
-                            heapq.heappush(heap, state)
-                        msg = "Backing off %s for %.2fs (next_available=%.2f)"
-                        logger.info(msg, state.provider.endpoint_uri, backoff, state.next_available)
-                        continue
-                    else:
-                        # push back immediately and propagate
-                        state.next_available = now
-                        with lock:
-                            heapq.heappush(heap, state)
-                        logger.error("Non-retryable failure at %s: %s", state.provider.endpoint_uri, e)
-                        raise
+                    # cap backoff and schedule
+                    state.backoff = min(backoff, max_backoff)
+                    state.next_available = now + state.backoff
+                    with lock:
+                        heapq.heappush(heap, state)
+                    msg = "Backing off %s for %.2fs (next_available=%.2f)"
+                    logger.info(msg, state.provider.endpoint_uri, backoff, state.next_available)
+                    continue
 
         return rotating_backoff
 
@@ -235,7 +228,6 @@ def send_and_confirm_tx(
         tx_result = TxResult(tx_hash=tx_hash.to_0x_hex(), tx_receipt=None, exception=None)
     except Exception as send_err:
         msg = f"❌ Failed to send tx for {action}, error: {send_err!r}"
-        print(msg)
         raise TxSubmissionError(msg) from send_err
 
     try:
