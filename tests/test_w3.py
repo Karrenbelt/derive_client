@@ -6,7 +6,7 @@ from web3 import Web3
 from web3.providers import HTTPProvider
 
 from derive_client.constants import DEFAULT_RPC_ENDPOINTS
-from derive_client.utils import load_rpc_endpoints, make_rotating_provider_middleware
+from derive_client.utils import load_rpc_endpoints, make_rotating_provider_middleware, get_logger
 
 RPC_ENDPOINTS = list(load_rpc_endpoints(DEFAULT_RPC_ENDPOINTS).model_dump().items())
 
@@ -46,6 +46,7 @@ def test_rotating_middelware(chain, rpc_endpoints):
         providers,
         initial_backoff=2.0,
         max_backoff=30.0,
+        logger=get_logger(),
     )
     w3.middleware_onion.add(rotator)
 

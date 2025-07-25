@@ -4,6 +4,7 @@ import json
 import threading
 import time
 from http import HTTPStatus
+from logging import Logger
 from pathlib import Path
 from typing import Any, Callable, Generator, Literal
 
@@ -20,6 +21,7 @@ from web3.providers.rpc import HTTPProvider
 from derive_client.constants import ABI_DATA_DIR, GAS_FEE_BUFFER, DEFAULT_RPC_ENDPOINTS
 from derive_client.data_types import ChainID, RPCEndpoints, TxResult, TxStatus
 from derive_client.exceptions import TxSubmissionError
+from derive_client.utils.logger import get_logger
 from derive_client.utils.retry import exp_backoff_retry
 
 
@@ -40,8 +42,10 @@ class EndpointState:
 
 def make_rotating_provider_middleware(
     endpoints: list[HTTPProvider],
+    *,
     initial_backoff: float = 1.0,
     max_backoff: float = 300.0,
+    logger: Logger,
 ) -> Callable[[Callable[[str, Any], Any], Web3], Callable[[str, Any], Any]]:
     """
     v6.11-style middleware:
@@ -66,6 +70,7 @@ def make_rotating_provider_middleware(
                 if state.next_available > now:
                     with lock:
                         heapq.heappush(heap, state)
+                    logger.warning("All RPC endpoints are cooling down until %.2f (now=%.2f)", state.next_available, now)
                     raise TimeoutError("All available RPC endpoints are on timeout")
 
                 try:
@@ -76,11 +81,10 @@ def make_rotating_provider_middleware(
                     state.next_available = now
                     with lock:
                         heapq.heappush(heap, state)
-                    print(f"State: {state} = SUCCESS")
                     return resp
 
                 except RequestException as e:
-                    print(f"State: {state} = FAILED: {e}")
+                    logger.debug("Endpoint %s failed: %s", state.provider.endpoint_uri, e)
                     # decide if this error is retryable
                     retryable = False
 
@@ -94,11 +98,11 @@ def make_rotating_provider_middleware(
                             backoff = float(hdr)
                         except (ValueError, TypeError):
                             backoff = state.backoff * 2 if state.backoff > 0 else initial_backoff
-                    # b) network‐level timeouts or connection errors
+                    # b) network-level timeouts or connection errors
                     elif isinstance(e, (ReadTimeout, ConnectTimeout, ConnectionError)):
                         retryable = True
                         backoff = state.backoff * 2 if state.backoff > 0 else initial_backoff
-                    # c) non‑retryable error
+                    # c) non-retryable error
                     else:
                         backoff = 0.0
 
@@ -108,13 +112,17 @@ def make_rotating_provider_middleware(
                         state.next_available = now + state.backoff
                         with lock:
                             heapq.heappush(heap, state)
-                        # try the next endpoint in the heap
+                        logger.info(
+                            "Backing off %s for %.2fs (next_available=%.2f)",
+                            state.provider.endpoint_uri, backoff, state.next_available
+                        )
                         continue
                     else:
                         # push back immediately and propagate
                         state.next_available = now
                         with lock:
                             heapq.heappush(heap, state)
+                        logger.error("Non-retryable failure at %s: %s", state.provider.endpoint_uri, e)
                         raise
 
         return rotating_backoff
@@ -127,9 +135,16 @@ def load_rpc_endpoints(path: Path) -> RPCEndpoints:
     return RPCEndpoints(**yaml.safe_load(path.read_text()))
 
 
-def get_w3_connection(chain_id: ChainID, rpc_endpoints: RPCEndpoints | None = None) -> Web3:
+def get_w3_connection(
+    chain_id: ChainID,
+    *,
+    rpc_endpoints: RPCEndpoints | None = None,
+    logger: Logger | None = None,
+) -> Web3:
     rpc_endpoints = rpc_endpoints or load_rpc_endpoints(DEFAULT_RPC_ENDPOINTS)
     providers = list(map(HTTPProvider, rpc_endpoints[chain_id]))
+
+    logger = logger or get_logger()
 
     # NOTE: Initial provider is a no-op once middleware is in place
     w3 = Web3()
@@ -137,6 +152,7 @@ def get_w3_connection(chain_id: ChainID, rpc_endpoints: RPCEndpoints | None = No
         providers,
         initial_backoff=1.0,
         max_backoff=60.0,
+        logger=logger,
     )
     w3.middleware_onion.add(rotator)
     return w3
