@@ -7,6 +7,7 @@ from __future__ import annotations
 import copy
 import functools
 import json
+from logging import Logger
 from typing import Literal
 
 from eth_account import Account
@@ -106,17 +107,18 @@ def _get_min_fees(
 
 
 class BridgeClient:
-    def __init__(self, env: Environment, chain_id: ChainID, account: Account, wallet: Address):
+    def __init__(self, env: Environment, chain_id: ChainID, account: Account, wallet: Address, logger: Logger):
         if not env == Environment.PROD:
             raise RuntimeError(f"Bridging is not supported in the {env.name} environment.")
         self.config = CONFIGS[env]
-        self.derive_w3 = get_w3_connection(chain_id=ChainID.DERIVE)
-        self.remote_w3 = get_w3_connection(chain_id=chain_id)
+        self.derive_w3 = get_w3_connection(chain_id=ChainID.DERIVE, logger=logger)
+        self.remote_w3 = get_w3_connection(chain_id=chain_id, logger=logger)
         self.account = account
         self.withdraw_wrapper = self._load_withdraw_wrapper()
         self.deposit_helper = self._load_deposit_helper()
         self.derive_addresses = get_prod_derive_addresses()
         self.light_account = _load_light_account(w3=self.derive_w3, wallet=wallet)
+        self.logger = logger
         if self.owner != self.account.address:
             raise ValueError(
                 "Bridging disabled for secondary session-key signers: old-style assets "
@@ -538,7 +540,7 @@ class BridgeClient:
         This is the "socket superbridge" method; not required when using the withdraw wrapper.
         """
 
-        w3 = get_w3_connection(ChainID.ETH)
+        w3 = get_w3_connection(ChainID.ETH, logger=self.logger)
 
         address = self.config.contracts.L1_CHUG_SPLASH_PROXY
         bridge_abi = json.loads(L1_STANDARD_BRIDGE_ABI_PATH.read_text())

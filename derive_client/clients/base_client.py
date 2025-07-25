@@ -151,7 +151,7 @@ class BaseClient:
         """
 
         amount = int(amount * 10 ** TOKEN_DECIMALS[UnderlyingCurrency[currency.name.upper()]])
-        client = BridgeClient(self.env, chain_id, account=self.signer, wallet=self.wallet)
+        client = BridgeClient(self.env, chain_id, account=self.signer, wallet=self.wallet, logger=self.logger)
 
         if currency == Currency.DRV:
             return client.deposit_drv(amount=amount, currency=currency)
@@ -171,7 +171,7 @@ class BaseClient:
         """
 
         amount = int(amount * 10 ** TOKEN_DECIMALS[UnderlyingCurrency[currency.name.upper()]])
-        client = BridgeClient(self.env, chain_id, account=self.signer, wallet=self.wallet)
+        client = BridgeClient(self.env, chain_id, account=self.signer, wallet=self.wallet, logger=self.logger)
 
         if currency == Currency.DRV:
             return client.withdraw_drv(amount=amount, currency=currency)
@@ -188,7 +188,7 @@ class BaseClient:
         """
 
         chain_id = tx_result.source_chain if tx_result.source_chain != ChainID.DERIVE else tx_result.target_chain
-        client = BridgeClient(self.env, chain_id, account=self.signer, wallet=self.wallet)
+        client = BridgeClient(self.env, chain_id, account=self.signer, wallet=self.wallet, logger=self.logger)
         return client.poll_bridge_progress(tx_result=tx_result)
 
     def fetch_instruments(
