@@ -5,7 +5,7 @@ ETH:
   - https://eth-mainnet.public.blastapi.io
   - https://rpc.flashbots.net/
   - https://eth.merkle.io/
-  # - https://rpc.propellerheads.xyz/eth
+  - https://mainnet.gateway.tenderly.co
   - https://eth.rpc.hypersync.xyz/
 
 OPTIMISM:
@@ -16,6 +16,7 @@ OPTIMISM:
   - https://optimism-mainnet.public.blastapi.io/
   - https://optimism.rpc.hypersync.xyz/
   - https://optimism.gateway.tenderly.co
+  - https://optimism.api.onfinality.io/public
 
 BASE:
   - https://base.drpc.org
@@ -25,6 +26,7 @@ BASE:
   - https://1rpc.io/base
   - https://base-mainnet.public.blastapi.io
   - https://base.rpc.hypersync.xyz/
+  - https://base.api.onfinality.io/public
 
 ARBITRUM:
   - https://arbitrum.drpc.org
@@ -32,8 +34,9 @@ ARBITRUM:
   - https://1rpc.io/arb
   - https://arbitrum-one.publicnode.com
   - https://arbitrum-one.public.blastapi.io
-  # - https://arbitrum.blockpi.network/v1/rpc/public
+  - https://arb-pokt.nodies.app
   - https://arbitrum.rpc.hypersync.xyz/
+  - https://arbitrum.api.onfinality.io/public
 
 DERIVE:
   - https://rpc.derive.xyz/
