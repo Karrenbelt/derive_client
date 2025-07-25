@@ -19,3 +19,7 @@ class AlreadyFinalizedError(Exception):
 
 class BridgeRouteError(Exception):
     """Raised when no bridge route exists for the given currency and chains."""
+
+
+class NoAvailableRPC(Exception):
+    """Raised when all configured RPC endpoints are temporarily unavailable due to backoff or failures."""

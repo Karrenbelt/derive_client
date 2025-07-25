@@ -19,7 +19,7 @@ from web3.providers.rpc import HTTPProvider
 
 from derive_client.constants import ABI_DATA_DIR, DEFAULT_RPC_ENDPOINTS, GAS_FEE_BUFFER
 from derive_client.data_types import ChainID, RPCEndpoints, TxResult, TxStatus
-from derive_client.exceptions import TxSubmissionError
+from derive_client.exceptions import NoAvailableRPC, TxSubmissionError
 from derive_client.utils.logger import get_logger
 from derive_client.utils.retry import exp_backoff_retry, is_retryable
 
@@ -71,7 +71,7 @@ def make_rotating_provider_middleware(
                         heapq.heappush(heap, state)
                     msg = "All RPC endpoints are cooling down until %.2f (now=%.2f)"
                     logger.warning(msg, state.next_available, now)
-                    raise TimeoutError("All available RPC endpoints are on timeout")
+                    raise NoAvailableRPC("All available RPC endpoints are on timeout")
 
                 try:
                     # 3) attempt the request
