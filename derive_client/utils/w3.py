@@ -78,6 +78,19 @@ def make_rotating_provider_middleware(
                 try:
                     # 3) attempt the request
                     resp = state.provider.make_request(method, params)
+
+                    # Json‑RPC error branch
+                    if isinstance(resp, dict) and resp.get("error"):
+                        msg = resp["error"].get("message", "")
+                        state.backoff = state.backoff * 2 if state.backoff else initial_backoff
+                        state.backoff = min(state.backoff, max_backoff)
+                        state.next_available = now + state.backoff
+                        with lock:
+                            heapq.heappush(heap, state)
+                        msg = "RPC error on %s: %s → backing off %.2fs"
+                        logger.info(msg, state.provider.endpoint_uri, msg, state.backoff)
+                        continue
+
                     # 4) on success, reset its backoff and re-schedule immediately
                     state.backoff = 0.0
                     state.next_available = now
