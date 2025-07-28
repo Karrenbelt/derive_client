@@ -15,7 +15,12 @@ from web3 import Web3
 from web3.contract import Contract
 from web3.datastructures import AttributeDict
 
-from derive_client._bridge.transaction import ensure_allowance, ensure_balance, prepare_mainnet_to_derive_gas_tx
+from derive_client._bridge.transaction import (
+    _check_gas_balance,
+    ensure_allowance,
+    ensure_balance,
+    prepare_mainnet_to_derive_gas_tx,
+)
 from derive_client.constants import (
     CONFIGS,
     CONTROLLER_ABI_PATH,
@@ -247,6 +252,7 @@ class BridgeClient:
         target_from_block = context.target_w3.eth.block_number
 
         spender = token_data.Vault if token_data.isNewBridge else self.deposit_helper.address
+        _check_gas_balance(context.source_w3, self.owner)
         ensure_balance(context.source_token, self.owner, amount)
         ensure_allowance(
             w3=context.source_w3,
@@ -335,6 +341,7 @@ class BridgeClient:
         target_from_block = context.target_w3.eth.block_number
 
         # check allowance, if needed approve
+        _check_gas_balance(context.source_w3, self.owner)
         ensure_balance(context.source_token, self.owner, amount)
         ensure_allowance(
             w3=context.source_w3,

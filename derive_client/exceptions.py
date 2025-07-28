@@ -23,3 +23,7 @@ class BridgeRouteError(Exception):
 
 class NoAvailableRPC(Exception):
     """Raised when all configured RPC endpoints are temporarily unavailable due to backoff or failures."""
+
+
+class InsufficientGas(Exception):
+    """Raised when a minimum gas requirement is not met."""
