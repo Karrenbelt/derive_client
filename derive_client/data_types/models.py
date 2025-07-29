@@ -178,9 +178,9 @@ class TxResult:
     def status(self) -> TxStatus:
         if self.tx_receipt is not None:
             return TxStatus(int(self.tx_receipt.status))  # ∈ {0, 1} (EIP-658)
-        if isinstance(self.exception, TimeoutError):
-            return TxStatus.PENDING
-        return TxStatus.ERROR
+        if self.exception is not None and not isinstance(self.exception, TimeoutError):
+            return TxStatus.ERROR
+        return TxStatus.PENDING
 
 
 @dataclass(config=ConfigDict(validate_assignment=True))
