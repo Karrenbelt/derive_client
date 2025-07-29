@@ -10,7 +10,7 @@ from web3.exceptions import MethodUnavailable
 from web3.providers import HTTPProvider
 
 from derive_client.constants import DEFAULT_RPC_ENDPOINTS
-from derive_client.data_types import ChainID, JSONRPCErrorCode
+from derive_client.data_types import ChainID, JsonRPCErrorCode
 from derive_client.utils import get_logger, load_rpc_endpoints, make_rotating_provider_middleware
 
 RPC_ENDPOINTS = list(load_rpc_endpoints(DEFAULT_RPC_ENDPOINTS).model_dump().items())
@@ -107,7 +107,7 @@ def test_rpc_methods_supported(chain, rpc_endpoints):
                     exceptions.setdefault(url, []).append((method, e))
             except ValueError as e:
                 err = e.args[0]
-                if isinstance(err, dict) and err.get("code") == JSONRPCErrorCode.METHOD_NOT_FOUND:
+                if isinstance(err, dict) and err.get("code") == JsonRPCErrorCode.METHOD_NOT_FOUND:
                     # still missing
                     missing.setdefault(url, []).append(method)
                 # else: other error codes (-32000, -32603, etc.) => method exists
