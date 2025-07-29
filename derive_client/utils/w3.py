@@ -45,7 +45,7 @@ def make_rotating_provider_middleware(
     endpoints: list[HTTPProvider],
     *,
     initial_backoff: float = 1.0,
-    max_backoff: float = 300.0,
+    max_backoff: float = 600.0,
     logger: Logger,
 ) -> Callable[[Callable[[str, Any], Any], Web3], Callable[[str, Any], Any]]:
     """
@@ -151,7 +151,7 @@ def get_w3_connection(
     rotator = make_rotating_provider_middleware(
         providers,
         initial_backoff=1.0,
-        max_backoff=60.0,
+        max_backoff=600.0,
         logger=logger,
     )
     w3.middleware_onion.add(rotator)
