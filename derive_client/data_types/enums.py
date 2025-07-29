@@ -220,7 +220,7 @@ class RfqStatus(Enum):
     OPEN = "open"
 
 
-class JsonRPCErrorCode(IntEnum):
+class EthereumJSONRPCErrorCode(IntEnum):
     # https://ethereum-json-rpc.com/errors
     PARSE_ERROR = -32700
     INVALID_REQUEST = -32600
@@ -237,7 +237,7 @@ class JsonRPCErrorCode(IntEnum):
     JSONRPC_VERSION_NOT_SUPPORTED = -32006
 
 
-class DeriveJsonRPCErrorCode(JsonRPCErrorCode):
+class DeriveJSONRPCErrorCode(IntEnum):
     # https://docs.derive.xyz/reference/error-codes
     NO_ERROR = 0
     RATE_LIMIT_EXCEEDED = -32000

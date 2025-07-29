@@ -53,7 +53,7 @@ from derive_client.data_types import (
     UnderlyingCurrency,
     WithdrawResult,
 )
-from derive_client.exceptions import ApiException
+from derive_client.exceptions import DeriveJSONRPCException
 from derive_client.utils import get_logger, wait_until
 
 
@@ -339,7 +339,7 @@ class BaseClient:
                     if "result" not in message:
                         if self._check_output_for_rate_limit(message):
                             return self.submit_order(order)
-                        raise ApiException(message["error"])
+                        raise DeriveJSONRPCException(**message["error"])
                     return message["result"]["order"]
                 except KeyError as error:
                     print(message)
@@ -418,7 +418,7 @@ class BaseClient:
                     if "result" not in message:
                         if self._check_output_for_rate_limit(message):
                             return self.login_client()
-                        raise ApiException(message["error"])
+                        raise DeriveJSONRPCException(**message["error"])
                     break
         except (WebSocketConnectionClosedException, Exception) as error:
             if retries:
@@ -496,7 +496,7 @@ class BaseClient:
                 if "result" not in message:
                     if self._check_output_for_rate_limit(message):
                         return self.cancel_all()
-                    raise ApiException(message["error"])
+                    raise DeriveJSONRPCException(**message["error"])
                 return message["result"]
 
     def _check_output_for_rate_limit(self, message):
@@ -556,7 +556,7 @@ class BaseClient:
                 if "result" not in message:
                     if self._check_output_for_rate_limit(message):
                         return self.fetch_tickers(instrument_type=instrument_type, currency=currency)
-                    raise ApiException(message["error"])
+                    raise DeriveJSONRPCException(**message["error"])
                 results[message["result"]["instrument_name"]] = message["result"]
                 del ids_to_instrument_names[message["id"]]
         return results
@@ -764,10 +764,9 @@ class BaseClient:
     def _send_request(self, url, json=None, params=None, headers=None):
         headers = self._create_signature_headers() if not headers else headers
         response = requests.post(url, json=json, headers=headers, params=params)
-        if 403 == response.status_code:
-            raise ApiException(response.content)
+        response.raise_for_status()
         if "error" in response.json():
-            raise ApiException(response.json()["error"])
+            raise DeriveJSONRPCException(**response.json()["error"])
         results = response.json()["result"]
         return results
 

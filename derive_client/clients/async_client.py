@@ -16,7 +16,7 @@ from derive_client.constants import CONFIGS, DEFAULT_REFERER, TEST_PRIVATE_KEY
 from derive_client.data_types import Environment, InstrumentType, OrderSide, OrderType, TimeInForce, UnderlyingCurrency
 from derive_client.utils import get_logger
 
-from .base_client import ApiException
+from .base_client import DeriveJSONRPCException
 from .ws_client import WsClient as BaseClient
 
 
@@ -139,7 +139,7 @@ class AsyncClient(BaseClient):
                 if "result" not in message:
                     if self._check_output_for_rate_limit(message):
                         return await self.login_client()
-                    raise ApiException(message['error'])
+                    raise DeriveJSONRPCException(**message['error'])
                 break
 
     def handle_message(self, subscription, data):
@@ -341,7 +341,7 @@ class AsyncClient(BaseClient):
                         if "result" not in message:
                             if self._check_output_for_rate_limit(message):
                                 return await self.submit_order(order)
-                            raise ApiException(message['error'])
+                            raise DeriveJSONRPCException(**message['error'])
                         return message['result']['order']
                     except KeyError as error:
                         print(message)
