@@ -336,7 +336,7 @@ def iter_events(
             cursor = end + 1  # bounds are inclusive
 
         if fixed_ceiling and cursor > fixed_ceiling:
-            return
+            raise StopIteration
 
         time.sleep(poll_interval)
 
