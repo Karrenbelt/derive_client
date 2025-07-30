@@ -510,6 +510,7 @@ class BridgeClient:
                 )
             except TimeoutError as e:
                 tx_result.source_tx.exception = e
+                return tx_result
 
         # 2. target_tx is None (i.e. TimeoutError when waiting for event log on target chain)
         if not tx_result.target_tx:
