@@ -102,7 +102,7 @@ def make_rotating_provider_middleware(
                     logger.debug("Endpoint %s failed: %s", state.provider.endpoint_uri, e)
 
                     # We retry on all exceptions
-                    hdr = e.response.headers.get("Retry-After")
+                    hdr = (e.response and e.response.headers or {}).get("Retry-After")
                     try:
                         backoff = float(hdr)
                     except (ValueError, TypeError):
