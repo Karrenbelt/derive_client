@@ -306,6 +306,7 @@ def iter_events(
     max_block_range: int = 10_000,
     poll_interval: float = 5.0,
     timeout: float | None = None,
+    logger: Logger,
 ) -> Generator[AttributeDict, None, None]:
     """Stream matching logs over a fixed or live block window. Optionally raises TimeoutError."""
 
@@ -321,6 +322,7 @@ def iter_events(
     while True:
         if deadline and time.time() > deadline:
             msg = f"Timed out waiting for events after scanning blocks {start_block}-{cursor}"
+            logger.warning(msg)
             raise TimeoutError(f"{msg}: filter_params: {original_filter_params}")
         upper = fixed_ceiling or w3.eth.block_number
         if cursor <= upper:
@@ -333,7 +335,7 @@ def iter_events(
                 filter_params=filter_params,
                 retries=EVENT_LOG_RETRIES,
             )
-            print(f"Scanned {cursor} - {end}: {len(logs)} logs")
+            logger.info(f"Scanned {cursor} - {end}: {len(logs)} logs")
             yield from filter(condition, logs)
             cursor = end + 1  # bounds are inclusive
 
@@ -351,6 +353,7 @@ def wait_for_event(
     max_block_range: int = 10_000,
     poll_interval: float = 5.0,
     timeout: float = 300.0,
+    logger: Logger,
 ) -> AttributeDict:
     """Return the first log from iter_events, or raise TimeoutError after `timeout` seconds."""
 

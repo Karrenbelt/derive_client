@@ -456,7 +456,7 @@ class BridgeClient:
         )
 
         self.logger.info(f"🔍 Listening for OFTReceived on [{tx_result.target_chain.name}] at {context.target_event.address}")
-        return wait_for_event(context.target_w3, filter_params)
+        return wait_for_event(context.target_w3, filter_params, logger=self.logger)
 
     def fetch_socket_event_log(self, tx_result: BridgeTxResult, context: BridgeContext):
 
@@ -477,7 +477,7 @@ class BridgeClient:
             return decoded.get("args", {}).get("msgId") == message_id
 
         self.logger.info(f"🔍 Listening for ExecutionSuccess on [{tx_result.target_chain.name}] at {context.target_event.address}")
-        return wait_for_event(context.target_w3, filter_params, condition=matching_message_id)
+        return wait_for_event(context.target_w3, filter_params, condition=matching_message_id, logger=self.logger)
 
     def poll_bridge_progress(self, tx_result: BridgeTxResult) -> BridgeTxResult:
         if tx_result.status is not TxStatus.PENDING:
