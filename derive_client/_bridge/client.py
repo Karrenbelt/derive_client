@@ -445,7 +445,7 @@ class BridgeClient:
             raise BridgeEventParseError(f"Could not decode LayerZero OFTSent guid: {e}") from e
 
         tx_result.event_id = guid.hex()
-        print(f"🔖 Source [{tx_result.source_chain.name}] OFTSent GUID: {tx_result.event_id}")
+        self.logger.info(f"🔖 Source [{tx_result.source_chain.name}] OFTSent GUID: {tx_result.event_id}")
 
         filter_params = make_filter_params(
             event=context.target_event,
@@ -453,7 +453,7 @@ class BridgeClient:
             argument_filters={"guid": guid},
         )
 
-        print(f"🔍 Listening for OFTReceived on [{tx_result.target_chain.name}] at {context.target_event.address}")
+        self.logger.info(f"🔍 Listening for OFTReceived on [{tx_result.target_chain.name}] at {context.target_event.address}")
         return wait_for_event(context.target_w3, filter_params)
 
     def fetch_socket_event_log(self, tx_result: BridgeTxResult, context: BridgeContext):
@@ -465,7 +465,7 @@ class BridgeClient:
             raise BridgeEventParseError(f"Could not decode Socket MessageOutbound event: {e}") from e
 
         tx_result.event_id = message_id.hex()
-        print(f"🔖 Source [{tx_result.source_chain.name}] MessageOutbound msgId: {tx_result.event_id}")
+        self.logger.info(f"🔖 Source [{tx_result.source_chain.name}] MessageOutbound msgId: {tx_result.event_id}")
         filter_params = context.target_event._get_event_filter_params(
             fromBlock=tx_result.target_from_block, abi=context.target_event.abi
         )
@@ -474,7 +474,7 @@ class BridgeClient:
             decoded = context.target_event.process_log(log)
             return decoded.get("args", {}).get("msgId") == message_id
 
-        print(f"🔍 Listening for ExecutionSuccess on [{tx_result.target_chain.name}] at {context.target_event.address}")
+        self.logger.info(f"🔍 Listening for ExecutionSuccess on [{tx_result.target_chain.name}] at {context.target_event.address}")
         return wait_for_event(context.target_w3, filter_params, condition=matching_message_id)
 
     def poll_bridge_progress(self, tx_result: BridgeTxResult) -> BridgeTxResult:
@@ -500,7 +500,7 @@ class BridgeClient:
 
         # 1. TimeoutError as exception during source_tx.tx_receipt
         if not tx_result.source_tx.tx_receipt:
-            print(
+            self.logger.info(
                 f"⏳ Checking source chain [{tx_result.source_chain.name}] tx receipt for {tx_result.source_tx.tx_hash}"
             )
             tx_result.source_tx.exception = None
@@ -522,7 +522,7 @@ class BridgeClient:
 
         # 3. Timeout waiting for target_tx.tx_receipt
         if not tx_result.target_tx.tx_receipt:
-            print(
+            self.logger.info(
                 f"⏳ Checking target chain [{tx_result.target_chain.name}] tx receipt for {tx_result.target_tx.tx_hash}"
             )
             tx_result.target_tx.exception = None
@@ -539,7 +539,7 @@ class BridgeClient:
         """Ensure that the Derive EOA wallet has sufficient ETH balance for gas."""
         balance_of_owner = self.derive_w3.eth.get_balance(self.owner)
         if balance_of_owner < DEPOSIT_GAS_LIMIT:
-            print(f"Funding Derive EOA wallet with {DEFAULT_GAS_FUNDING_AMOUNT} ETH")
+            self.logger.info(f"Funding Derive EOA wallet with {DEFAULT_GAS_FUNDING_AMOUNT} ETH")
             self.bridge_mainnet_eth_to_derive(DEFAULT_GAS_FUNDING_AMOUNT)
 
     def bridge_mainnet_eth_to_derive(self, amount: int) -> TxResult:
