@@ -261,6 +261,7 @@ class BridgeClient:
             spender=spender,
             amount=amount,
             private_key=self.private_key,
+            logger=self.logger,
         )
 
         if token_data.isNewBridge:
@@ -350,6 +351,7 @@ class BridgeClient:
             spender=context.source_token.address,
             amount=amount,
             private_key=self.private_key,
+            logger=self.logger,
         )
 
         # build the send tx

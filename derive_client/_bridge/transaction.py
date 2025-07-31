@@ -1,3 +1,5 @@
+from logging import Logger
+
 from eth_account import Account
 from web3 import Web3
 from web3.contract import Contract
@@ -30,10 +32,11 @@ def ensure_allowance(
     spender: Address,
     amount: int,
     private_key: str,
+    logger: Logger,
 ):
     allowance = token_contract.functions.allowance(owner, spender).call()
     if amount > allowance:
-        print(f"Increasing allowance from {allowance} to {amount}")
+        logger.info(f"Increasing allowance from {allowance} to {amount}")
         increase_allowance(
             w3=w3,
             from_account=Account.from_key(private_key),
