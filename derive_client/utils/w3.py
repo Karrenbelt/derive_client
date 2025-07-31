@@ -259,14 +259,14 @@ def send_and_confirm_tx(
         tx_receipt = wait_for_tx_receipt(w3=w3, tx_hash=tx_hash)
         tx_result.tx_receipt = tx_receipt
     except TimeoutError as timeout_err:
-        logger.warning(f"⏱️ Timeout waiting for tx receipt of {tx_hash.hex()}")
+        logger.warning(f"⏱️ Timeout waiting for tx receipt of {tx_hash.to_0x_hex()}")
         tx_result.exception = timeout_err
         return tx_result
 
     if tx_result.tx_receipt.status == TxStatus.SUCCESS:
-        logger.info(f"✅ {action} succeeded for tx {tx_hash.hex()}")
+        logger.info(f"✅ {action} succeeded for tx {tx_hash.to_0x_hex()}")
     else:
-        logger.error(f"❌ {action} reverted for tx {tx_hash.hex()}")
+        logger.error(f"❌ {action} reverted for tx {tx_hash.to_0x_hex()}")
 
     return tx_result
 
