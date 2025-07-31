@@ -44,6 +44,7 @@ def ensure_allowance(
             spender=spender,
             amount=amount,
             private_key=private_key,
+            logger=logger,
         )
 
 
@@ -54,10 +55,11 @@ def increase_allowance(
     spender: Address,
     amount: int,
     private_key: str,
+    logger: Logger,
 ) -> None:
     func = erc20_contract.functions.approve(spender, amount)
     tx = build_standard_transaction(func=func, account=from_account, w3=w3)
-    tx_result = send_and_confirm_tx(w3=w3, tx=tx, private_key=private_key, action="approve()")
+    tx_result = send_and_confirm_tx(w3=w3, tx=tx, private_key=private_key, action="approve()", logger=logger)
     if tx_result.status != TxStatus.SUCCESS:
         raise RuntimeError("approve() failed")
 

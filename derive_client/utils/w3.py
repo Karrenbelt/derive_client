@@ -229,11 +229,11 @@ def wait_for_tx_receipt(w3: Web3, tx_hash: str, timeout=120, poll_interval=1) ->
         time.sleep(poll_interval)
 
 
-def sign_and_send_tx(w3: Web3, tx: dict, private_key: str) -> HexBytes:
+def sign_and_send_tx(w3: Web3, tx: dict, private_key: str, logger: Logger) -> HexBytes:
     signed_tx = w3.eth.account.sign_transaction(tx, private_key=private_key)
-    print(f"signed_tx: {signed_tx}")
+    logger.info(f"signed_tx: {signed_tx}")
     tx_hash = w3.eth.send_raw_transaction(signed_tx.raw_transaction)
-    print(f"tx_hash: 0x{tx_hash.hex()}")
+    logger.info(f"tx_hash: {tx_hash.to_0x_hex()}")
     return tx_hash
 
 
@@ -243,28 +243,30 @@ def send_and_confirm_tx(
     private_key: str,
     *,
     action: str,  # e.g. "approve()", "deposit()", "withdraw()"
+    logger: Logger,
 ) -> TxResult:
     """Send and confirm transactions."""
 
     try:
-        tx_hash = sign_and_send_tx(w3=w3, tx=tx, private_key=private_key)
+        tx_hash = sign_and_send_tx(w3=w3, tx=tx, private_key=private_key, logger=logger)
         tx_result = TxResult(tx_hash=tx_hash.to_0x_hex(), tx_receipt=None, exception=None)
     except Exception as send_err:
         msg = f"❌ Failed to send tx for {action}, error: {send_err!r}"
+        logger.error(msg)
         raise TxSubmissionError(msg) from send_err
 
     try:
         tx_receipt = wait_for_tx_receipt(w3=w3, tx_hash=tx_hash)
         tx_result.tx_receipt = tx_receipt
     except TimeoutError as timeout_err:
-        print(f"⏱️ Timeout waiting for tx receipt of {tx_hash.hex()}")
+        logger.warning(f"⏱️ Timeout waiting for tx receipt of {tx_hash.hex()}")
         tx_result.exception = timeout_err
         return tx_result
 
     if tx_result.tx_receipt.status == TxStatus.SUCCESS:
-        print(f"✅ {action} succeeded for tx {tx_hash.hex()}")
+        logger.info(f"✅ {action} succeeded for tx {tx_hash.hex()}")
     else:
-        print(f"❌ {action} reverted for tx {tx_hash.hex()}")
+        logger.error(f"❌ {action} reverted for tx {tx_hash.hex()}")
 
     return tx_result
 

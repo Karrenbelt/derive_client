@@ -269,7 +269,7 @@ class BridgeClient:
         else:
             tx = self._prepare_old_style_deposit(token_data, amount)
 
-        source_tx = send_and_confirm_tx(w3=context.source_w3, tx=tx, private_key=self.private_key, action="bridge()")
+        source_tx = send_and_confirm_tx(w3=context.source_w3, tx=tx, private_key=self.private_key, action="bridge()", logger=self.logger)
         tx_result = BridgeTxResult(
             currency=currency,
             bridge=BridgeType.SOCKET,
@@ -319,7 +319,7 @@ class BridgeClient:
         tx = build_standard_transaction(func=func, account=self.account, w3=context.source_w3, value=0)
 
         source_tx = send_and_confirm_tx(
-            w3=context.source_w3, tx=tx, private_key=self.private_key, action="executeBatch()"
+            w3=context.source_w3, tx=tx, private_key=self.private_key, action="executeBatch()", logger=self.logger,
         )
         tx_result = BridgeTxResult(
             currency=currency,
@@ -377,7 +377,7 @@ class BridgeClient:
         tx = build_standard_transaction(func=func, account=self.account, w3=context.source_w3, value=native_fee)
 
         source_tx = send_and_confirm_tx(
-            w3=context.source_w3, tx=tx, private_key=self.private_key, action="executeBatch()"
+            w3=context.source_w3, tx=tx, private_key=self.private_key, action="executeBatch()", logger=self.logger,
         )
         tx_result = BridgeTxResult(
             currency=currency,
@@ -425,7 +425,7 @@ class BridgeClient:
         tx = build_standard_transaction(func=func, account=self.account, w3=context.source_w3, value=0)
 
         source_tx = send_and_confirm_tx(
-            w3=context.source_w3, tx=tx, private_key=self.private_key, action="executeBatch()"
+            w3=context.source_w3, tx=tx, private_key=self.private_key, action="executeBatch()", logger=self.logger,
         )
         tx_result = BridgeTxResult(
             currency=currency,
@@ -557,7 +557,7 @@ class BridgeClient:
         proxy_contract = get_contract(w3=w3, address=address, abi=bridge_abi)
 
         tx = prepare_mainnet_to_derive_gas_tx(w3=w3, account=self.account, amount=amount, proxy_contract=proxy_contract)
-        tx_result = send_and_confirm_tx(w3=w3, tx=tx, private_key=self.private_key, action="bridgeETH()")
+        tx_result = send_and_confirm_tx(w3=w3, tx=tx, private_key=self.private_key, action="bridgeETH()", logger=self.logger)
         return tx_result
 
     def _prepare_new_style_deposit(self, token_data: NonMintableTokenData, amount: int) -> dict:
