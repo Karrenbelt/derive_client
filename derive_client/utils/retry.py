@@ -28,7 +28,7 @@ def exp_backoff_retry(
     *,
     attempts: int = 3,
     initial_delay: float = 1.0,
-    exceptions=(Exception,)
+    exceptions=(Exception,),
 ) -> T:
     if func is None:
         return lambda f: exp_backoff_retry(f, attempts=attempts, initial_delay=initial_delay, exceptions=exceptions)
@@ -41,8 +41,7 @@ def exp_backoff_retry(
                 return func(*args, **kwargs)
             except exceptions as e:
                 if attempt == attempts - 1:
-                    raise
-                print(f"Failed execution:\n{e}\nTrying again in {delay} seconds")
+                    raise e
                 time.sleep(delay)
                 delay *= 2
 
