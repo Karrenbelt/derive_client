@@ -21,7 +21,6 @@ from derive_action_signing.module_data import (
 from derive_action_signing.signed_action import SignedAction
 from derive_action_signing.utils import MAX_INT_32, get_action_nonce, sign_rest_auth_header, sign_ws_login, utc_now_ms
 from pydantic import validate_call
-from rich import print
 from web3 import Web3
 from websocket import WebSocketConnectionClosedException, create_connection
 
