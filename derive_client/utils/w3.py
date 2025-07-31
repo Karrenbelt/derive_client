@@ -21,7 +21,7 @@ from derive_client.constants import ABI_DATA_DIR, DEFAULT_RPC_ENDPOINTS, GAS_FEE
 from derive_client.data_types import ChainID, RPCEndpoints, TxResult, TxStatus
 from derive_client.exceptions import NoAvailableRPC, TxSubmissionError
 from derive_client.utils.logger import get_logger
-from derive_client.utils.retry import exp_backoff_retry, retry
+from derive_client.utils.retry import exp_backoff_retry
 
 EVENT_LOG_RETRIES = 10
 
@@ -330,11 +330,8 @@ def iter_events(
             filter_params["fromBlock"] = hex(cursor)
             filter_params["toBlock"] = hex(end)
             # For example, when rotating providers are out of sync
-            logs = retry(
-                w3.eth.get_logs,
-                filter_params=filter_params,
-                retries=EVENT_LOG_RETRIES,
-            )
+            retry_get_logs = exp_backoff_retry(w3.eth.get_logs, attempts=EVENT_LOG_RETRIES)
+            logs = retry_get_logs(filter_params=filter_params)
             logger.info(f"Scanned {cursor} - {end}: {len(logs)} logs")
             yield from filter(condition, logs)
             cursor = end + 1  # bounds are inclusive
