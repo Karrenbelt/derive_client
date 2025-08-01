@@ -3,6 +3,7 @@ import time
 import warnings
 from http import HTTPStatus
 
+import certifi
 import pytest
 from requests.exceptions import RequestException
 from web3 import Web3
@@ -48,7 +49,7 @@ def test_rpc_endpoints_reachability_and_chain_id(chain, rpc_endpoints):
     failed = {}
     rate_limited = set()
 
-    request_kwargs = {"timeout": 1}
+    request_kwargs = {"timeout": 1, "verify": certifi.where()}
     providers = [HTTPProvider(url, request_kwargs) for url in rpc_endpoints]
     for provider in providers:
         w3 = Web3(provider)
@@ -91,7 +92,8 @@ def test_rpc_methods_supported(chain, rpc_endpoints):
     missing = {}
     exceptions = {}
     for url in rpc_endpoints:
-        prov = HTTPProvider(url)
+        request_kwargs = {"verify": certifi.where()}
+        prov = HTTPProvider(url,request_kwargs=request_kwargs)
         w3 = Web3(prov)
 
         for method, params in REQUIRED_METHODS.items():
@@ -129,7 +131,7 @@ def test_rotating_middelware(chain, rpc_endpoints):
     # --------------------
 
     # 0) Timeout fast, otherwise any ReadTimeout (default 10s) will cause failure
-    request_kwargs = {"timeout": 1}
+    request_kwargs = {"timeout": 1, "verify": certifi.where()}
 
     # 1) Build your list of HTTPProvider, based on your RPCEndpoints
     used = set()
