@@ -331,19 +331,8 @@ class BaseClient:
         return action
 
     def submit_order(self, order):
-        id = str(utc_now_ms())
-        self.ws.send(json.dumps({"method": "private/order", "params": order, "id": id}))
-        while True:
-            message = json.loads(self.ws.recv())
-            if message["id"] == id:
-                try:
-                    if "result" not in message:
-                        if self._check_output_for_rate_limit(message):
-                            return self.submit_order(order)
-                        raise DeriveJSONRPCException(**message["error"])
-                    return message["result"]["order"]
-                except KeyError as error:
-                    raise Exception(f"Unable to submit order {message}") from error
+        url = self.endpoints.private.order
+        return self._send_request(url, json=order)["order"]
 
     def _sign_quote(self, quote):
         """

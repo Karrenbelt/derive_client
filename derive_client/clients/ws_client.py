@@ -2,7 +2,12 @@
 Class to handle base websocket client
 """
 
+import json
+
+from derive_action_signing.utils import utc_now_ms
+
 from .base_client import BaseClient
+from derive_client.exceptions import DeriveJSONRPCException
 
 
 class WsClient(BaseClient):
@@ -12,3 +17,18 @@ class WsClient(BaseClient):
         super().__init__(*args, **kwargs)
         self.ws = self.connect_ws()
         self.login_client()
+
+    def submit_order(self, order):
+        id = str(utc_now_ms())
+        self.ws.send(json.dumps({"method": "private/order", "params": order, "id": id}))
+        while True:
+            message = json.loads(self.ws.recv())
+            if message["id"] == id:
+                try:
+                    if "result" not in message:
+                        if self._check_output_for_rate_limit(message):
+                            return self.submit_order(order)
+                        raise DeriveJSONRPCException(**message["error"])
+                    return message["result"]["order"]
+                except KeyError as error:
+                    raise Exception(f"Unable to submit order {message}") from error
