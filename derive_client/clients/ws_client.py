@@ -3,8 +3,10 @@ Class to handle base websocket client
 """
 
 import json
+import time
 
-from derive_action_signing.utils import utc_now_ms
+from derive_action_signing.utils import utc_now_ms, sign_ws_login
+from websocket import WebSocketConnectionClosedException
 
 from .base_client import BaseClient
 from derive_client.exceptions import DeriveJSONRPCException
@@ -17,6 +19,37 @@ class WsClient(BaseClient):
         super().__init__(*args, **kwargs)
         self.ws = self.connect_ws()
         self.login_client()
+
+
+    def login_client(
+        self,
+        retries=3,
+    ):
+        login_request = {
+            "method": "public/login",
+            "params": sign_ws_login(
+                web3_client=self.web3_client,
+                smart_contract_wallet=self.wallet,
+                session_key_or_wallet_private_key=self.signer._private_key,
+            ),
+            "id": str(utc_now_ms()),
+        }
+        try:
+            self.ws.send(json.dumps(login_request))
+            # we need to wait for the response
+            while True:
+                message = json.loads(self.ws.recv())
+                if message["id"] == login_request["id"]:
+                    if "result" not in message:
+                        if self._check_output_for_rate_limit(message):
+                            return self.login_client()
+                        raise DeriveJSONRPCException(**message["error"])
+                    break
+        except (WebSocketConnectionClosedException, Exception) as error:
+            if retries:
+                time.sleep(1)
+                self.login_client(retries=retries - 1)
+            raise error
 
     def submit_order(self, order):
         id = str(utc_now_ms())

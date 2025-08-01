@@ -19,10 +19,10 @@ from derive_action_signing.module_data import (
     WithdrawModuleData,
 )
 from derive_action_signing.signed_action import SignedAction
-from derive_action_signing.utils import MAX_INT_32, get_action_nonce, sign_rest_auth_header, sign_ws_login, utc_now_ms
+from derive_action_signing.utils import MAX_INT_32, get_action_nonce, sign_rest_auth_header, utc_now_ms
 from pydantic import validate_call
 from web3 import Web3
-from websocket import WebSocketConnectionClosedException, create_connection
+from websocket import create_connection
 
 from derive_client._bridge import BridgeClient
 from derive_client.constants import CONFIGS, DEFAULT_REFERER, PUBLIC_HEADERS, TOKEN_DECIMALS
@@ -384,36 +384,6 @@ class BaseClient:
         if not self._ws.connected:
             self._ws = self.connect_ws()
         return self._ws
-
-    def login_client(
-        self,
-        retries=3,
-    ):
-        login_request = {
-            "method": "public/login",
-            "params": sign_ws_login(
-                web3_client=self.web3_client,
-                smart_contract_wallet=self.wallet,
-                session_key_or_wallet_private_key=self.signer._private_key,
-            ),
-            "id": str(utc_now_ms()),
-        }
-        try:
-            self.ws.send(json.dumps(login_request))
-            # we need to wait for the response
-            while True:
-                message = json.loads(self.ws.recv())
-                if message["id"] == login_request["id"]:
-                    if "result" not in message:
-                        if self._check_output_for_rate_limit(message):
-                            return self.login_client()
-                        raise DeriveJSONRPCException(**message["error"])
-                    break
-        except (WebSocketConnectionClosedException, Exception) as error:
-            if retries:
-                sleep(1)
-                self.login_client(retries=retries - 1)
-            raise error
 
     def fetch_ticker(self, instrument_name):
         """
