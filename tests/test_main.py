@@ -225,7 +225,6 @@ def test_get_collaterals(derive_client):
     assert isinstance(collaterals, list)
 
 
-@pytest.mark.skip("This test is not working on testnet due to rate limiting")
 def test_get_tickers(derive_client):
     """Test get tickers."""
     tickers = derive_client.fetch_tickers()
