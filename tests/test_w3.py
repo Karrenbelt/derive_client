@@ -38,7 +38,8 @@ class TrackingHTTPProvider(HTTPProvider):
     def make_request(self, method, params):
         with self.lock:
             self.used.add(self.endpoint_uri)
-        return super().make_request(method, params)
+        # No-op, no call to super(), we only use this to test provider rotation
+        return {"result": {}}
 
 
 @pytest.mark.flaky(reruns=3, reruns_delay=1)
@@ -93,7 +94,7 @@ def test_rpc_methods_supported(chain, rpc_endpoints):
     exceptions = {}
     for url in rpc_endpoints:
         request_kwargs = {"verify": certifi.where()}
-        prov = HTTPProvider(url,request_kwargs=request_kwargs)
+        prov = HTTPProvider(url, request_kwargs=request_kwargs)
         w3 = Web3(prov)
 
         for method, params in REQUIRED_METHODS.items():
@@ -153,10 +154,7 @@ def test_rotating_middelware(chain, rpc_endpoints):
     expected = {p.endpoint_uri for p in providers}
     timeout = time.monotonic() + len(providers)
     while used != expected and time.monotonic() < timeout:
-        try:
-            _ = w3.eth.get_block("latest")
-        except Exception:
-            pass
+        _ = w3.eth.get_block("latest")
 
     unused = expected - used
     assert not unused, f"Unused {chain} endpoints:\n{unused}"
