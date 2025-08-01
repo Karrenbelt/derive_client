@@ -48,6 +48,7 @@ class PrivateEndpoints:
     withdraw = Endpoint("private", "withdraw")
     order = Endpoint("private", "order")
     cancel = Endpoint("private", "cancel")
+    cancel_all = Endpoint("private", "cancel_all")
 
 
 class RestAPI:

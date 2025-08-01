@@ -49,3 +49,20 @@ class WsClient(BaseClient):
             message = json.loads(self.ws.recv())
             if message["id"] == id:
                 return message["result"]
+
+    def cancel_all(self):
+        """
+        Cancel all orders
+        """
+        id = str(utc_now_ms())
+        payload = {"subaccount_id": self.subaccount_id}
+        self.login_client()
+        self.ws.send(json.dumps({"method": "private/cancel_all", "params": payload, "id": id}))
+        while True:
+            message = json.loads(self.ws.recv())
+            if message["id"] == id:
+                if "result" not in message:
+                    if self._check_output_for_rate_limit(message):
+                        return self.cancel_all()
+                    raise DeriveJSONRPCException(**message["error"])
+                return message["result"]
