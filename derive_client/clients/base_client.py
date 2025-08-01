@@ -377,14 +377,6 @@ class BaseClient:
         )
         return self.web3_client.keccak(encoded_data)
 
-    @property
-    def ws(self):
-        if not hasattr(self, "_ws"):
-            self._ws = self.connect_ws()
-        if not self._ws.connected:
-            self._ws = self.connect_ws()
-        return self._ws
-
     def fetch_ticker(self, instrument_name):
         """
         Fetch the ticker for a given instrument name.
