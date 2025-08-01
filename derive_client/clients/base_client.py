@@ -2,7 +2,9 @@
 Base Client for the derive dex.
 """
 
+import re
 import json
+import time
 import random
 from decimal import Decimal
 from logging import Logger
@@ -51,6 +53,7 @@ from derive_client.data_types import (
     TimeInForce,
     UnderlyingCurrency,
     WithdrawResult,
+    DeriveJSONRPCErrorCode,
 )
 from derive_client.endpoints import RestAPI
 from derive_client.exceptions import DeriveJSONRPCException
@@ -676,14 +679,29 @@ class BaseClient:
             "signature": "filled_in_below",
         }
 
-    def _send_request(self, url, json=None, params=None, headers=None):
+    def _send_request(self, url, json=None, params=None, headers=None, max_retries: int = 5):
         headers = self._create_signature_headers() if not headers else headers
-        response = requests.post(url, json=json, headers=headers, params=params)
-        response.raise_for_status()
-        if "error" in response.json():
-            raise DeriveJSONRPCException(**response.json()["error"])
-        results = response.json()["result"]
-        return results
+        attempt = 0
+        while True:
+            attempt += 1
+            response = requests.post(url, json=json, headers=headers, params=params)
+            response.raise_for_status()
+            json_data = response.json()
+            if (error := json_data.get("error")):
+                code = error.get("code", 0)
+                data = error.get("data", "")
+                if code == DeriveJSONRPCErrorCode.RATE_LIMIT_EXCEEDED and attempt < max_retries:
+                    # extract ms from "Retry after 693 ms"
+                    m = re.search(r"(\d+)\s*ms", data, flags=re.IGNORECASE)
+                    delay = (int(m.group(1)) / 1000) if m else 1.0
+                    self.logger.info(f"Rate limit hit ({data}), retry #{attempt} in {delay}s")
+                    time.sleep(delay)
+                    continue
+                else:
+                    self.logger.warning(f"RPC error or retries exhausted at attempt {attempt}: {error}")
+                    raise DeriveJSONRPCException(**error)
+            else:
+                return json_data["result"]
 
     def fetch_all_currencies(self):
         """
