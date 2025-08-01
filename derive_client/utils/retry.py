@@ -1,6 +1,7 @@
 import functools
 import time
 from http import HTTPStatus
+from logging import Logger
 from typing import Callable, ParamSpec, Sequence, TypeVar
 
 import requests
@@ -62,6 +63,7 @@ def get_retry_session(
         "OPTIONS",
     ),
     raise_on_status: bool = False,
+    logger: Logger | None = None,
 ) -> requests.Session:
     session = requests.Session()
     retry = Retry(
@@ -78,7 +80,7 @@ def get_retry_session(
     session.mount("http://", adapter)
     session.mount("https://", adapter)
 
-    logger = get_logger()
+    logger = logger or get_logger()
 
     def log_response(r, *args, **kwargs):
         logger.info(f"Response {r.request.method} {r.url} (status {r.status_code})")
