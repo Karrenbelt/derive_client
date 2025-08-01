@@ -395,6 +395,14 @@ class BaseClient:
         results = json.loads(response.content)["result"]
         return results
 
+    def fetch_tickers(
+        self,
+        instrument_type: InstrumentType = InstrumentType.OPTION,
+        currency: UnderlyingCurrency = UnderlyingCurrency.BTC,
+    ):
+        instruments = self.fetch_instruments(instrument_type=instrument_type, currency=currency)
+        return {inst["instrument_name"]: self.fetch_ticker(inst["instrument_name"]) for inst in instruments}
+
     def fetch_orders(
         self,
         instrument_name: str = None,
@@ -423,7 +431,6 @@ class BaseClient:
         response = requests.post(url, json=payload, headers=headers)
         results = response.json()["result"]["orders"]
         return results
-
 
     def cancel(self, order_id, instrument_name):
         """
@@ -476,36 +483,6 @@ class BaseClient:
         payload = {"subaccount_id": self.subaccount_id}
         result = self._send_request(url, json=payload)
         return result["collaterals"]
-
-    def fetch_tickers(
-        self,
-        instrument_type: InstrumentType = InstrumentType.OPTION,
-        currency: UnderlyingCurrency = UnderlyingCurrency.BTC,
-    ):
-        """
-        Fetch tickers using the ws connection
-        """
-        instruments = self.fetch_instruments(instrument_type=instrument_type, currency=currency)
-        instrument_names = [i["instrument_name"] for i in instruments]
-        id_base = str(utc_now_ms())
-        ids_to_instrument_names = {
-            f"{id_base}_{enumerate}": instrument_name for enumerate, instrument_name in enumerate(instrument_names)
-        }
-        for id, instrument_name in ids_to_instrument_names.items():
-            payload = {"instrument_name": instrument_name}
-            self.ws.send(json.dumps({"method": "public/get_ticker", "params": payload, "id": id}))
-            sleep(0.05)  # otherwise we get rate limited...
-        results = {}
-        while ids_to_instrument_names:
-            message = json.loads(self.ws.recv())
-            if message["id"] in ids_to_instrument_names:
-                if "result" not in message:
-                    if self._check_output_for_rate_limit(message):
-                        return self.fetch_tickers(instrument_type=instrument_type, currency=currency)
-                    raise DeriveJSONRPCException(**message["error"])
-                results[message["result"]["instrument_name"]] = message["result"]
-                del ids_to_instrument_names[message["id"]]
-        return results
 
     def create_subaccount(
         self,

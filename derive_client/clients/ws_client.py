@@ -5,11 +5,13 @@ Class to handle base websocket client
 import json
 import time
 
-from derive_action_signing.utils import utc_now_ms, sign_ws_login
+from derive_action_signing.utils import sign_ws_login, utc_now_ms
 from websocket import WebSocketConnectionClosedException
 
-from .base_client import BaseClient
+from derive_client.data_types import InstrumentType, UnderlyingCurrency
 from derive_client.exceptions import DeriveJSONRPCException
+
+from .base_client import BaseClient
 
 
 class WsClient(BaseClient):
@@ -19,7 +21,6 @@ class WsClient(BaseClient):
         super().__init__(*args, **kwargs)
         self.ws = self.connect_ws()
         self.login_client()
-
 
     def login_client(
         self,
@@ -99,3 +100,33 @@ class WsClient(BaseClient):
                         return self.cancel_all()
                     raise DeriveJSONRPCException(**message["error"])
                 return message["result"]
+
+    def fetch_tickers(
+        self,
+        instrument_type: InstrumentType = InstrumentType.OPTION,
+        currency: UnderlyingCurrency = UnderlyingCurrency.BTC,
+    ):
+        """
+        Fetch tickers using the ws connection
+        """
+        instruments = self.fetch_instruments(instrument_type=instrument_type, currency=currency)
+        instrument_names = [i["instrument_name"] for i in instruments]
+        id_base = str(utc_now_ms())
+        ids_to_instrument_names = {
+            f"{id_base}_{enumerate}": instrument_name for enumerate, instrument_name in enumerate(instrument_names)
+        }
+        for id, instrument_name in ids_to_instrument_names.items():
+            payload = {"instrument_name": instrument_name}
+            self.ws.send(json.dumps({"method": "public/get_ticker", "params": payload, "id": id}))
+            time.sleep(0.05)  # otherwise we get rate limited...
+        results = {}
+        while ids_to_instrument_names:
+            message = json.loads(self.ws.recv())
+            if message["id"] in ids_to_instrument_names:
+                if "result" not in message:
+                    if self._check_output_for_rate_limit(message):
+                        return self.fetch_tickers(instrument_type=instrument_type, currency=currency)
+                    raise DeriveJSONRPCException(**message["error"])
+                results[message["result"]["instrument_name"]] = message["result"]
+                del ids_to_instrument_names[message["id"]]
+        return results

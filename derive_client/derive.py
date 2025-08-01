@@ -24,4 +24,3 @@ class DeriveClient(BaseClient):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.login_client()
