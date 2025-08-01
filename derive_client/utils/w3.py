@@ -7,6 +7,7 @@ from logging import Logger
 from pathlib import Path
 from typing import Any, Callable, Generator, Literal
 
+import certifi
 import yaml
 from eth_account import Account
 from hexbytes import HexBytes
@@ -142,7 +143,8 @@ def get_w3_connection(
     logger: Logger | None = None,
 ) -> Web3:
     rpc_endpoints = rpc_endpoints or load_rpc_endpoints(DEFAULT_RPC_ENDPOINTS)
-    providers = list(map(HTTPProvider, rpc_endpoints[chain_id]))
+    request_kwargs = {"verify": certifi.where()}
+    providers = [HTTPProvider(url, request_kwargs=request_kwargs) for url in rpc_endpoints[chain_id]]
 
     logger = logger or get_logger()
 

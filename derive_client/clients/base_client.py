@@ -2,10 +2,10 @@
 Base Client for the derive dex.
 """
 
-import re
 import json
-import time
 import random
+import re
+import time
 from decimal import Decimal
 from logging import Logger
 from time import sleep
@@ -37,6 +37,7 @@ from derive_client.data_types import (
     CreateSubAccountDetails,
     Currency,
     DepositResult,
+    DeriveJSONRPCErrorCode,
     DeriveTxResult,
     DeriveTxStatus,
     Environment,
@@ -53,11 +54,10 @@ from derive_client.data_types import (
     TimeInForce,
     UnderlyingCurrency,
     WithdrawResult,
-    DeriveJSONRPCErrorCode,
 )
 from derive_client.endpoints import RestAPI
 from derive_client.exceptions import DeriveJSONRPCException
-from derive_client.utils import get_logger, wait_until, get_retry_session
+from derive_client.utils import get_logger, get_retry_session, wait_until
 
 
 def _is_final_tx(res: DeriveTxResult) -> bool:
@@ -688,7 +688,7 @@ class BaseClient:
             response = session.post(url, json=json, headers=headers, params=params)
             response.raise_for_status()
             json_data = response.json()
-            if (error := json_data.get("error")):
+            if error := json_data.get("error"):
                 code = error.get("code", 0)
                 data = error.get("data", "")
                 if code == DeriveJSONRPCErrorCode.RATE_LIMIT_EXCEEDED and attempt < max_retries:
