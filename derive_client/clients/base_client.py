@@ -57,7 +57,7 @@ from derive_client.data_types import (
 )
 from derive_client.endpoints import RestAPI
 from derive_client.exceptions import DeriveJSONRPCException
-from derive_client.utils import get_logger, wait_until
+from derive_client.utils import get_logger, wait_until, get_retry_session
 
 
 def _is_final_tx(res: DeriveTxResult) -> bool:
@@ -680,11 +680,12 @@ class BaseClient:
         }
 
     def _send_request(self, url, json=None, params=None, headers=None, max_retries: int = 5):
+        session = get_retry_session(total_retries=max_retries, logger=self.logger)
         headers = self._create_signature_headers() if not headers else headers
         attempt = 0
         while True:
             attempt += 1
-            response = requests.post(url, json=json, headers=headers, params=params)
+            response = session.post(url, json=json, headers=headers, params=params)
             response.raise_for_status()
             json_data = response.json()
             if (error := json_data.get("error")):
