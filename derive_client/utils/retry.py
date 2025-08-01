@@ -96,6 +96,7 @@ def wait_until(
     poll_interval=1.0,
     retry_exceptions: type[Exception] | tuple[type[Exception], ...] = (ConnectionError, TimeoutError),
     max_retries: int = 3,
+    timeout_message: str = "",
     **kwargs: P.kwargs,
 ) -> T:
     retries = 0
@@ -112,7 +113,8 @@ def wait_until(
         if result is not None and condition(result):
             return result
         if time.time() - start_time > timeout:
-            raise TimeoutError("Timed out waiting for transaction receipt.")
+            msg = f"Timed out after {timeout}s waiting for condition on {func.__name__} {timeout_message}"
+            raise TimeoutError(msg)
         time.sleep(poll_interval)
 
 
