@@ -47,6 +47,7 @@ class PrivateEndpoints:
     deposit = Endpoint("private", "deposit")
     withdraw = Endpoint("private", "withdraw")
     order = Endpoint("private", "order")
+    cancel = Endpoint("private", "cancel")
 
 
 class RestAPI:

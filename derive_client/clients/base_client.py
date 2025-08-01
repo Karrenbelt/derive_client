@@ -454,22 +454,18 @@ class BaseClient:
         results = response.json()["result"]["orders"]
         return results
 
+
     def cancel(self, order_id, instrument_name):
         """
         Cancel an order
         """
-
-        id = str(utc_now_ms())
+        url = self.endpoints.private.cancel
         payload = {
             "order_id": order_id,
             "subaccount_id": self.subaccount_id,
             "instrument_name": instrument_name,
         }
-        self.ws.send(json.dumps({"method": "private/cancel", "params": payload, "id": id}))
-        while True:
-            message = json.loads(self.ws.recv())
-            if message["id"] == id:
-                return message["result"]
+        return self._send_request(url, json=payload)
 
     def cancel_all(self):
         """

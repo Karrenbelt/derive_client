@@ -32,3 +32,20 @@ class WsClient(BaseClient):
                     return message["result"]["order"]
                 except KeyError as error:
                     raise Exception(f"Unable to submit order {message}") from error
+
+    def cancel(self, order_id, instrument_name):
+        """
+        Cancel an order
+        """
+
+        id = str(utc_now_ms())
+        payload = {
+            "order_id": order_id,
+            "subaccount_id": self.subaccount_id,
+            "instrument_name": instrument_name,
+        }
+        self.ws.send(json.dumps({"method": "private/cancel", "params": payload, "id": id}))
+        while True:
+            message = json.loads(self.ws.recv())
+            if message["id"] == id:
+                return message["result"]
