@@ -87,7 +87,7 @@ def make_rotating_provider_middleware(
                         state.next_available = now + state.backoff
                         with lock:
                             heapq.heappush(heap, state)
-                        msg = "RPC error on %s: %s → backing off %.2fs"
+                        msg = "RPC error on %s: backing off %.2fs"
                         logger.info(msg, state.provider.endpoint_uri, state.backoff)
                         continue
 

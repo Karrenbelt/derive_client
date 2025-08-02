@@ -90,7 +90,6 @@ class BaseClient:
         self.verbose = verbose
         self.env = env
         self.config = CONFIGS[env]
-        self.endpoints = RestAPI(self.config.base_url)
         self.logger = logger or get_logger()
         self.web3_client = Web3(Web3.HTTPProvider(self.config.rpc_endpoint))
         self.signer = self.web3_client.eth.account.from_key(private_key)
@@ -98,6 +97,11 @@ class BaseClient:
         self._verify_wallet(wallet)
         self.subaccount_id = self._determine_subaccount_id(subaccount_id)
         self.referral_code = referral_code
+
+    @property
+    def endpoints(self) -> RestAPI:
+        """Return the chain ID."""
+        return RestAPI(self.config.base_url)
 
     def _verify_wallet(self, wallet: Address):
         if not self.web3_client.is_connected():
