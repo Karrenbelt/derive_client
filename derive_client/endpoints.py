@@ -46,6 +46,9 @@ class PrivateEndpoints:
     send_quote = Endpoint("private", "send_quote")
     deposit = Endpoint("private", "deposit")
     withdraw = Endpoint("private", "withdraw")
+    order = Endpoint("private", "order")
+    cancel = Endpoint("private", "cancel")
+    cancel_all = Endpoint("private", "cancel_all")
 
 
 class RestAPI:

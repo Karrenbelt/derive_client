@@ -19,10 +19,10 @@ from derive_action_signing.module_data import (
     WithdrawModuleData,
 )
 from derive_action_signing.signed_action import SignedAction
-from derive_action_signing.utils import MAX_INT_32, get_action_nonce, sign_rest_auth_header, sign_ws_login, utc_now_ms
+from derive_action_signing.utils import MAX_INT_32, get_action_nonce, sign_rest_auth_header, utc_now_ms
 from pydantic import validate_call
 from web3 import Web3
-from websocket import WebSocketConnectionClosedException, create_connection
+from websocket import create_connection
 
 from derive_client._bridge import BridgeClient
 from derive_client.constants import CONFIGS, DEFAULT_REFERER, PUBLIC_HEADERS, TOKEN_DECIMALS
@@ -331,19 +331,8 @@ class BaseClient:
         return action
 
     def submit_order(self, order):
-        id = str(utc_now_ms())
-        self.ws.send(json.dumps({"method": "private/order", "params": order, "id": id}))
-        while True:
-            message = json.loads(self.ws.recv())
-            if message["id"] == id:
-                try:
-                    if "result" not in message:
-                        if self._check_output_for_rate_limit(message):
-                            return self.submit_order(order)
-                        raise DeriveJSONRPCException(**message["error"])
-                    return message["result"]["order"]
-                except KeyError as error:
-                    raise Exception(f"Unable to submit order {message}") from error
+        url = self.endpoints.private.order
+        return self._send_request(url, json=order)["order"]
 
     def _sign_quote(self, quote):
         """
@@ -388,44 +377,6 @@ class BaseClient:
         )
         return self.web3_client.keccak(encoded_data)
 
-    @property
-    def ws(self):
-        if not hasattr(self, "_ws"):
-            self._ws = self.connect_ws()
-        if not self._ws.connected:
-            self._ws = self.connect_ws()
-        return self._ws
-
-    def login_client(
-        self,
-        retries=3,
-    ):
-        login_request = {
-            "method": "public/login",
-            "params": sign_ws_login(
-                web3_client=self.web3_client,
-                smart_contract_wallet=self.wallet,
-                session_key_or_wallet_private_key=self.signer._private_key,
-            ),
-            "id": str(utc_now_ms()),
-        }
-        try:
-            self.ws.send(json.dumps(login_request))
-            # we need to wait for the response
-            while True:
-                message = json.loads(self.ws.recv())
-                if message["id"] == login_request["id"]:
-                    if "result" not in message:
-                        if self._check_output_for_rate_limit(message):
-                            return self.login_client()
-                        raise DeriveJSONRPCException(**message["error"])
-                    break
-        except (WebSocketConnectionClosedException, Exception) as error:
-            if retries:
-                sleep(1)
-                self.login_client(retries=retries - 1)
-            raise error
-
     def fetch_ticker(self, instrument_name):
         """
         Fetch the ticker for a given instrument name.
@@ -435,6 +386,14 @@ class BaseClient:
         response = requests.post(url, json=payload, headers=PUBLIC_HEADERS)
         results = json.loads(response.content)["result"]
         return results
+
+    def fetch_tickers(
+        self,
+        instrument_type: InstrumentType = InstrumentType.OPTION,
+        currency: UnderlyingCurrency = UnderlyingCurrency.BTC,
+    ):
+        instruments = self.fetch_instruments(instrument_type=instrument_type, currency=currency)
+        return {inst["instrument_name"]: self.fetch_ticker(inst["instrument_name"]) for inst in instruments}
 
     def fetch_orders(
         self,
@@ -469,35 +428,21 @@ class BaseClient:
         """
         Cancel an order
         """
-
-        id = str(utc_now_ms())
+        url = self.endpoints.private.cancel
         payload = {
             "order_id": order_id,
             "subaccount_id": self.subaccount_id,
             "instrument_name": instrument_name,
         }
-        self.ws.send(json.dumps({"method": "private/cancel", "params": payload, "id": id}))
-        while True:
-            message = json.loads(self.ws.recv())
-            if message["id"] == id:
-                return message["result"]
+        return self._send_request(url, json=payload)
 
     def cancel_all(self):
         """
         Cancel all orders
         """
-        id = str(utc_now_ms())
+        url = self.endpoints.private.cancel_all
         payload = {"subaccount_id": self.subaccount_id}
-        self.login_client()
-        self.ws.send(json.dumps({"method": "private/cancel_all", "params": payload, "id": id}))
-        while True:
-            message = json.loads(self.ws.recv())
-            if message["id"] == id:
-                if "result" not in message:
-                    if self._check_output_for_rate_limit(message):
-                        return self.cancel_all()
-                    raise DeriveJSONRPCException(**message["error"])
-                return message["result"]
+        return self._send_request(url, json=payload)
 
     def _check_output_for_rate_limit(self, message):
         if error := message.get("error"):
@@ -530,36 +475,6 @@ class BaseClient:
         payload = {"subaccount_id": self.subaccount_id}
         result = self._send_request(url, json=payload)
         return result["collaterals"]
-
-    def fetch_tickers(
-        self,
-        instrument_type: InstrumentType = InstrumentType.OPTION,
-        currency: UnderlyingCurrency = UnderlyingCurrency.BTC,
-    ):
-        """
-        Fetch tickers using the ws connection
-        """
-        instruments = self.fetch_instruments(instrument_type=instrument_type, currency=currency)
-        instrument_names = [i["instrument_name"] for i in instruments]
-        id_base = str(utc_now_ms())
-        ids_to_instrument_names = {
-            f"{id_base}_{enumerate}": instrument_name for enumerate, instrument_name in enumerate(instrument_names)
-        }
-        for id, instrument_name in ids_to_instrument_names.items():
-            payload = {"instrument_name": instrument_name}
-            self.ws.send(json.dumps({"method": "public/get_ticker", "params": payload, "id": id}))
-            sleep(0.05)  # otherwise we get rate limited...
-        results = {}
-        while ids_to_instrument_names:
-            message = json.loads(self.ws.recv())
-            if message["id"] in ids_to_instrument_names:
-                if "result" not in message:
-                    if self._check_output_for_rate_limit(message):
-                        return self.fetch_tickers(instrument_type=instrument_type, currency=currency)
-                    raise DeriveJSONRPCException(**message["error"])
-                results[message["result"]["instrument_name"]] = message["result"]
-                del ids_to_instrument_names[message["id"]]
-        return results
 
     def create_subaccount(
         self,
