@@ -52,6 +52,7 @@ from derive_client.data_types import (
     UnderlyingCurrency,
     WithdrawResult,
 )
+from derive_client.endpoints import RestAPI
 from derive_client.exceptions import DeriveJSONRPCException
 from derive_client.utils import get_logger, wait_until
 
@@ -89,6 +90,7 @@ class BaseClient:
         self.verbose = verbose
         self.env = env
         self.config = CONFIGS[env]
+        self.endpoints = RestAPI(self.config.base_url)
         self.logger = logger or get_logger()
         self.web3_client = Web3(Web3.HTTPProvider(self.config.rpc_endpoint))
         self.signer = self.web3_client.eth.account.from_key(private_key)
@@ -125,7 +127,7 @@ class BaseClient:
     def create_account(self, wallet):
         """Call the create account endpoint."""
         payload = {"wallet": wallet}
-        url = f"{self.config.base_url}/public/create_account"
+        url = self.endpoints.public.create_account
         result = requests.post(
             headers=PUBLIC_HEADERS,
             url=url,
@@ -201,7 +203,7 @@ class BaseClient:
         First fetch all instrucments
         Then get the ticket for all instruments.
         """
-        url = f"{self.config.base_url}/public/get_instruments"
+        url = self.endpoints.public.get_instruments
         payload = {
             "expired": expired,
             "instrument_type": instrument_type.value,
@@ -210,7 +212,7 @@ class BaseClient:
         return self._send_request(url, json=payload, headers=PUBLIC_HEADERS)
 
     def _get_session_keys(self, wallet: Address) -> list[SessionKey]:
-        url = f"{self.config.base_url}/private/session_keys"
+        url = self.endpoints.private.session_keys
         payload = {"wallet": wallet}
         session_keys = self._send_request(url, json=payload)
         if not (public_session_keys := session_keys.get("public_session_keys")):
@@ -222,7 +224,7 @@ class BaseClient:
         """
         Returns the subaccounts for a given wallet
         """
-        url = f"{self.config.base_url}/private/get_subaccounts"
+        url = self.endpoints.private.get_subaccounts
         payload = {"wallet": self.wallet}
         return self._send_request(url, json=payload)
 
@@ -230,7 +232,7 @@ class BaseClient:
         """
         Returns information for a given subaccount
         """
-        url = f"{self.config.base_url}/private/get_subaccount"
+        url = self.endpoints.private.get_subaccount
         payload = {"subaccount_id": subaccount_id}
         return self._send_request(url, json=payload)
 
@@ -428,7 +430,7 @@ class BaseClient:
         """
         Fetch the ticker for a given instrument name.
         """
-        url = f"{self.config.base_url}/public/get_ticker"
+        url = self.endpoints.public.get_ticker
         payload = {"instrument_name": instrument_name}
         response = requests.post(url, json=payload, headers=PUBLIC_HEADERS)
         results = json.loads(response.content)["result"]
@@ -445,7 +447,7 @@ class BaseClient:
         """
         Fetch the orders for a given instrument name.
         """
-        url = f"{self.config.base_url}/private/get_orders"
+        url = self.endpoints.private.get_orders
         payload = {
             "instrument_name": instrument_name,
             "subaccount_id": self.subaccount_id,
@@ -509,7 +511,7 @@ class BaseClient:
         """
         Get positions
         """
-        url = f"{self.config.base_url}/private/get_positions"
+        url = self.endpoints.private.get_positions
         payload = {"subaccount_id": self.subaccount_id}
         headers = sign_rest_auth_header(
             web3_client=self.web3_client,
@@ -524,7 +526,7 @@ class BaseClient:
         """
         Get collaterals
         """
-        url = f"{self.config.base_url}/private/get_collaterals"
+        url = self.endpoints.private.get_collaterals
         payload = {"subaccount_id": self.subaccount_id}
         result = self._send_request(url, json=payload)
         return result["collaterals"]
@@ -569,7 +571,7 @@ class BaseClient:
         """
         Create a subaccount.
         """
-        url = f"{self.config.base_url}/private/create_subaccount"
+        url = self.endpoints.private.create_subaccount
         if subaccount_type is SubaccountType.STANDARD:
             contract_key = f"{subaccount_type.name}_RISK_MANAGEr"
         elif subaccount_type is SubaccountType.PORTFOLIO:
@@ -619,7 +621,7 @@ class BaseClient:
         """
         Transfer collateral
         """
-        url = f"{self.config.base_url}/private/transfer_erc20"
+        url = self.endpoints.private.transfer_erc20
         transfer_details = TransferERC20Details(
             base_address=self.config.contracts.CASH_ASSET,
             sub_id=0,
@@ -678,7 +680,7 @@ class BaseClient:
 
     def get_mmp_config(self, subaccount_id: int, currency: UnderlyingCurrency = None):
         """Get the mmp config."""
-        url = f"{self.config.base_url}/private/get_mmp_config"
+        url = self.endpoints.private.get_mmp_config
         payload = {"subaccount_id": self.subaccount_id}
         if currency:
             payload["currency"] = currency.name
@@ -694,7 +696,7 @@ class BaseClient:
         mmp_delta_limit: str,
     ):
         """Set the mmp config."""
-        url = f"{self.config.base_url}/private/set_mmp_config"
+        url = self.endpoints.private.set_mmp_config
         payload = {
             "subaccount_id": subaccount_id,
             "currency": currency.name,
@@ -707,7 +709,7 @@ class BaseClient:
 
     def send_rfq(self, rfq):
         """Send an RFQ."""
-        url = f"{self.config.base_url}/private/send_rfq"
+        url = self.endpoints.private.send_rfq
         return self._send_request(url, rfq)
 
     def poll_rfqs(self):
@@ -724,7 +726,7 @@ class BaseClient:
               legs: Array<RfqLeg>
             }
         """
-        url = f"{self.config.base_url}/private/poll_rfqs"
+        url = self.endpoints.private.poll_rfqs
         params = {
             "subaccount_id": self.subaccount_id,
             "status": RfqStatus.OPEN.value,
@@ -736,7 +738,7 @@ class BaseClient:
 
     def send_quote(self, quote):
         """Send a quote."""
-        url = f"{self.config.base_url}/private/send_quote"
+        url = self.endpoints.private.send_quote
         return self._send_request(url, quote)
 
     def create_quote_object(
@@ -772,20 +774,20 @@ class BaseClient:
         """
         Fetch the currency list
         """
-        url = f"{self.config.base_url}/public/get_all_currencies"
+        url = self.endpoints.public.get_all_currencies
         return self._send_request(url, json={})
 
     def fetch_currency(self, asset_name):
         """
         Fetch the currency list
         """
-        url = f"{self.config.base_url}/public/get_currency"
+        url = self.endpoints.public.get_currency
         payload = {"currency": asset_name}
         return self._send_request(url, json=payload)
 
     def get_transaction(self, transaction_id: str) -> DeriveTxResult:
         """Get a transaction by its transaction id."""
-        url = f"{self.config.base_url}/public/get_transaction"
+        url = self.endpoints.public.get_transaction
         payload = {"transaction_id": transaction_id}
         return DeriveTxResult(**self._send_request(url, json=payload), transaction_id=transaction_id)
 
@@ -828,7 +830,7 @@ class BaseClient:
             "signer": sender_action.signer,
             "subaccount_id": subaccount_id,
         }
-        url = f"{self.config.base_url}/private/deposit"
+        url = self.endpoints.private.deposit
 
         deposit_result = DepositResult(**self._send_request(url, json=payload))
         return wait_until(
@@ -908,7 +910,7 @@ class BaseClient:
             "signer": sender_action.signer,
             "subaccount_id": subaccount_id,
         }
-        url = f"{self.config.base_url}/private/withdraw"
+        url = self.endpoints.private.withdraw
 
         withdraw_result = WithdrawResult(**self._send_request(url, json=payload))
         return wait_until(
