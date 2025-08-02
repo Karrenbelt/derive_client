@@ -1,25 +1,160 @@
+import functools
+import heapq
 import json
+import threading
 import time
-from typing import Callable, Generator, Literal
+from logging import Logger
+from pathlib import Path
+from typing import Any, Callable, Generator, Literal
 
+import yaml
 from eth_account import Account
 from hexbytes import HexBytes
+from requests import RequestException
 from web3 import Web3
 from web3.contract import Contract
 from web3.contract.contract import ContractEvent
 from web3.datastructures import AttributeDict
+from web3.providers.rpc import HTTPProvider
 
-from derive_client.constants import ABI_DATA_DIR, GAS_FEE_BUFFER
-from derive_client.data_types import ChainID, RPCEndPoints, TxResult, TxStatus
-from derive_client.exceptions import TxSubmissionError
+from derive_client.constants import ABI_DATA_DIR, DEFAULT_RPC_ENDPOINTS, GAS_FEE_BUFFER
+from derive_client.data_types import ChainID, RPCEndpoints, TxResult, TxStatus
+from derive_client.exceptions import NoAvailableRPC, TxSubmissionError
+from derive_client.utils.logger import get_logger
 from derive_client.utils.retry import exp_backoff_retry
 
+EVENT_LOG_RETRIES = 10
 
-def get_w3_connection(chain_id: ChainID) -> Web3:
-    rpc_url = RPCEndPoints[chain_id.name].value
-    w3 = Web3(Web3.HTTPProvider(rpc_url))
-    if not w3.is_connected():
-        raise ConnectionError(f"Failed to connect to RPC at {rpc_url}")
+
+class EndpointState:
+    __slots__ = ("provider", "backoff", "next_available")
+
+    def __init__(self, provider: HTTPProvider):
+        self.provider = provider
+        self.backoff = 0.0
+        self.next_available = 0.0
+
+    def __lt__(self, other: "EndpointState") -> bool:
+        return self.next_available < other.next_available
+
+    def __str__(self) -> str:
+        return f"{self.__class__.__name__}({self.provider.endpoint_uri})"
+
+
+def make_rotating_provider_middleware(
+    endpoints: list[HTTPProvider],
+    *,
+    initial_backoff: float = 1.0,
+    max_backoff: float = 600.0,
+    logger: Logger,
+) -> Callable[[Callable[[str, Any], Any], Web3], Callable[[str, Any], Any]]:
+    """
+    v6.11-style middleware:
+     - round-robin via a min-heap of `next_available` times
+     - on 429: exponential back-off for that endpoint, capped
+    """
+
+    heap: list[EndpointState] = [EndpointState(p) for p in endpoints]
+    heapq.heapify(heap)
+    lock = threading.Lock()
+
+    def middleware_factory(make_request: Callable[[str, Any], Any], w3: Web3) -> Callable[[str, Any], Any]:
+        def rotating_backoff(method: str, params: Any) -> Any:
+            now = time.time()
+
+            while True:
+                # 1) grab the earlies-available endpoint
+                with lock:
+                    state = heapq.heappop(heap)
+
+                # 2) if it's not yet ready, push back and error out
+                if state.next_available > now:
+                    with lock:
+                        heapq.heappush(heap, state)
+                    msg = "All RPC endpoints are cooling down until %.2f (now=%.2f)"
+                    logger.warning(msg, state.next_available, now)
+                    raise NoAvailableRPC("All available RPC endpoints are on timeout")
+
+                try:
+                    # 3) attempt the request
+                    resp = state.provider.make_request(method, params)
+
+                    # Json‑RPC error branch
+                    if isinstance(resp, dict) and resp.get("error"):
+                        msg = resp["error"].get("message", "")
+                        state.backoff = state.backoff * 2 if state.backoff else initial_backoff
+                        state.backoff = min(state.backoff, max_backoff)
+                        state.next_available = now + state.backoff
+                        with lock:
+                            heapq.heappush(heap, state)
+                        msg = "RPC error on %s: %s → backing off %.2fs"
+                        logger.info(msg, state.provider.endpoint_uri, msg, state.backoff)
+                        continue
+
+                    # 4) on success, reset its backoff and re-schedule immediately
+                    state.backoff = 0.0
+                    state.next_available = now
+                    with lock:
+                        heapq.heappush(heap, state)
+                    return resp
+
+                except RequestException as e:
+                    logger.debug("Endpoint %s failed: %s", state.provider.endpoint_uri, e)
+
+                    # We retry on all exceptions
+                    hdr = (e.response and e.response.headers or {}).get("Retry-After")
+                    try:
+                        backoff = float(hdr)
+                    except (ValueError, TypeError):
+                        backoff = state.backoff * 2 if state.backoff > 0 else initial_backoff
+
+                    # cap backoff and schedule
+                    state.backoff = min(backoff, max_backoff)
+                    state.next_available = now + state.backoff
+                    with lock:
+                        heapq.heappush(heap, state)
+                    msg = "Backing off %s for %.2fs (next_available=%.2f)"
+                    logger.info(msg, state.provider.endpoint_uri, backoff, state.next_available)
+                    continue
+                except Exception as e:
+                    msg = ("Unexpected error calling %s %s on %s; backing off %.2fs and continuing",)
+                    logger.exception(msg, method, params, state.provider.endpoint_uri, max_backoff, exc_info=e)
+                    state.backoff = max_backoff
+                    state.next_available = now + state.backoff
+                    with lock:
+                        heapq.heappush(heap, state)
+                    continue
+
+        return rotating_backoff
+
+    return middleware_factory
+
+
+@functools.lru_cache
+def load_rpc_endpoints(path: Path) -> RPCEndpoints:
+    return RPCEndpoints(**yaml.safe_load(path.read_text()))
+
+
+def get_w3_connection(
+    chain_id: ChainID,
+    *,
+    rpc_endpoints: RPCEndpoints | None = None,
+    logger: Logger | None = None,
+) -> Web3:
+    rpc_endpoints = rpc_endpoints or load_rpc_endpoints(DEFAULT_RPC_ENDPOINTS)
+    providers = list(map(HTTPProvider, rpc_endpoints[chain_id]))
+
+    logger = logger or get_logger()
+
+    # NOTE: Initial provider is a no-op once middleware is in place
+    w3 = Web3()
+    rotator = make_rotating_provider_middleware(
+        providers,
+        initial_backoff=1.0,
+        max_backoff=600.0,
+        logger=logger,
+    )
+    w3.middleware_onion.add(rotator)
     return w3
 
 
@@ -94,11 +229,11 @@ def wait_for_tx_receipt(w3: Web3, tx_hash: str, timeout=120, poll_interval=1) ->
         time.sleep(poll_interval)
 
 
-def sign_and_send_tx(w3: Web3, tx: dict, private_key: str) -> HexBytes:
+def sign_and_send_tx(w3: Web3, tx: dict, private_key: str, logger: Logger) -> HexBytes:
     signed_tx = w3.eth.account.sign_transaction(tx, private_key=private_key)
-    print(f"signed_tx: {signed_tx}")
+    logger.info(f"signed_tx: {signed_tx}")
     tx_hash = w3.eth.send_raw_transaction(signed_tx.raw_transaction)
-    print(f"tx_hash: 0x{tx_hash.hex()}")
+    logger.info(f"tx_hash: {tx_hash.to_0x_hex()}")
     return tx_hash
 
 
@@ -108,29 +243,30 @@ def send_and_confirm_tx(
     private_key: str,
     *,
     action: str,  # e.g. "approve()", "deposit()", "withdraw()"
+    logger: Logger,
 ) -> TxResult:
     """Send and confirm transactions."""
 
     try:
-        tx_hash = sign_and_send_tx(w3=w3, tx=tx, private_key=private_key)
+        tx_hash = sign_and_send_tx(w3=w3, tx=tx, private_key=private_key, logger=logger)
         tx_result = TxResult(tx_hash=tx_hash.to_0x_hex(), tx_receipt=None, exception=None)
     except Exception as send_err:
         msg = f"❌ Failed to send tx for {action}, error: {send_err!r}"
-        print(msg)
+        logger.error(msg)
         raise TxSubmissionError(msg) from send_err
 
     try:
         tx_receipt = wait_for_tx_receipt(w3=w3, tx_hash=tx_hash)
         tx_result.tx_receipt = tx_receipt
     except TimeoutError as timeout_err:
-        print(f"⏱️ Timeout waiting for tx receipt of {tx_hash.hex()}")
+        logger.warning(f"⏱️ Timeout waiting for tx receipt of {tx_hash.to_0x_hex()}")
         tx_result.exception = timeout_err
         return tx_result
 
-    if tx_receipt.status == TxStatus.SUCCESS:
-        print(f"✅ {action} succeeded for tx {tx_hash.hex()}")
+    if tx_result.tx_receipt.status == TxStatus.SUCCESS:
+        logger.info(f"✅ {action} succeeded for tx {tx_hash.to_0x_hex()}")
     else:
-        print(f"❌ {action} reverted for tx {tx_hash.hex()}")
+        logger.error(f"❌ {action} reverted for tx {tx_hash.to_0x_hex()}")
 
     return tx_result
 
@@ -170,6 +306,7 @@ def iter_events(
     max_block_range: int = 10_000,
     poll_interval: float = 5.0,
     timeout: float | None = None,
+    logger: Logger,
 ) -> Generator[AttributeDict, None, None]:
     """Stream matching logs over a fixed or live block window. Optionally raises TimeoutError."""
 
@@ -185,19 +322,22 @@ def iter_events(
     while True:
         if deadline and time.time() > deadline:
             msg = f"Timed out waiting for events after scanning blocks {start_block}-{cursor}"
+            logger.warning(msg)
             raise TimeoutError(f"{msg}: filter_params: {original_filter_params}")
         upper = fixed_ceiling or w3.eth.block_number
         if cursor <= upper:
             end = min(upper, cursor + max_block_range - 1)
             filter_params["fromBlock"] = hex(cursor)
             filter_params["toBlock"] = hex(end)
-            logs = w3.eth.get_logs(filter_params=filter_params)
-            print(f"Scanned {cursor} - {end}: {len(logs)} logs")
+            # For example, when rotating providers are out of sync
+            retry_get_logs = exp_backoff_retry(w3.eth.get_logs, attempts=EVENT_LOG_RETRIES)
+            logs = retry_get_logs(filter_params=filter_params)
+            logger.info(f"Scanned {cursor} - {end}: {len(logs)} logs")
             yield from filter(condition, logs)
             cursor = end + 1  # bounds are inclusive
 
         if fixed_ceiling and cursor > fixed_ceiling:
-            return
+            raise StopIteration
 
         time.sleep(poll_interval)
 
@@ -210,6 +350,7 @@ def wait_for_event(
     max_block_range: int = 10_000,
     poll_interval: float = 5.0,
     timeout: float = 300.0,
+    logger: Logger,
 ) -> AttributeDict:
     """Return the first log from iter_events, or raise TimeoutError after `timeout` seconds."""
 

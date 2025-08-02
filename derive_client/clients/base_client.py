@@ -19,11 +19,10 @@ from derive_action_signing.module_data import (
     WithdrawModuleData,
 )
 from derive_action_signing.signed_action import SignedAction
-from derive_action_signing.utils import MAX_INT_32, get_action_nonce, sign_rest_auth_header, sign_ws_login, utc_now_ms
+from derive_action_signing.utils import MAX_INT_32, get_action_nonce, sign_rest_auth_header, utc_now_ms
 from pydantic import validate_call
-from rich import print
 from web3 import Web3
-from websocket import WebSocketConnectionClosedException, create_connection
+from websocket import create_connection
 
 from derive_client._bridge import BridgeClient
 from derive_client.constants import CONFIGS, DEFAULT_REFERER, PUBLIC_HEADERS, TOKEN_DECIMALS
@@ -53,7 +52,8 @@ from derive_client.data_types import (
     UnderlyingCurrency,
     WithdrawResult,
 )
-from derive_client.exceptions import ApiException
+from derive_client.endpoints import RestAPI
+from derive_client.exceptions import DeriveJSONRPCException
 from derive_client.utils import get_logger, wait_until
 
 
@@ -90,6 +90,7 @@ class BaseClient:
         self.verbose = verbose
         self.env = env
         self.config = CONFIGS[env]
+        self.endpoints = RestAPI(self.config.base_url)
         self.logger = logger or get_logger()
         self.web3_client = Web3(Web3.HTTPProvider(self.config.rpc_endpoint))
         self.signer = self.web3_client.eth.account.from_key(private_key)
@@ -126,7 +127,7 @@ class BaseClient:
     def create_account(self, wallet):
         """Call the create account endpoint."""
         payload = {"wallet": wallet}
-        url = f"{self.config.base_url}/public/create_account"
+        url = self.endpoints.public.create_account
         result = requests.post(
             headers=PUBLIC_HEADERS,
             url=url,
@@ -151,7 +152,7 @@ class BaseClient:
         """
 
         amount = int(amount * 10 ** TOKEN_DECIMALS[UnderlyingCurrency[currency.name.upper()]])
-        client = BridgeClient(self.env, chain_id, account=self.signer, wallet=self.wallet)
+        client = BridgeClient(self.env, chain_id, account=self.signer, wallet=self.wallet, logger=self.logger)
 
         if currency == Currency.DRV:
             return client.deposit_drv(amount=amount, currency=currency)
@@ -171,7 +172,7 @@ class BaseClient:
         """
 
         amount = int(amount * 10 ** TOKEN_DECIMALS[UnderlyingCurrency[currency.name.upper()]])
-        client = BridgeClient(self.env, chain_id, account=self.signer, wallet=self.wallet)
+        client = BridgeClient(self.env, chain_id, account=self.signer, wallet=self.wallet, logger=self.logger)
 
         if currency == Currency.DRV:
             return client.withdraw_drv(amount=amount, currency=currency)
@@ -188,7 +189,7 @@ class BaseClient:
         """
 
         chain_id = tx_result.source_chain if tx_result.source_chain != ChainID.DERIVE else tx_result.target_chain
-        client = BridgeClient(self.env, chain_id, account=self.signer, wallet=self.wallet)
+        client = BridgeClient(self.env, chain_id, account=self.signer, wallet=self.wallet, logger=self.logger)
         return client.poll_bridge_progress(tx_result=tx_result)
 
     def fetch_instruments(
@@ -202,7 +203,7 @@ class BaseClient:
         First fetch all instrucments
         Then get the ticket for all instruments.
         """
-        url = f"{self.config.base_url}/public/get_instruments"
+        url = self.endpoints.public.get_instruments
         payload = {
             "expired": expired,
             "instrument_type": instrument_type.value,
@@ -211,7 +212,7 @@ class BaseClient:
         return self._send_request(url, json=payload, headers=PUBLIC_HEADERS)
 
     def _get_session_keys(self, wallet: Address) -> list[SessionKey]:
-        url = f"{self.config.base_url}/private/session_keys"
+        url = self.endpoints.private.session_keys
         payload = {"wallet": wallet}
         session_keys = self._send_request(url, json=payload)
         if not (public_session_keys := session_keys.get("public_session_keys")):
@@ -223,7 +224,7 @@ class BaseClient:
         """
         Returns the subaccounts for a given wallet
         """
-        url = f"{self.config.base_url}/private/get_subaccounts"
+        url = self.endpoints.private.get_subaccounts
         payload = {"wallet": self.wallet}
         return self._send_request(url, json=payload)
 
@@ -231,7 +232,7 @@ class BaseClient:
         """
         Returns information for a given subaccount
         """
-        url = f"{self.config.base_url}/private/get_subaccount"
+        url = self.endpoints.private.get_subaccount
         payload = {"subaccount_id": subaccount_id}
         return self._send_request(url, json=payload)
 
@@ -330,20 +331,8 @@ class BaseClient:
         return action
 
     def submit_order(self, order):
-        id = str(utc_now_ms())
-        self.ws.send(json.dumps({"method": "private/order", "params": order, "id": id}))
-        while True:
-            message = json.loads(self.ws.recv())
-            if message["id"] == id:
-                try:
-                    if "result" not in message:
-                        if self._check_output_for_rate_limit(message):
-                            return self.submit_order(order)
-                        raise ApiException(message["error"])
-                    return message["result"]["order"]
-                except KeyError as error:
-                    print(message)
-                    raise Exception(f"Unable to submit order {message}") from error
+        url = self.endpoints.private.order
+        return self._send_request(url, json=order)["order"]
 
     def _sign_quote(self, quote):
         """
@@ -362,7 +351,6 @@ class BaseClient:
         quote["price"] = "10"
 
         def encode_leg(leg):
-            print(quote)
             sub_id = ledgs_to_subids[leg["instrument_name"]]
             leg_sign = 1 if leg["direction"] == "buy" else -1
             signed_amount = self.web3_client.to_wei(leg["amount"], "ether") * leg_sign * dir_sign
@@ -373,6 +361,7 @@ class BaseClient:
                 signed_amount,
             ]
 
+        self.logger.info(f"Quote: {quote}")
         encoded_legs = [encode_leg(leg) for leg in quote["legs"]]
         rfq_data = [self.web3_client.to_wei(quote["max_fee"], "ether"), encoded_legs]
 
@@ -388,53 +377,23 @@ class BaseClient:
         )
         return self.web3_client.keccak(encoded_data)
 
-    @property
-    def ws(self):
-        if not hasattr(self, "_ws"):
-            self._ws = self.connect_ws()
-        if not self._ws.connected:
-            self._ws = self.connect_ws()
-        return self._ws
-
-    def login_client(
-        self,
-        retries=3,
-    ):
-        login_request = {
-            "method": "public/login",
-            "params": sign_ws_login(
-                web3_client=self.web3_client,
-                smart_contract_wallet=self.wallet,
-                session_key_or_wallet_private_key=self.signer._private_key,
-            ),
-            "id": str(utc_now_ms()),
-        }
-        try:
-            self.ws.send(json.dumps(login_request))
-            # we need to wait for the response
-            while True:
-                message = json.loads(self.ws.recv())
-                if message["id"] == login_request["id"]:
-                    if "result" not in message:
-                        if self._check_output_for_rate_limit(message):
-                            return self.login_client()
-                        raise ApiException(message["error"])
-                    break
-        except (WebSocketConnectionClosedException, Exception) as error:
-            if retries:
-                sleep(1)
-                self.login_client(retries=retries - 1)
-            raise error
-
     def fetch_ticker(self, instrument_name):
         """
         Fetch the ticker for a given instrument name.
         """
-        url = f"{self.config.base_url}/public/get_ticker"
+        url = self.endpoints.public.get_ticker
         payload = {"instrument_name": instrument_name}
         response = requests.post(url, json=payload, headers=PUBLIC_HEADERS)
         results = json.loads(response.content)["result"]
         return results
+
+    def fetch_tickers(
+        self,
+        instrument_type: InstrumentType = InstrumentType.OPTION,
+        currency: UnderlyingCurrency = UnderlyingCurrency.BTC,
+    ):
+        instruments = self.fetch_instruments(instrument_type=instrument_type, currency=currency)
+        return {inst["instrument_name"]: self.fetch_ticker(inst["instrument_name"]) for inst in instruments}
 
     def fetch_orders(
         self,
@@ -447,7 +406,7 @@ class BaseClient:
         """
         Fetch the orders for a given instrument name.
         """
-        url = f"{self.config.base_url}/private/get_orders"
+        url = self.endpoints.private.get_orders
         payload = {
             "instrument_name": instrument_name,
             "subaccount_id": self.subaccount_id,
@@ -469,41 +428,27 @@ class BaseClient:
         """
         Cancel an order
         """
-
-        id = str(utc_now_ms())
+        url = self.endpoints.private.cancel
         payload = {
             "order_id": order_id,
             "subaccount_id": self.subaccount_id,
             "instrument_name": instrument_name,
         }
-        self.ws.send(json.dumps({"method": "private/cancel", "params": payload, "id": id}))
-        while True:
-            message = json.loads(self.ws.recv())
-            if message["id"] == id:
-                return message["result"]
+        return self._send_request(url, json=payload)
 
     def cancel_all(self):
         """
         Cancel all orders
         """
-        id = str(utc_now_ms())
+        url = self.endpoints.private.cancel_all
         payload = {"subaccount_id": self.subaccount_id}
-        self.login_client()
-        self.ws.send(json.dumps({"method": "private/cancel_all", "params": payload, "id": id}))
-        while True:
-            message = json.loads(self.ws.recv())
-            if message["id"] == id:
-                if "result" not in message:
-                    if self._check_output_for_rate_limit(message):
-                        return self.cancel_all()
-                    raise ApiException(message["error"])
-                return message["result"]
+        return self._send_request(url, json=payload)
 
     def _check_output_for_rate_limit(self, message):
         if error := message.get("error"):
             if "Rate limit exceeded" in error["message"]:
                 sleep((int(error["data"].split(" ")[-2]) / 1000))
-                print("Rate limit exceeded, sleeping and retrying request")
+                self.logger.info("Rate limit exceeded, sleeping and retrying request")
                 return True
         return False
 
@@ -511,7 +456,7 @@ class BaseClient:
         """
         Get positions
         """
-        url = f"{self.config.base_url}/private/get_positions"
+        url = self.endpoints.private.get_positions
         payload = {"subaccount_id": self.subaccount_id}
         headers = sign_rest_auth_header(
             web3_client=self.web3_client,
@@ -526,40 +471,10 @@ class BaseClient:
         """
         Get collaterals
         """
-        url = f"{self.config.base_url}/private/get_collaterals"
+        url = self.endpoints.private.get_collaterals
         payload = {"subaccount_id": self.subaccount_id}
         result = self._send_request(url, json=payload)
         return result["collaterals"]
-
-    def fetch_tickers(
-        self,
-        instrument_type: InstrumentType = InstrumentType.OPTION,
-        currency: UnderlyingCurrency = UnderlyingCurrency.BTC,
-    ):
-        """
-        Fetch tickers using the ws connection
-        """
-        instruments = self.fetch_instruments(instrument_type=instrument_type, currency=currency)
-        instrument_names = [i["instrument_name"] for i in instruments]
-        id_base = str(utc_now_ms())
-        ids_to_instrument_names = {
-            f"{id_base}_{enumerate}": instrument_name for enumerate, instrument_name in enumerate(instrument_names)
-        }
-        for id, instrument_name in ids_to_instrument_names.items():
-            payload = {"instrument_name": instrument_name}
-            self.ws.send(json.dumps({"method": "public/get_ticker", "params": payload, "id": id}))
-            sleep(0.05)  # otherwise we get rate limited...
-        results = {}
-        while ids_to_instrument_names:
-            message = json.loads(self.ws.recv())
-            if message["id"] in ids_to_instrument_names:
-                if "result" not in message:
-                    if self._check_output_for_rate_limit(message):
-                        return self.fetch_tickers(instrument_type=instrument_type, currency=currency)
-                    raise ApiException(message["error"])
-                results[message["result"]["instrument_name"]] = message["result"]
-                del ids_to_instrument_names[message["id"]]
-        return results
 
     def create_subaccount(
         self,
@@ -571,7 +486,7 @@ class BaseClient:
         """
         Create a subaccount.
         """
-        url = f"{self.config.base_url}/private/create_subaccount"
+        url = self.endpoints.private.create_subaccount
         if subaccount_type is SubaccountType.STANDARD:
             contract_key = f"{subaccount_type.name}_RISK_MANAGEr"
         elif subaccount_type is SubaccountType.PORTFOLIO:
@@ -621,7 +536,7 @@ class BaseClient:
         """
         Transfer collateral
         """
-        url = f"{self.config.base_url}/private/transfer_erc20"
+        url = self.endpoints.private.transfer_erc20
         transfer_details = TransferERC20Details(
             base_address=self.config.contracts.CASH_ASSET,
             sub_id=0,
@@ -680,7 +595,7 @@ class BaseClient:
 
     def get_mmp_config(self, subaccount_id: int, currency: UnderlyingCurrency = None):
         """Get the mmp config."""
-        url = f"{self.config.base_url}/private/get_mmp_config"
+        url = self.endpoints.private.get_mmp_config
         payload = {"subaccount_id": self.subaccount_id}
         if currency:
             payload["currency"] = currency.name
@@ -696,7 +611,7 @@ class BaseClient:
         mmp_delta_limit: str,
     ):
         """Set the mmp config."""
-        url = f"{self.config.base_url}/private/set_mmp_config"
+        url = self.endpoints.private.set_mmp_config
         payload = {
             "subaccount_id": subaccount_id,
             "currency": currency.name,
@@ -709,7 +624,7 @@ class BaseClient:
 
     def send_rfq(self, rfq):
         """Send an RFQ."""
-        url = f"{self.config.base_url}/private/send_rfq"
+        url = self.endpoints.private.send_rfq
         return self._send_request(url, rfq)
 
     def poll_rfqs(self):
@@ -726,7 +641,7 @@ class BaseClient:
               legs: Array<RfqLeg>
             }
         """
-        url = f"{self.config.base_url}/private/poll_rfqs"
+        url = self.endpoints.private.poll_rfqs
         params = {
             "subaccount_id": self.subaccount_id,
             "status": RfqStatus.OPEN.value,
@@ -738,7 +653,7 @@ class BaseClient:
 
     def send_quote(self, quote):
         """Send a quote."""
-        url = f"{self.config.base_url}/private/send_quote"
+        url = self.endpoints.private.send_quote
         return self._send_request(url, quote)
 
     def create_quote_object(
@@ -764,10 +679,9 @@ class BaseClient:
     def _send_request(self, url, json=None, params=None, headers=None):
         headers = self._create_signature_headers() if not headers else headers
         response = requests.post(url, json=json, headers=headers, params=params)
-        if 403 == response.status_code:
-            raise ApiException(response.content)
+        response.raise_for_status()
         if "error" in response.json():
-            raise ApiException(response.json()["error"])
+            raise DeriveJSONRPCException(**response.json()["error"])
         results = response.json()["result"]
         return results
 
@@ -775,20 +689,20 @@ class BaseClient:
         """
         Fetch the currency list
         """
-        url = f"{self.config.base_url}/public/get_all_currencies"
+        url = self.endpoints.public.get_all_currencies
         return self._send_request(url, json={})
 
     def fetch_currency(self, asset_name):
         """
         Fetch the currency list
         """
-        url = f"{self.config.base_url}/public/get_currency"
+        url = self.endpoints.public.get_currency
         payload = {"currency": asset_name}
         return self._send_request(url, json=payload)
 
     def get_transaction(self, transaction_id: str) -> DeriveTxResult:
         """Get a transaction by its transaction id."""
-        url = f"{self.config.base_url}/public/get_transaction"
+        url = self.endpoints.public.get_transaction
         payload = {"transaction_id": transaction_id}
         return DeriveTxResult(**self._send_request(url, json=payload), transaction_id=transaction_id)
 
@@ -831,14 +745,7 @@ class BaseClient:
             "signer": sender_action.signer,
             "subaccount_id": subaccount_id,
         }
-        url = f"{self.config.base_url}/private/deposit"
-
-        print(f"Payload: {payload}")
-        print("Encoded data:", deposit_module_data.to_abi_encoded().hex())
-        action_hash = sender_action._get_action_hash()
-        typed_data_hash = sender_action._to_typed_data_hash()
-        print(f"Action hash: {action_hash.hex()}")
-        print(f"Typed data hash: {typed_data_hash.hex()}")
+        url = self.endpoints.private.deposit
 
         deposit_result = DepositResult(**self._send_request(url, json=payload))
         return wait_until(
@@ -918,12 +825,7 @@ class BaseClient:
             "signer": sender_action.signer,
             "subaccount_id": subaccount_id,
         }
-        url = f"{self.config.base_url}/private/withdraw"
-
-        action_hash = sender_action._get_action_hash()
-        typed_data_hash = sender_action._to_typed_data_hash()
-        print(f"Action hash: {action_hash.hex()}")
-        print(f"Typed data hash: {typed_data_hash.hex()}")
+        url = self.endpoints.private.withdraw
 
         withdraw_result = WithdrawResult(**self._send_request(url, json=payload))
         return wait_until(

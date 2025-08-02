@@ -4,7 +4,7 @@ from derive_action_signing.module_data import ModuleData
 from derive_action_signing.utils import decimal_to_big_int
 from eth_abi.abi import encode
 from eth_utils import is_0x_prefixed, is_address, is_hex, to_checksum_address
-from pydantic import BaseModel, ConfigDict, Field, GetCoreSchemaHandler, GetJsonSchemaHandler
+from pydantic import BaseModel, ConfigDict, Field, GetCoreSchemaHandler, GetJsonSchemaHandler, HttpUrl
 from pydantic.dataclasses import dataclass
 from pydantic_core import core_schema
 from web3 import Web3
@@ -44,9 +44,9 @@ class PAttributeDict(AttributeDict):
 
     @classmethod
     def _validate(cls, v) -> AttributeDict:
-        if not isinstance(v, AttributeDict):
+        if not isinstance(v, (dict, AttributeDict)):
             raise TypeError(f"Expected AttributeDict, got {v!r}")
-        return v
+        return AttributeDict(v)
 
 
 class Address(str):
@@ -178,9 +178,9 @@ class TxResult:
     def status(self) -> TxStatus:
         if self.tx_receipt is not None:
             return TxStatus(int(self.tx_receipt.status))  # ∈ {0, 1} (EIP-658)
-        if isinstance(self.exception, TimeoutError):
-            return TxStatus.PENDING
-        return TxStatus.ERROR
+        if self.exception is not None and not isinstance(self.exception, TimeoutError):
+            return TxStatus.ERROR
+        return TxStatus.PENDING
 
 
 @dataclass(config=ConfigDict(validate_assignment=True))
@@ -217,3 +217,19 @@ class DeriveTxResult(BaseModel):
     error_log: dict
     transaction_id: str
     tx_hash: str | None = Field(alias="transaction_hash")
+
+
+class RPCEndpoints(BaseModel, frozen=True):
+    ETH: list[HttpUrl] = Field(default_factory=list)
+    OPTIMISM: list[HttpUrl] = Field(default_factory=list)
+    BASE: list[HttpUrl] = Field(default_factory=list)
+    ARBITRUM: list[HttpUrl] = Field(default_factory=list)
+    DERIVE: list[HttpUrl] = Field(default_factory=list)
+    MODE: list[HttpUrl] = Field(default_factory=list)
+    BLAST: list[HttpUrl] = Field(default_factory=list)
+
+    def __getitem__(self, key: ChainID | int | str) -> list[HttpUrl]:
+        chain = ChainID[key.upper()] if isinstance(key, str) else ChainID(key)
+        if not (urls := getattr(self, chain.name, [])):
+            raise ValueError(f"No RPC URLs configured for {chain.name}")
+        return urls

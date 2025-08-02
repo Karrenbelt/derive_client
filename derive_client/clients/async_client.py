@@ -16,7 +16,7 @@ from derive_client.constants import CONFIGS, DEFAULT_REFERER, TEST_PRIVATE_KEY
 from derive_client.data_types import Environment, InstrumentType, OrderSide, OrderType, TimeInForce, UnderlyingCurrency
 from derive_client.utils import get_logger
 
-from .base_client import ApiException
+from .base_client import DeriveJSONRPCException
 from .ws_client import WsClient as BaseClient
 
 
@@ -48,11 +48,11 @@ class AsyncClient(BaseClient):
         self.web3_client = Web3()
         self.signer = self.web3_client.eth.account.from_key(private_key)
         self.wallet = self.signer.address if not wallet else wallet
-        print(f"Signing address: {self.signer.address}")
+        self.logger.info(f"Signing address: {self.signer.address}")
         if wallet:
-            print(f"Using wallet: {wallet}")
+            self.logger.info(f"Using wallet: {wallet}")
         self.subaccount_id = subaccount_id
-        print(f"Using subaccount id: {self.subaccount_id}")
+        self.logger.info(f"Using subaccount id: {self.subaccount_id}")
         self.message_queues = {}
         self.connecting = False
         # we make sure to get the event loop
@@ -102,14 +102,11 @@ class AsyncClient(BaseClient):
             except TypeError:
                 continue
             if "error" in msg:
-                print(msg)
                 raise Exception(msg["error"])
             if "result" in msg:
                 result = msg["result"]
                 if "status" in result:
-                    # print(f"Succesfully subscribed to {result['status']}")
                     for channel, value in result['status'].items():
-                        # print(f"Channel {channel} has value {value}")
                         if "error" in value:
                             raise Exception(f"Subscription error for channel: {channel} error: {value['error']}")
                     continue
@@ -139,7 +136,7 @@ class AsyncClient(BaseClient):
                 if "result" not in message:
                     if self._check_output_for_rate_limit(message):
                         return await self.login_client()
-                    raise ApiException(message['error'])
+                    raise DeriveJSONRPCException(**message['error'])
                 break
 
     def handle_message(self, subscription, data):
@@ -233,7 +230,7 @@ class AsyncClient(BaseClient):
                 raise Exception(f"Error fetching ticker {message}")
             if message.type == aiohttp.WSMsgType.CLOSED:
                 # we try to reconnect
-                print(f"Erorr fetching ticker {message}...")
+                self.logger.error(f"Error fetching ticker {message}...")
                 self._ws = await self.connect_ws()
                 return await self.fetch_tickers(instrument_type, currency)
             message = json.loads(message.data)
@@ -241,7 +238,7 @@ class AsyncClient(BaseClient):
                 try:
                     results[message['result']['instrument_name']] = message['result']
                 except KeyError:
-                    print(f"Error fetching ticker {message}")
+                    self.logger.error(f"Error fetching ticker {message}")
                 del ids_to_instrument_names[message['id']]
         return results
 
@@ -341,8 +338,7 @@ class AsyncClient(BaseClient):
                         if "result" not in message:
                             if self._check_output_for_rate_limit(message):
                                 return await self.submit_order(order)
-                            raise ApiException(message['error'])
+                            raise DeriveJSONRPCException(**message['error'])
                         return message['result']['order']
                     except KeyError as error:
-                        print(message)
                         raise Exception(f"Unable to submit order {message}") from error

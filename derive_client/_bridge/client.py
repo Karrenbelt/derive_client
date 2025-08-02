@@ -7,6 +7,7 @@ from __future__ import annotations
 import copy
 import functools
 import json
+from logging import Logger
 from typing import Literal
 
 from eth_account import Account
@@ -14,7 +15,12 @@ from web3 import Web3
 from web3.contract import Contract
 from web3.datastructures import AttributeDict
 
-from derive_client._bridge.transaction import ensure_allowance, ensure_balance, prepare_mainnet_to_derive_gas_tx
+from derive_client._bridge.transaction import (
+    _check_gas_balance,
+    ensure_allowance,
+    ensure_balance,
+    prepare_mainnet_to_derive_gas_tx,
+)
 from derive_client.constants import (
     CONFIGS,
     CONTROLLER_ABI_PATH,
@@ -50,7 +56,6 @@ from derive_client.data_types import (
     LayerZeroChainIDv2,
     MintableTokenData,
     NonMintableTokenData,
-    RPCEndPoints,
     SocketAddress,
     TxResult,
     TxStatus,
@@ -107,17 +112,18 @@ def _get_min_fees(
 
 
 class BridgeClient:
-    def __init__(self, env: Environment, chain_id: ChainID, account: Account, wallet: Address):
+    def __init__(self, env: Environment, chain_id: ChainID, account: Account, wallet: Address, logger: Logger):
         if not env == Environment.PROD:
             raise RuntimeError(f"Bridging is not supported in the {env.name} environment.")
         self.config = CONFIGS[env]
-        self.derive_w3 = get_w3_connection(chain_id=ChainID.DERIVE)
-        self.remote_w3 = get_w3_connection(chain_id=chain_id)
+        self.derive_w3 = get_w3_connection(chain_id=ChainID.DERIVE, logger=logger)
+        self.remote_w3 = get_w3_connection(chain_id=chain_id, logger=logger)
         self.account = account
         self.withdraw_wrapper = self._load_withdraw_wrapper()
         self.deposit_helper = self._load_deposit_helper()
         self.derive_addresses = get_prod_derive_addresses()
         self.light_account = _load_light_account(w3=self.derive_w3, wallet=wallet)
+        self.logger = logger
         if self.owner != self.account.address:
             raise ValueError(
                 "Bridging disabled for secondary session-key signers: old-style assets "
@@ -246,6 +252,7 @@ class BridgeClient:
         target_from_block = context.target_w3.eth.block_number
 
         spender = token_data.Vault if token_data.isNewBridge else self.deposit_helper.address
+        _check_gas_balance(context.source_w3, self.owner)
         ensure_balance(context.source_token, self.owner, amount)
         ensure_allowance(
             w3=context.source_w3,
@@ -254,6 +261,7 @@ class BridgeClient:
             spender=spender,
             amount=amount,
             private_key=self.private_key,
+            logger=self.logger,
         )
 
         if token_data.isNewBridge:
@@ -261,7 +269,9 @@ class BridgeClient:
         else:
             tx = self._prepare_old_style_deposit(token_data, amount)
 
-        source_tx = send_and_confirm_tx(w3=context.source_w3, tx=tx, private_key=self.private_key, action="bridge()")
+        source_tx = send_and_confirm_tx(
+            w3=context.source_w3, tx=tx, private_key=self.private_key, action="bridge()", logger=self.logger
+        )
         tx_result = BridgeTxResult(
             currency=currency,
             bridge=BridgeType.SOCKET,
@@ -311,7 +321,11 @@ class BridgeClient:
         tx = build_standard_transaction(func=func, account=self.account, w3=context.source_w3, value=0)
 
         source_tx = send_and_confirm_tx(
-            w3=context.source_w3, tx=tx, private_key=self.private_key, action="executeBatch()"
+            w3=context.source_w3,
+            tx=tx,
+            private_key=self.private_key,
+            action="executeBatch()",
+            logger=self.logger,
         )
         tx_result = BridgeTxResult(
             currency=currency,
@@ -334,6 +348,7 @@ class BridgeClient:
         target_from_block = context.target_w3.eth.block_number
 
         # check allowance, if needed approve
+        _check_gas_balance(context.source_w3, self.owner)
         ensure_balance(context.source_token, self.owner, amount)
         ensure_allowance(
             w3=context.source_w3,
@@ -342,6 +357,7 @@ class BridgeClient:
             spender=context.source_token.address,
             amount=amount,
             private_key=self.private_key,
+            logger=self.logger,
         )
 
         # build the send tx
@@ -367,7 +383,11 @@ class BridgeClient:
         tx = build_standard_transaction(func=func, account=self.account, w3=context.source_w3, value=native_fee)
 
         source_tx = send_and_confirm_tx(
-            w3=context.source_w3, tx=tx, private_key=self.private_key, action="executeBatch()"
+            w3=context.source_w3,
+            tx=tx,
+            private_key=self.private_key,
+            action="executeBatch()",
+            logger=self.logger,
         )
         tx_result = BridgeTxResult(
             currency=currency,
@@ -415,7 +435,11 @@ class BridgeClient:
         tx = build_standard_transaction(func=func, account=self.account, w3=context.source_w3, value=0)
 
         source_tx = send_and_confirm_tx(
-            w3=context.source_w3, tx=tx, private_key=self.private_key, action="executeBatch()"
+            w3=context.source_w3,
+            tx=tx,
+            private_key=self.private_key,
+            action="executeBatch()",
+            logger=self.logger,
         )
         tx_result = BridgeTxResult(
             currency=currency,
@@ -437,7 +461,7 @@ class BridgeClient:
             raise BridgeEventParseError(f"Could not decode LayerZero OFTSent guid: {e}") from e
 
         tx_result.event_id = guid.hex()
-        print(f"🔖 Source [{tx_result.source_chain.name}] OFTSent GUID: {tx_result.event_id}")
+        self.logger.info(f"🔖 Source [{tx_result.source_chain.name}] OFTSent GUID: {tx_result.event_id}")
 
         filter_params = make_filter_params(
             event=context.target_event,
@@ -445,8 +469,10 @@ class BridgeClient:
             argument_filters={"guid": guid},
         )
 
-        print(f"🔍 Listening for OFTReceived on [{tx_result.target_chain.name}] at {context.target_event.address}")
-        return wait_for_event(context.target_w3, filter_params)
+        self.logger.info(
+            f"🔍 Listening for OFTReceived on [{tx_result.target_chain.name}] at {context.target_event.address}"
+        )
+        return wait_for_event(context.target_w3, filter_params, logger=self.logger)
 
     def fetch_socket_event_log(self, tx_result: BridgeTxResult, context: BridgeContext):
 
@@ -457,7 +483,7 @@ class BridgeClient:
             raise BridgeEventParseError(f"Could not decode Socket MessageOutbound event: {e}") from e
 
         tx_result.event_id = message_id.hex()
-        print(f"🔖 Source [{tx_result.source_chain.name}] MessageOutbound msgId: {tx_result.event_id}")
+        self.logger.info(f"🔖 Source [{tx_result.source_chain.name}] MessageOutbound msgId: {tx_result.event_id}")
         filter_params = context.target_event._get_event_filter_params(
             fromBlock=tx_result.target_from_block, abi=context.target_event.abi
         )
@@ -466,8 +492,10 @@ class BridgeClient:
             decoded = context.target_event.process_log(log)
             return decoded.get("args", {}).get("msgId") == message_id
 
-        print(f"🔍 Listening for ExecutionSuccess on [{tx_result.target_chain.name}] at {context.target_event.address}")
-        return wait_for_event(context.target_w3, filter_params, condition=matching_message_id)
+        self.logger.info(
+            f"🔍 Listening for ExecutionSuccess on [{tx_result.target_chain.name}] at {context.target_event.address}"
+        )
+        return wait_for_event(context.target_w3, filter_params, condition=matching_message_id, logger=self.logger)
 
     def poll_bridge_progress(self, tx_result: BridgeTxResult) -> BridgeTxResult:
         if tx_result.status is not TxStatus.PENDING:
@@ -492,7 +520,7 @@ class BridgeClient:
 
         # 1. TimeoutError as exception during source_tx.tx_receipt
         if not tx_result.source_tx.tx_receipt:
-            print(
+            self.logger.info(
                 f"⏳ Checking source chain [{tx_result.source_chain.name}] tx receipt for {tx_result.source_tx.tx_hash}"
             )
             tx_result.source_tx.exception = None
@@ -502,6 +530,7 @@ class BridgeClient:
                 )
             except TimeoutError as e:
                 tx_result.source_tx.exception = e
+                return tx_result
 
         # 2. target_tx is None (i.e. TimeoutError when waiting for event log on target chain)
         if not tx_result.target_tx:
@@ -513,7 +542,7 @@ class BridgeClient:
 
         # 3. Timeout waiting for target_tx.tx_receipt
         if not tx_result.target_tx.tx_receipt:
-            print(
+            self.logger.info(
                 f"⏳ Checking target chain [{tx_result.target_chain.name}] tx receipt for {tx_result.target_tx.tx_hash}"
             )
             tx_result.target_tx.exception = None
@@ -530,7 +559,7 @@ class BridgeClient:
         """Ensure that the Derive EOA wallet has sufficient ETH balance for gas."""
         balance_of_owner = self.derive_w3.eth.get_balance(self.owner)
         if balance_of_owner < DEPOSIT_GAS_LIMIT:
-            print(f"Funding Derive EOA wallet with {DEFAULT_GAS_FUNDING_AMOUNT} ETH")
+            self.logger.info(f"Funding Derive EOA wallet with {DEFAULT_GAS_FUNDING_AMOUNT} ETH")
             self.bridge_mainnet_eth_to_derive(DEFAULT_GAS_FUNDING_AMOUNT)
 
     def bridge_mainnet_eth_to_derive(self, amount: int) -> TxResult:
@@ -539,14 +568,16 @@ class BridgeClient:
         This is the "socket superbridge" method; not required when using the withdraw wrapper.
         """
 
-        w3 = Web3(Web3.HTTPProvider(RPCEndPoints.ETH.value))
+        w3 = get_w3_connection(ChainID.ETH, logger=self.logger)
 
         address = self.config.contracts.L1_CHUG_SPLASH_PROXY
         bridge_abi = json.loads(L1_STANDARD_BRIDGE_ABI_PATH.read_text())
         proxy_contract = get_contract(w3=w3, address=address, abi=bridge_abi)
 
         tx = prepare_mainnet_to_derive_gas_tx(w3=w3, account=self.account, amount=amount, proxy_contract=proxy_contract)
-        tx_result = send_and_confirm_tx(w3=w3, tx=tx, private_key=self.private_key, action="bridgeETH()")
+        tx_result = send_and_confirm_tx(
+            w3=w3, tx=tx, private_key=self.private_key, action="bridgeETH()", logger=self.logger
+        )
         return tx_result
 
     def _prepare_new_style_deposit(self, token_data: NonMintableTokenData, amount: int) -> dict:
