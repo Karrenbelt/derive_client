@@ -21,7 +21,6 @@ from derive_action_signing.module_data import (
 from derive_action_signing.signed_action import SignedAction
 from derive_action_signing.utils import MAX_INT_32, get_action_nonce, sign_rest_auth_header, sign_ws_login, utc_now_ms
 from pydantic import validate_call
-from rich import print
 from web3 import Web3
 from websocket import WebSocketConnectionClosedException, create_connection
 
@@ -342,7 +341,6 @@ class BaseClient:
                         raise DeriveJSONRPCException(**message["error"])
                     return message["result"]["order"]
                 except KeyError as error:
-                    print(message)
                     raise Exception(f"Unable to submit order {message}") from error
 
     def _sign_quote(self, quote):
@@ -362,7 +360,6 @@ class BaseClient:
         quote["price"] = "10"
 
         def encode_leg(leg):
-            print(quote)
             sub_id = ledgs_to_subids[leg["instrument_name"]]
             leg_sign = 1 if leg["direction"] == "buy" else -1
             signed_amount = self.web3_client.to_wei(leg["amount"], "ether") * leg_sign * dir_sign
@@ -373,6 +370,7 @@ class BaseClient:
                 signed_amount,
             ]
 
+        self.logger.info(f"Quote: {quote}")
         encoded_legs = [encode_leg(leg) for leg in quote["legs"]]
         rfq_data = [self.web3_client.to_wei(quote["max_fee"], "ether"), encoded_legs]
 
@@ -503,7 +501,7 @@ class BaseClient:
         if error := message.get("error"):
             if "Rate limit exceeded" in error["message"]:
                 sleep((int(error["data"].split(" ")[-2]) / 1000))
-                print("Rate limit exceeded, sleeping and retrying request")
+                self.logger.info("Rate limit exceeded, sleeping and retrying request")
                 return True
         return False
 
@@ -832,13 +830,6 @@ class BaseClient:
         }
         url = f"{self.config.base_url}/private/deposit"
 
-        print(f"Payload: {payload}")
-        print("Encoded data:", deposit_module_data.to_abi_encoded().hex())
-        action_hash = sender_action._get_action_hash()
-        typed_data_hash = sender_action._to_typed_data_hash()
-        print(f"Action hash: {action_hash.hex()}")
-        print(f"Typed data hash: {typed_data_hash.hex()}")
-
         deposit_result = DepositResult(**self._send_request(url, json=payload))
         return wait_until(
             self.get_transaction,
@@ -918,11 +909,6 @@ class BaseClient:
             "subaccount_id": subaccount_id,
         }
         url = f"{self.config.base_url}/private/withdraw"
-
-        action_hash = sender_action._get_action_hash()
-        typed_data_hash = sender_action._to_typed_data_hash()
-        print(f"Action hash: {action_hash.hex()}")
-        print(f"Typed data hash: {typed_data_hash.hex()}")
 
         withdraw_result = WithdrawResult(**self._send_request(url, json=payload))
         return wait_until(

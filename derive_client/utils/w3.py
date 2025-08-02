@@ -21,7 +21,7 @@ from derive_client.constants import ABI_DATA_DIR, DEFAULT_RPC_ENDPOINTS, GAS_FEE
 from derive_client.data_types import ChainID, RPCEndpoints, TxResult, TxStatus
 from derive_client.exceptions import NoAvailableRPC, TxSubmissionError
 from derive_client.utils.logger import get_logger
-from derive_client.utils.retry import exp_backoff_retry, retry
+from derive_client.utils.retry import exp_backoff_retry
 
 EVENT_LOG_RETRIES = 10
 
@@ -229,11 +229,11 @@ def wait_for_tx_receipt(w3: Web3, tx_hash: str, timeout=120, poll_interval=1) ->
         time.sleep(poll_interval)
 
 
-def sign_and_send_tx(w3: Web3, tx: dict, private_key: str) -> HexBytes:
+def sign_and_send_tx(w3: Web3, tx: dict, private_key: str, logger: Logger) -> HexBytes:
     signed_tx = w3.eth.account.sign_transaction(tx, private_key=private_key)
-    print(f"signed_tx: {signed_tx}")
+    logger.info(f"signed_tx: {signed_tx}")
     tx_hash = w3.eth.send_raw_transaction(signed_tx.raw_transaction)
-    print(f"tx_hash: 0x{tx_hash.hex()}")
+    logger.info(f"tx_hash: {tx_hash.to_0x_hex()}")
     return tx_hash
 
 
@@ -243,28 +243,30 @@ def send_and_confirm_tx(
     private_key: str,
     *,
     action: str,  # e.g. "approve()", "deposit()", "withdraw()"
+    logger: Logger,
 ) -> TxResult:
     """Send and confirm transactions."""
 
     try:
-        tx_hash = sign_and_send_tx(w3=w3, tx=tx, private_key=private_key)
+        tx_hash = sign_and_send_tx(w3=w3, tx=tx, private_key=private_key, logger=logger)
         tx_result = TxResult(tx_hash=tx_hash.to_0x_hex(), tx_receipt=None, exception=None)
     except Exception as send_err:
         msg = f"❌ Failed to send tx for {action}, error: {send_err!r}"
+        logger.error(msg)
         raise TxSubmissionError(msg) from send_err
 
     try:
         tx_receipt = wait_for_tx_receipt(w3=w3, tx_hash=tx_hash)
         tx_result.tx_receipt = tx_receipt
     except TimeoutError as timeout_err:
-        print(f"⏱️ Timeout waiting for tx receipt of {tx_hash.hex()}")
+        logger.warning(f"⏱️ Timeout waiting for tx receipt of {tx_hash.to_0x_hex()}")
         tx_result.exception = timeout_err
         return tx_result
 
     if tx_result.tx_receipt.status == TxStatus.SUCCESS:
-        print(f"✅ {action} succeeded for tx {tx_hash.hex()}")
+        logger.info(f"✅ {action} succeeded for tx {tx_hash.to_0x_hex()}")
     else:
-        print(f"❌ {action} reverted for tx {tx_hash.hex()}")
+        logger.error(f"❌ {action} reverted for tx {tx_hash.to_0x_hex()}")
 
     return tx_result
 
@@ -304,6 +306,7 @@ def iter_events(
     max_block_range: int = 10_000,
     poll_interval: float = 5.0,
     timeout: float | None = None,
+    logger: Logger,
 ) -> Generator[AttributeDict, None, None]:
     """Stream matching logs over a fixed or live block window. Optionally raises TimeoutError."""
 
@@ -319,6 +322,7 @@ def iter_events(
     while True:
         if deadline and time.time() > deadline:
             msg = f"Timed out waiting for events after scanning blocks {start_block}-{cursor}"
+            logger.warning(msg)
             raise TimeoutError(f"{msg}: filter_params: {original_filter_params}")
         upper = fixed_ceiling or w3.eth.block_number
         if cursor <= upper:
@@ -326,12 +330,9 @@ def iter_events(
             filter_params["fromBlock"] = hex(cursor)
             filter_params["toBlock"] = hex(end)
             # For example, when rotating providers are out of sync
-            logs = retry(
-                w3.eth.get_logs,
-                filter_params=filter_params,
-                retries=EVENT_LOG_RETRIES,
-            )
-            print(f"Scanned {cursor} - {end}: {len(logs)} logs")
+            retry_get_logs = exp_backoff_retry(w3.eth.get_logs, attempts=EVENT_LOG_RETRIES)
+            logs = retry_get_logs(filter_params=filter_params)
+            logger.info(f"Scanned {cursor} - {end}: {len(logs)} logs")
             yield from filter(condition, logs)
             cursor = end + 1  # bounds are inclusive
 
@@ -349,6 +350,7 @@ def wait_for_event(
     max_block_range: int = 10_000,
     poll_interval: float = 5.0,
     timeout: float = 300.0,
+    logger: Logger,
 ) -> AttributeDict:
     """Return the first log from iter_events, or raise TimeoutError after `timeout` seconds."""
 
