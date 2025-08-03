@@ -29,8 +29,8 @@ REQUIRED_METHODS = {
 
 class TrackingHTTPProvider(HTTPProvider):
 
-    def __init__(self, endpoint_uri: str, request_kwargs: dict, used: set):
-        super().__init__(endpoint_uri, request_kwargs=request_kwargs)
+    def __init__(self, endpoint_uri: str, used: set):
+        super().__init__(endpoint_uri)
         self.used = used
         self.lock = threading.Lock()
 

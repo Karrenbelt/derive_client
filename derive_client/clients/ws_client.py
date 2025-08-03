@@ -6,8 +6,7 @@ import json
 import time
 
 from derive_action_signing.utils import sign_ws_login, utc_now_ms
-from websocket import WebSocketConnectionClosedException
-from websocket import create_connection
+from websocket import WebSocketConnectionClosedException, create_connection
 
 from derive_client.data_types import InstrumentType, UnderlyingCurrency
 from derive_client.exceptions import DeriveJSONRPCException
