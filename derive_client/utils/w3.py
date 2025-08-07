@@ -61,7 +61,7 @@ def make_rotating_provider_middleware(
 
     def middleware_factory(make_request: Callable[[str, Any], Any], w3: Web3) -> Callable[[str, Any], Any]:
         def rotating_backoff(method: str, params: Any) -> Any:
-            now = time.time()
+            now = time.monotonic()
 
             while True:
                 # 1) grab the earlies-available endpoint
@@ -72,24 +72,24 @@ def make_rotating_provider_middleware(
                 if state.next_available > now:
                     with lock:
                         heapq.heappush(heap, state)
-                    msg = "All RPC endpoints are cooling down until %.2f (now=%.2f)"
-                    logger.warning(msg, state.next_available, now)
-                    raise NoAvailableRPC("All available RPC endpoints are on timeout")
+                    msg = "All RPC endpoints are cooling down. Try again in %.2f seconds."
+                    logger.warning(msg, state.next_available - now)
+                    raise NoAvailableRPC(msg)
 
                 try:
                     # 3) attempt the request
                     resp = state.provider.make_request(method, params)
 
                     # Json‑RPC error branch
-                    if isinstance(resp, dict) and resp.get("error"):
-                        msg = resp["error"].get("message", "")
+                    if isinstance(resp, dict) and (error := resp.get("error")):
                         state.backoff = state.backoff * 2 if state.backoff else initial_backoff
                         state.backoff = min(state.backoff, max_backoff)
                         state.next_available = now + state.backoff
                         with lock:
                             heapq.heappush(heap, state)
+                        err_msg = error.get("message", "")
                         msg = "RPC error on %s: %s → backing off %.2fs"
-                        logger.info(msg, state.provider.endpoint_uri, msg, state.backoff)
+                        logger.info(msg, state.provider.endpoint_uri, err_msg, state.backoff, extra=resp)
                         continue
 
                     # 4) on success, reset its backoff and re-schedule immediately
@@ -114,11 +114,11 @@ def make_rotating_provider_middleware(
                     state.next_available = now + state.backoff
                     with lock:
                         heapq.heappush(heap, state)
-                    msg = "Backing off %s for %.2fs (next_available=%.2f)"
-                    logger.info(msg, state.provider.endpoint_uri, backoff, state.next_available)
+                    msg = "Backing off %s for %.2fs"
+                    logger.info(msg, state.provider.endpoint_uri, backoff)
                     continue
                 except Exception as e:
-                    msg = ("Unexpected error calling %s %s on %s; backing off %.2fs and continuing",)
+                    msg = "Unexpected error calling %s %s on %s; backing off %.2fs and continuing"
                     logger.exception(msg, method, params, state.provider.endpoint_uri, max_backoff, exc_info=e)
                     state.backoff = max_backoff
                     state.next_available = now + state.backoff
@@ -218,7 +218,7 @@ def build_standard_transaction(
 
 
 def wait_for_tx_receipt(w3: Web3, tx_hash: str, timeout=120, poll_interval=1) -> AttributeDict:
-    start_time = time.time()
+    start_time = time.monotonic()
     while True:
         try:
             receipt = w3.eth.get_transaction_receipt(tx_hash)
@@ -226,7 +226,7 @@ def wait_for_tx_receipt(w3: Web3, tx_hash: str, timeout=120, poll_interval=1) ->
             receipt = None
         if receipt is not None:
             return receipt
-        if time.time() - start_time > timeout:
+        if time.monotonic() - start_time > timeout:
             raise TimeoutError("Timed out waiting for transaction receipt.")
         time.sleep(poll_interval)
 
@@ -320,9 +320,9 @@ def iter_events(
     filter_params["toBlock"] = filter_params.get("toBlock", "latest")
     fixed_ceiling = None if filter_params["toBlock"] == "latest" else filter_params["toBlock"]
 
-    deadline = None if timeout is None else time.time() + timeout
+    deadline = None if timeout is None else time.monotonic() + timeout
     while True:
-        if deadline and time.time() > deadline:
+        if deadline and time.monotonic() > deadline:
             msg = f"Timed out waiting for events after scanning blocks {start_block}-{cursor}"
             logger.warning(msg)
             raise TimeoutError(f"{msg}: filter_params: {original_filter_params}")
