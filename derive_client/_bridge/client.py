@@ -7,6 +7,7 @@ from __future__ import annotations
 import copy
 import functools
 import json
+from contextlib import suppress
 from logging import Logger
 from typing import Literal
 
@@ -508,6 +509,7 @@ class BridgeClient:
         return wait_for_event(context.target_w3, filter_params, condition=matching_message_id, logger=self.logger)
 
     def poll_bridge_progress(self, tx_result: BridgeTxResult) -> BridgeTxResult:
+
         if tx_result.status is not TxStatus.PENDING:
             raise AlreadyFinalizedError(f"Bridge already in final state: {tx_result.status.name}")
 
@@ -528,44 +530,34 @@ class BridgeClient:
             currency=tx_result.currency,
         )
 
-        # 1. TimeoutError as exception during source_tx.tx_receipt
-        if not tx_result.source_tx.tx_receipt:
-            self.logger.info(
-                f"⏳ Checking source chain [{tx_result.source_chain.name}] tx receipt for {tx_result.source_tx.tx_hash}"
-            )
-            tx_result.source_tx.exception = None
-            try:
+        # Timeout means partial update; subsequent steps depend on prior success, so we stop here
+        with suppress(TimeoutError):
+            # 1. TimeoutError as exception during source_tx.tx_receipt
+            if not tx_result.source_tx.tx_receipt:
+                self.logger.info(
+                    f"⏳ Checking source chain [{tx_result.source_chain.name}] tx receipt for {tx_result.source_tx.tx_hash}"
+                )
                 tx_result.source_tx.tx_receipt = wait_for_tx_receipt(
                     w3=context.source_w3, tx_hash=tx_result.source_tx.tx_hash
                 )
-            except TimeoutError as e:
-                tx_result.source_tx.exception = e
-                return tx_result
 
-        # 2. target_tx is None (i.e. TimeoutError when waiting for event log on target chain)
-        if not tx_result.target_tx:
-            try:
+            # 2. target_tx is None (i.e. TimeoutError when waiting for event log on target chain)
+            if not tx_result.target_tx:
                 event_log = fetch_event(tx_result, context)
                 tx_result.target_tx = TxResult(event_log["transactionHash"].to_0x_hex())
-            except TimeoutError:
-                return tx_result
 
-        # 3. Timeout waiting for target_tx.tx_receipt
-        if not tx_result.target_tx.tx_receipt:
-            self.logger.info(
-                f"⏳ Checking target chain [{tx_result.target_chain.name}] tx receipt for {tx_result.target_tx.tx_hash}"
-            )
-            tx_result.target_tx.exception = None
-            try:
+            # 3. TimeoutError waiting for target_tx.tx_receipt
+            if not tx_result.target_tx.tx_receipt:
+                self.logger.info(
+                    f"⏳ Checking target chain [{tx_result.target_chain.name}] tx receipt for {tx_result.target_tx.tx_hash}"
+                )
                 tx_result.target_tx.tx_receipt = wait_for_tx_receipt(
                     w3=context.target_w3, tx_hash=tx_result.target_tx.tx_hash
                 )
-            except TimeoutError as e:
-                tx_result.target_tx.exception = e
 
         return tx_result
 
-    def _ensure_derive_eth_balance(self, tx:dict[str, str]):
+    def _ensure_derive_eth_balance(self, tx: dict[str, str]):
         """Ensure that the Derive EOA wallet has sufficient ETH balance for gas."""
         balance_of_owner = self.derive_w3.eth.get_balance(self.owner)
         required_gas = tx['maxFeePerGas'] * tx['gas']
@@ -594,8 +586,10 @@ class BridgeClient:
         )
         require_gas = tx['maxFeePerGas'] * tx['gas']
         current_balance = w3.eth.get_balance(self.account.address)
-        if not current_balance >= (amount + require_gas ) * 1.1:
-            raise InsufficientGas(f"Insufficient ETH balance for bridging amount {amount} + gas {require_gas}. Balance: {current_balance}")
+        if not current_balance >= (amount + require_gas) * 1.1:
+            raise InsufficientGas(
+                f"Insufficient ETH balance for bridging amount {amount} + gas {require_gas}. Balance: {current_balance}"
+            )
         tx_result = send_and_confirm_tx(
             w3=w3, tx=tx, private_key=self.private_key, action="bridgeETH()", logger=self.logger
         )
