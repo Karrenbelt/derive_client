@@ -17,6 +17,7 @@ from derive_client.data_types import (
     SubaccountType,
     UnderlyingCurrency,
 )
+from derive_client.utils import wait_until
 
 
 @pytest.mark.parametrize(
@@ -206,10 +207,21 @@ def test_cancel_all_orders(derive_client):
         side=OrderSide.BUY,
         order_type=OrderType.LIMIT,
     )
-    open_orders = derive_client.fetch_orders(status="open")
+    open_orders = wait_until(
+        func=derive_client.fetch_orders,
+        condition=lambda orders: orders,
+        status="open",
+        timeout_message="Orders not openened",
+    )
     assert open_orders
+
     derive_client.cancel_all()
-    open_orders = derive_client.fetch_orders(status="open")
+    open_orders = wait_until(
+        func=derive_client.fetch_orders,
+        condition=lambda orders: not orders,
+        status="open",
+        timeout_message="Outstanding orders not cancelled",
+    )
     assert not open_orders
 
 

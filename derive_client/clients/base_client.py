@@ -5,7 +5,7 @@ Base Client for the derive dex.
 import json
 import random
 from decimal import Decimal
-from logging import Logger
+from logging import Logger, LoggerAdapter
 from time import sleep
 
 import eth_abi
@@ -22,7 +22,6 @@ from derive_action_signing.signed_action import SignedAction
 from derive_action_signing.utils import MAX_INT_32, get_action_nonce, sign_rest_auth_header, utc_now_ms
 from pydantic import validate_call
 from web3 import Web3
-from websocket import create_connection
 
 from derive_client._bridge import BridgeClient
 from derive_client.constants import CONFIGS, DEFAULT_REFERER, PUBLIC_HEADERS, TOKEN_DECIMALS
@@ -82,7 +81,7 @@ class BaseClient:
         wallet: Address,
         private_key: str,
         env: Environment,
-        logger: Logger | None = None,
+        logger: Logger | LoggerAdapter | None = None,
         verbose: bool = False,
         subaccount_id: int | None = None,
         referral_code: Address | None = None,
@@ -123,10 +122,6 @@ class BaseClient:
         subaccount_id = subaccount_id or subaccount_ids[0]
         self.logger.info(f"Selected subaccount_id: {subaccount_id}")
         return subaccount_id
-
-    def connect_ws(self):
-        ws = create_connection(self.config.ws_address, enable_multithread=True, timeout=60)
-        return ws
 
     def create_account(self, wallet):
         """Call the create account endpoint."""
@@ -684,10 +679,11 @@ class BaseClient:
         headers = self._create_signature_headers() if not headers else headers
         response = requests.post(url, json=json, headers=headers, params=params)
         response.raise_for_status()
-        if "error" in response.json():
-            raise DeriveJSONRPCException(**response.json()["error"])
-        results = response.json()["result"]
-        return results
+        json_data = response.json()
+        if error := json_data.get("error"):
+            raise DeriveJSONRPCException(**error)
+        else:
+            return json_data["result"]
 
     def fetch_all_currencies(self):
         """

@@ -1,6 +1,7 @@
 import functools
 import time
 from http import HTTPStatus
+from logging import Logger
 from typing import Callable, ParamSpec, Sequence, TypeVar
 
 import requests
@@ -62,6 +63,7 @@ def get_retry_session(
         "OPTIONS",
     ),
     raise_on_status: bool = False,
+    logger: Logger | None = None,
 ) -> requests.Session:
     session = requests.Session()
     retry = Retry(
@@ -78,7 +80,7 @@ def get_retry_session(
     session.mount("http://", adapter)
     session.mount("https://", adapter)
 
-    logger = get_logger()
+    logger = logger or get_logger()
 
     def log_response(r, *args, **kwargs):
         logger.info(f"Response {r.request.method} {r.url} (status {r.status_code})")
@@ -94,6 +96,7 @@ def wait_until(
     poll_interval=1.0,
     retry_exceptions: type[Exception] | tuple[type[Exception], ...] = (ConnectionError, TimeoutError),
     max_retries: int = 3,
+    timeout_message: str = "",
     **kwargs: P.kwargs,
 ) -> T:
     retries = 0
@@ -110,7 +113,8 @@ def wait_until(
         if result is not None and condition(result):
             return result
         if time.time() - start_time > timeout:
-            raise TimeoutError("Timed out waiting for transaction receipt.")
+            msg = f"Timed out after {timeout}s waiting for condition on {func.__name__} {timeout_message}"
+            raise TimeoutError(msg)
         time.sleep(poll_interval)
 
 

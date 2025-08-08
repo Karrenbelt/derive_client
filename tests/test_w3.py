@@ -29,15 +29,16 @@ REQUIRED_METHODS = {
 
 class TrackingHTTPProvider(HTTPProvider):
 
-    def __init__(self, endpoint_uri: str, request_kwargs: dict, used: set):
-        super().__init__(endpoint_uri, request_kwargs=request_kwargs)
+    def __init__(self, endpoint_uri: str, used: set):
+        super().__init__(endpoint_uri)
         self.used = used
         self.lock = threading.Lock()
 
     def make_request(self, method, params):
         with self.lock:
             self.used.add(self.endpoint_uri)
-        return super().make_request(method, params)
+        # No-op, no call to super(), we only use this to test provider rotation
+        return {"result": {}}
 
 
 @pytest.mark.flaky(reruns=3, reruns_delay=1)
@@ -128,12 +129,9 @@ def test_rotating_middelware(chain, rpc_endpoints):
     # -- USAGE in v6.11 --
     # --------------------
 
-    # 0) Timeout fast, otherwise any ReadTimeout (default 10s) will cause failure
-    request_kwargs = {"timeout": 1}
-
     # 1) Build your list of HTTPProvider, based on your RPCEndpoints
     used = set()
-    providers = [TrackingHTTPProvider(url, request_kwargs, used) for url in rpc_endpoints]
+    providers = [TrackingHTTPProvider(url, used) for url in rpc_endpoints]
 
     # 2) Create Web3 (initial provider is a no-op once middleware is in place)
     w3 = Web3()
@@ -151,10 +149,7 @@ def test_rotating_middelware(chain, rpc_endpoints):
     expected = {p.endpoint_uri for p in providers}
     timeout = time.monotonic() + len(providers)
     while used != expected and time.monotonic() < timeout:
-        try:
-            _ = w3.eth.get_block("latest")
-        except Exception:
-            pass
+        _ = w3.eth.get_block("latest")
 
     unused = expected - used
     assert not unused, f"Unused {chain} endpoints:\n{unused}"
