@@ -257,7 +257,7 @@ def send_and_confirm_tx(
     except Exception as send_err:
         msg = f"❌ Failed to send tx for {action}, error: {send_err!r}"
         logger.error(msg)
-        return TxResult(exception=send_err, tx_hash=None, tx_receipt=None)
+        raise TxSubmissionError(msg) from send_err
 
     try:
         tx_receipt = wait_for_tx_receipt(w3=w3, tx_hash=tx_hash)
