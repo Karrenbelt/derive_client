@@ -21,8 +21,8 @@ from derive_action_signing.module_data import (
 from derive_action_signing.signed_action import SignedAction
 from derive_action_signing.utils import MAX_INT_32, get_action_nonce, sign_rest_auth_header, utc_now_ms
 from pydantic import validate_call
-from web3 import Web3
 from returns.result import Result, safe
+from web3 import Web3
 
 from derive_client._bridge import BridgeClient
 from derive_client.constants import CONFIGS, DEFAULT_REFERER, PUBLIC_HEADERS, TOKEN_DECIMALS
@@ -137,7 +137,12 @@ class BaseClient:
 
     @safe
     @validate_call
-    def deposit_to_derive(self, chain_id: ChainID, currency: Currency, amount: float) -> Result[BridgeTxResult, Exception]:
+    def deposit_to_derive(
+        self,
+        chain_id: ChainID,
+        currency: Currency,
+        amount: float,
+    ) -> Result[BridgeTxResult, Exception]:
         """
         Submit a deposit into the Derive chain funding contract and return its initial BridgeTxResult
         without waiting for completion.
@@ -158,7 +163,12 @@ class BaseClient:
 
     @safe
     @validate_call
-    def withdraw_from_derive(self, chain_id: ChainID, currency: Currency, amount: float) -> Result[BridgeTxResult, Exception]:
+    def withdraw_from_derive(
+        self,
+        chain_id: ChainID,
+        currency: Currency,
+        amount: float,
+    ) -> Result[BridgeTxResult, Exception]:
         """
         Submit a withdrawal from the Derive chain funding contract and return its initial BridgeTxResult
         without waiting for completion.

@@ -16,10 +16,7 @@ from web3 import Web3
 from web3.contract import Contract
 from web3.datastructures import AttributeDict
 
-from derive_client._bridge.transaction import (
-    ensure_token_allowance,
-    ensure_token_balance,
-)
+from derive_client._bridge.transaction import ensure_token_allowance, ensure_token_balance
 from derive_client.constants import (
     CONFIGS,
     CONTROLLER_ABI_PATH,
@@ -63,9 +60,9 @@ from derive_client.exceptions import (
     BridgeEventParseError,
     BridgePrimarySignerRequiredError,
     BridgeRouteError,
-    InsufficientNativeBalance,
-    EthGasFundingPending,
     DeriveFundingFailed,
+    EthGasFundingPending,
+    InsufficientNativeBalance,
 )
 from derive_client.utils import (
     build_standard_transaction,
@@ -535,9 +532,8 @@ class BridgeClient:
         with suppress(TimeoutError):
             # 1. TimeoutError as exception during source_tx.tx_receipt
             if not tx_result.source_tx.tx_receipt:
-                self.logger.info(
-                    f"⏳ Checking source chain [{tx_result.source_chain.name}] tx receipt for {tx_result.source_tx.tx_hash}"
-                )
+                msg = "⏳ Checking source chain [%s] tx receipt for %s"
+                self.logger.info(msg, tx_result.source_chain.name, tx_result.source_tx.tx_hash)
                 tx_result.source_tx.tx_receipt = wait_for_tx_receipt(
                     w3=context.source_w3, tx_hash=tx_result.source_tx.tx_hash
                 )
@@ -549,9 +545,8 @@ class BridgeClient:
 
             # 3. TimeoutError waiting for target_tx.tx_receipt
             if not tx_result.target_tx.tx_receipt:
-                self.logger.info(
-                    f"⏳ Checking target chain [{tx_result.target_chain.name}] tx receipt for {tx_result.target_tx.tx_hash}"
-                )
+                msg = "⏳ Checking target chain [%s] tx receipt for %s"
+                self.logger.info(msg, tx_result.target_chain.name, tx_result.target_tx.tx_hash)
                 tx_result.target_tx.tx_receipt = wait_for_tx_receipt(
                     w3=context.target_w3, tx_hash=tx_result.target_tx.tx_hash
                 )
