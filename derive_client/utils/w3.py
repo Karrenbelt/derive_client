@@ -19,7 +19,7 @@ from web3.providers.rpc import HTTPProvider
 
 from derive_client.constants import ABI_DATA_DIR, DEFAULT_RPC_ENDPOINTS, GAS_FEE_BUFFER, GAS_LIMIT_BUFFER
 from derive_client.data_types import ChainID, RPCEndpoints, TxResult, TxStatus
-from derive_client.exceptions import NoAvailableRPC, TxSubmissionError, InsufficientNativeBalance
+from derive_client.exceptions import InsufficientNativeBalance, NoAvailableRPC, TxSubmissionError
 from derive_client.utils.logger import get_logger
 from derive_client.utils.retry import exp_backoff_retry
 

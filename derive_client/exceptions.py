@@ -63,3 +63,11 @@ class InsufficientTokenBalance(Exception):
 
 class BridgePrimarySignerRequiredError(Exception):
     """Raised when bridging is attempted with a secondary session-key signer."""
+
+
+class EthGasFundingPending(Exception):
+    """Raised after we detect lack of ETH on Derive to pay for gas."""
+
+
+class DeriveFundingFailed(Exception):
+    """Raised when funding the Derive wallet with gas fails."""

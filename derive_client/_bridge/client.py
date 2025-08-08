@@ -19,7 +19,6 @@ from web3.datastructures import AttributeDict
 from derive_client._bridge.transaction import (
     ensure_token_allowance,
     ensure_token_balance,
-    prepare_mainnet_to_derive_gas_tx,
 )
 from derive_client.constants import (
     CONFIGS,
@@ -64,7 +63,9 @@ from derive_client.exceptions import (
     BridgeEventParseError,
     BridgePrimarySignerRequiredError,
     BridgeRouteError,
-    InsufficientGas,
+    InsufficientNativeBalance,
+    EthGasFundingPending,
+    DeriveFundingFailed,
 )
 from derive_client.utils import (
     build_standard_transaction,
@@ -76,7 +77,6 @@ from derive_client.utils import (
     wait_for_event,
     wait_for_tx_receipt,
 )
-from derive_client.utils.w3 import simulate_tx
 
 
 def _load_vault_contract(w3: Web3, token_data: NonMintableTokenData) -> Contract:
@@ -322,13 +322,13 @@ class BridgeClient:
             func=[approve_data, bridge_data],
         )
 
-        tx = build_standard_transaction(func=func, account=self.account, w3=context.source_w3, value=0)
-        self._ensure_derive_eth_balance(tx)
-        simulate_tx(
-            w3=context.source_w3,
-            tx=tx,
-            account=self.account,
-        )
+        try:
+            tx = build_standard_transaction(func=func, account=self.account, w3=context.source_w3, value=0)
+        except InsufficientNativeBalance:
+            self._ensure_derive_eth_balance(tx)
+            self.logger.info("Balance top-up triggered; funds are pending. Cannot proceed with tx now.")
+            raise EthGasFundingPending("Awaiting ETH deposit for gas.")
+
         source_tx = send_and_confirm_tx(
             w3=context.source_w3,
             tx=tx,
@@ -439,13 +439,12 @@ class BridgeClient:
             func=[approve_data, bridge_data],
         )
 
-        tx = build_standard_transaction(func=func, account=self.account, w3=context.source_w3, value=0)
-        self._ensure_derive_eth_balance(tx)
-        simulate_tx(
-            w3=context.source_w3,
-            tx=tx,
-            account=self.account,
-        )
+        try:
+            tx = build_standard_transaction(func=func, account=self.account, w3=context.source_w3, value=0)
+        except InsufficientNativeBalance:
+            self._ensure_derive_eth_balance(tx)
+            self.logger.info("Balance top-up triggered; funds are pending. Cannot proceed with tx now.")
+            raise EthGasFundingPending("Awaiting ETH deposit for gas.")
 
         source_tx = send_and_confirm_tx(
             w3=context.source_w3,
@@ -561,17 +560,7 @@ class BridgeClient:
 
     def _ensure_derive_eth_balance(self, tx: dict[str, str]):
         """Ensure that the Derive EOA wallet has sufficient ETH balance for gas."""
-        balance_of_owner = self.derive_w3.eth.get_balance(self.owner)
-        required_gas = tx['maxFeePerGas'] * tx['gas']
-        if balance_of_owner < required_gas + DEFAULT_GAS_FUNDING_AMOUNT:
-            self.logger.info(f"Funding Derive EOA wallet with {DEFAULT_GAS_FUNDING_AMOUNT} ETH")
-            self.bridge_mainnet_eth_to_derive(DEFAULT_GAS_FUNDING_AMOUNT)
-
-    def bridge_mainnet_eth_to_derive(self, amount: int) -> TxResult:
-        """
-        Prepares, signs, and sends a transaction to bridge ETH from mainnet to Derive.
-        This is the "socket superbridge" method; not required when using the withdraw wrapper.
-        """
+        self.logger.info(f"Funding Derive EOA wallet with {DEFAULT_GAS_FUNDING_AMOUNT} ETH")
 
         w3 = get_w3_connection(ChainID.ETH, logger=self.logger)
 
@@ -579,23 +568,29 @@ class BridgeClient:
         bridge_abi = json.loads(L1_STANDARD_BRIDGE_ABI_PATH.read_text())
         proxy_contract = get_contract(w3=w3, address=address, abi=bridge_abi)
 
-        tx = prepare_mainnet_to_derive_gas_tx(w3=w3, account=self.account, amount=amount, proxy_contract=proxy_contract)
-        tx['gas'] = w3.eth.estimate_gas(tx)
-        tx = simulate_tx(
-            w3=w3,
-            tx=tx,
-            account=self.account,
+        func = proxy_contract.functions.bridgeETH(
+            MSG_GAS_LIMIT,  # _minGasLimit, e.g. Optimism
+            b"",  # _extraData
         )
-        require_gas = tx['maxFeePerGas'] * tx['gas']
-        current_balance = w3.eth.get_balance(self.account.address)
-        if not current_balance >= (amount + require_gas) * 1.1:
-            raise InsufficientGas(
-                f"Insufficient ETH balance for bridging amount {amount} + gas {require_gas}. Balance: {current_balance}"
+
+        tx = build_standard_transaction(func=func, account=self.account, w3=w3, value=DEFAULT_GAS_FUNDING_AMOUNT)
+        try:
+            tx_result = send_and_confirm_tx(
+                w3=w3, tx=tx, private_key=self.private_key, action="bridgeETH()", logger=self.logger
             )
-        tx_result = send_and_confirm_tx(
-            w3=w3, tx=tx, private_key=self.private_key, action="bridgeETH()", logger=self.logger
-        )
-        return tx_result
+        except InsufficientNativeBalance:
+            self.logger.warning("Insufficient native balance for bridging ETH to Derive.")
+            raise
+
+        match tx_result.status:
+            case TxStatus.SUCCESS:
+                self.logger.info(f"Funding ttransactionx mined successfully: {tx_result}")
+            case TxStatus.PENDING:
+                self.logger.warning(f"Funding transaction is still pending: {tx_result}")
+            case TxStatus.FAILED:
+                msg = f"Funding transaction failed: {tx_result}"
+                self.logger.error(msg)
+                raise DeriveFundingFailed(msg)
 
     def _prepare_new_style_deposit(self, token_data: NonMintableTokenData, amount: int) -> dict:
         vault_contract = _load_vault_contract(w3=self.remote_w3, token_data=token_data)
