@@ -46,10 +46,6 @@ jobs:
         run: |
           poetry run make lint
 
-      - name: Ensure Certifi CA bundle is used
-        run: |
-          echo "REQUESTS_CA_BUNDLE=$(python -c 'import certifi; print(certifi.where())')" >> $GITHUB_ENV
-
       - name: Tests
         run: |
           poetry run make tests

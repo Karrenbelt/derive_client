@@ -2,7 +2,6 @@ ETH:
   - https://eth.drpc.org
   - https://eth.blockrazor.xyz
   - https://rpc.mevblocker.io
-  - https://1rpc.io/eth
   - https://eth.llamarpc.com
   - https://ethereum-rpc.publicnode.com
   - https://rpc.flashbots.net/
@@ -14,7 +13,6 @@ OPTIMISM:
   - https://mainnet.optimism.io
   - https://optimism-rpc.publicnode.com
   - https://0xrpc.io/op
-  - https://1rpc.io/op
   - https://op-pokt.nodies.app
   - https://optimism.gateway.tenderly.co
   - https://optimism.api.onfinality.io/public
@@ -25,7 +23,6 @@ BASE:
   - https://mainnet.base.org
   - https://base-rpc.publicnode.com
   - https://0xrpc.io/base
-  - https://1rpc.io/base
   - https://base.therpc.io
   - https://base-pokt.nodies.app
   - https://base.api.onfinality.io/public
@@ -33,7 +30,6 @@ BASE:
 ARBITRUM:
   - https://arbitrum.drpc.org
   - https://arb1.arbitrum.io/rpc
-  - https://1rpc.io/arb
   - https://arbitrum-one.publicnode.com
   - https://arbitrum.therpc.io
   - https://arb-pokt.nodies.app
@@ -46,7 +42,6 @@ DERIVE:
 MODE:
   - https://mainnet.mode.network/
   - https://mode.drpc.org
-  - https://1rpc.io/mode
   - https://mode.gateway.tenderly.co/
   - https://mode.rpc.thirdweb.com/
 

@@ -3,7 +3,6 @@ import time
 import warnings
 from http import HTTPStatus
 
-import certifi
 import pytest
 from requests.exceptions import RequestException
 from web3 import Web3
@@ -30,8 +29,8 @@ REQUIRED_METHODS = {
 
 class TrackingHTTPProvider(HTTPProvider):
 
-    def __init__(self, endpoint_uri: str, request_kwargs: dict, used: set):
-        super().__init__(endpoint_uri, request_kwargs=request_kwargs)
+    def __init__(self, endpoint_uri: str, used: set):
+        super().__init__(endpoint_uri)
         self.used = used
         self.lock = threading.Lock()
 
@@ -50,7 +49,7 @@ def test_rpc_endpoints_reachability_and_chain_id(chain, rpc_endpoints):
     failed = {}
     rate_limited = set()
 
-    request_kwargs = {"timeout": 1, "verify": certifi.where()}
+    request_kwargs = {"timeout": 1}
     providers = [HTTPProvider(url, request_kwargs) for url in rpc_endpoints]
     for provider in providers:
         w3 = Web3(provider)
@@ -93,8 +92,7 @@ def test_rpc_methods_supported(chain, rpc_endpoints):
     missing = {}
     exceptions = {}
     for url in rpc_endpoints:
-        request_kwargs = {"verify": certifi.where()}
-        prov = HTTPProvider(url, request_kwargs=request_kwargs)
+        prov = HTTPProvider(url)
         w3 = Web3(prov)
 
         for method, params in REQUIRED_METHODS.items():
@@ -131,12 +129,9 @@ def test_rotating_middelware(chain, rpc_endpoints):
     # -- USAGE in v6.11 --
     # --------------------
 
-    # 0) Timeout fast, otherwise any ReadTimeout (default 10s) will cause failure
-    request_kwargs = {"timeout": 1, "verify": certifi.where()}
-
     # 1) Build your list of HTTPProvider, based on your RPCEndpoints
     used = set()
-    providers = [TrackingHTTPProvider(url, request_kwargs, used) for url in rpc_endpoints]
+    providers = [TrackingHTTPProvider(url, used) for url in rpc_endpoints]
 
     # 2) Create Web3 (initial provider is a no-op once middleware is in place)
     w3 = Web3()

@@ -10,27 +10,23 @@ from decimal import Decimal
 
 import aiohttp
 from derive_action_signing.utils import sign_ws_login, utc_now_ms
-from web3 import Web3
 
-from derive_client.constants import CONFIGS, DEFAULT_REFERER, TEST_PRIVATE_KEY
+from derive_client.constants import DEFAULT_REFERER, TEST_PRIVATE_KEY
 from derive_client.data_types import Environment, InstrumentType, OrderSide, OrderType, TimeInForce, UnderlyingCurrency
-from derive_client.utils import get_logger
 
 from .base_client import DeriveJSONRPCException
-from .ws_client import WsClient as BaseClient
+from .ws_client import WsClient
 
 
-class AsyncClient(BaseClient):
+class AsyncClient(WsClient):
     """
     We use the async client to make async requests to the derive API
     We us the ws client to make async requests to the derive ws API
     """
 
     current_subscriptions = {}
-
     listener = None
     subscribing = False
-    _ws = None
 
     def __init__(
         self,
@@ -41,29 +37,19 @@ class AsyncClient(BaseClient):
         subaccount_id=None,
         wallet=None,
     ):
-        self.verbose = verbose
-        self.env = env
-        self.config = CONFIGS[env]
-        self.logger = logger or get_logger()
-        self.web3_client = Web3()
-        self.signer = self.web3_client.eth.account.from_key(private_key)
-        self.wallet = self.signer.address if not wallet else wallet
-        self.logger.info(f"Signing address: {self.signer.address}")
-        if wallet:
-            self.logger.info(f"Using wallet: {wallet}")
-        self.subaccount_id = subaccount_id
-        self.logger.info(f"Using subaccount id: {self.subaccount_id}")
+        super().__init__(
+            wallet=wallet,
+            private_key=private_key,
+            env=env,
+            logger=logger,
+            verbose=verbose,
+            subaccount_id=subaccount_id,
+            referral_code=None,
+        )
+
         self.message_queues = {}
         self.connecting = False
         # we make sure to get the event loop
-
-    @property
-    async def ws(self):
-        if self._ws is None:
-            self._ws = await self.connect_ws()
-        if not self._ws.connected:
-            self._ws = await self.connect_ws()
-        return self._ws
 
     def get_subscription_id(self, instrument_name: str, group: str = "1", depth: str = "100"):
         return f"orderbook.{instrument_name}.{group}.{depth}"
@@ -78,7 +64,7 @@ class AsyncClient(BaseClient):
         if channel not in self.message_queues:
             self.message_queues[channel] = asyncio.Queue()
             msg = {"method": "subscribe", "params": {"channels": [channel]}}
-            await self._ws.send_json(msg)
+            await self.ws.send_json(msg)
             return
 
         while instrument_name not in self.current_subscriptions:

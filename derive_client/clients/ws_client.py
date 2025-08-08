@@ -6,7 +6,7 @@ import json
 import time
 
 from derive_action_signing.utils import sign_ws_login, utc_now_ms
-from websocket import WebSocketConnectionClosedException
+from websocket import WebSocketConnectionClosedException, create_connection
 
 from derive_client.data_types import InstrumentType, UnderlyingCurrency
 from derive_client.exceptions import DeriveJSONRPCException
@@ -19,8 +19,18 @@ class WsClient(BaseClient):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.ws = self.connect_ws()
         self.login_client()
+
+    def connect_ws(self):
+        return create_connection(self.config.ws_address, enable_multithread=True, timeout=60)
+
+    @property
+    async def ws(self):
+        if self._ws is None:
+            self._ws = await self.connect_ws()
+        if not self._ws.connected:
+            self._ws = await self.connect_ws()
+        return self._ws
 
     def login_client(
         self,
