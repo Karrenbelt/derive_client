@@ -250,21 +250,17 @@ def send_and_confirm_tx(
     """Send and confirm transactions."""
 
     try:
-        
         tx_hash = sign_and_send_tx(w3=w3, tx=tx, private_key=private_key, logger=logger)
         tx_result = TxResult(tx_hash=tx_hash.to_0x_hex(), tx_receipt=None, exception=None)
-
     except Exception as send_err:
         msg = f"❌ Failed to send tx for {action}, error: {send_err!r}"
         logger.error(msg)
         raise TxSubmissionError(msg) from send_err
 
     try:
-        tx_receipt = wait_for_tx_receipt(w3=w3, tx_hash=tx_hash)
-        tx_result.tx_receipt = tx_receipt
-    except TimeoutError as timeout_err:
+        tx_result.tx_receipt = wait_for_tx_receipt(w3=w3, tx_hash=tx_hash)
+    except TimeoutError:
         logger.warning(f"⏱️ Timeout waiting for tx receipt of {tx_hash.to_0x_hex()}")
-        tx_result.exception = timeout_err
         return tx_result
 
     if tx_result.tx_receipt.status == TxStatus.SUCCESS:
