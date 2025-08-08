@@ -170,7 +170,7 @@ class BridgeContext:
 
 @dataclass(config=ConfigDict(validate_assignment=True))
 class TxResult:
-    tx_hash: TxHash
+    tx_hash: TxHash | None = None
     tx_receipt: PAttributeDict | None = None
     exception: PException | None = None
 

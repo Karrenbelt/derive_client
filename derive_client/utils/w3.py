@@ -212,6 +212,8 @@ def build_standard_transaction(
     )
 
     tx["gas"] = w3.eth.estimate_gas(tx)
+    return tx
+
     return simulate_tx(w3, tx, account)
 
 
@@ -248,12 +250,14 @@ def send_and_confirm_tx(
     """Send and confirm transactions."""
 
     try:
+        
         tx_hash = sign_and_send_tx(w3=w3, tx=tx, private_key=private_key, logger=logger)
         tx_result = TxResult(tx_hash=tx_hash.to_0x_hex(), tx_receipt=None, exception=None)
+
     except Exception as send_err:
         msg = f"❌ Failed to send tx for {action}, error: {send_err!r}"
         logger.error(msg)
-        raise TxSubmissionError(msg) from send_err
+        return TxResult(exception=send_err, tx_hash=None, tx_receipt=None)
 
     try:
         tx_receipt = wait_for_tx_receipt(w3=w3, tx_hash=tx_hash)
