@@ -17,8 +17,8 @@ from web3.contract import Contract
 from web3.datastructures import AttributeDict
 
 from derive_client._bridge.transaction import (
-    ensure_allowance,
-    ensure_balance,
+    ensure_token_allowance,
+    ensure_token_balance,
     prepare_mainnet_to_derive_gas_tx,
 )
 from derive_client.constants import (
@@ -258,8 +258,8 @@ class BridgeClient:
         target_from_block = context.target_w3.eth.block_number
 
         spender = token_data.Vault if token_data.isNewBridge else self.deposit_helper.address
-        ensure_balance(context.source_token, self.owner, amount)
-        ensure_allowance(
+        ensure_token_balance(context.source_token, self.owner, amount)
+        ensure_token_allowance(
             w3=context.source_w3,
             token_contract=context.source_token,
             owner=self.owner,
@@ -299,7 +299,7 @@ class BridgeClient:
         context = self._make_bridge_context("withdraw", bridge_type=BridgeType.SOCKET, currency=currency)
         target_from_block = context.target_w3.eth.block_number
 
-        ensure_balance(context.source_token, self.wallet, amount)
+        ensure_token_balance(context.source_token, self.wallet, amount)
 
         self._check_bridge_funds(token_data, connector, amount)
 
@@ -357,8 +357,8 @@ class BridgeClient:
         target_from_block = context.target_w3.eth.block_number
 
         # check allowance, if needed approve
-        ensure_balance(context.source_token, self.owner, amount)
-        ensure_allowance(
+        ensure_token_balance(context.source_token, self.owner, amount)
+        ensure_token_allowance(
             w3=context.source_w3,
             token_contract=context.source_token,
             owner=self.owner,
@@ -417,7 +417,7 @@ class BridgeClient:
         abi = json.loads(LYRA_OFT_WITHDRAW_WRAPPER_ABI_PATH.read_text())
         withdraw_wrapper = get_contract(context.source_w3, LYRA_OFT_WITHDRAW_WRAPPER_ADDRESS, abi=abi)
 
-        ensure_balance(context.source_token, self.wallet, amount)
+        ensure_token_balance(context.source_token, self.wallet, amount)
 
         destEID = LayerZeroChainIDv2[context.target_chain.name]
         fee = withdraw_wrapper.functions.getFeeInToken(context.source_token.address, amount, destEID).call()

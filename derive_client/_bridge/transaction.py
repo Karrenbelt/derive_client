@@ -10,13 +10,13 @@ from derive_client.exceptions import InsufficientTokenBalance
 from derive_client.utils import build_standard_transaction, estimate_fees, exp_backoff_retry, send_and_confirm_tx
 
 
-def ensure_balance(token_contract: Contract, owner: Address, amount: int):
+def ensure_token_balance(token_contract: Contract, owner: Address, amount: int):
     balance = token_contract.functions.balanceOf(owner).call()
     if amount > balance:
         raise InsufficientTokenBalance(f"Not enough tokens to withdraw: {amount} < {balance} ({(balance / amount * 100):.2f}%)")
 
 
-def ensure_allowance(
+def ensure_token_allowance(
     w3: Web3,
     token_contract: Contract,
     owner: Address,
@@ -28,7 +28,7 @@ def ensure_allowance(
     allowance = token_contract.functions.allowance(owner, spender).call()
     if amount > allowance:
         logger.info(f"Increasing allowance from {allowance} to {amount}")
-        increase_allowance(
+        _increase_token_allowance(
             w3=w3,
             from_account=Account.from_key(private_key),
             erc20_contract=token_contract,
@@ -39,7 +39,7 @@ def ensure_allowance(
         )
 
 
-def increase_allowance(
+def _increase_token_allowance(
     w3: Web3,
     from_account: Account,
     erc20_contract: Contract,
