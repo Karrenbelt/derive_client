@@ -7,7 +7,7 @@ readme = "README.md"
 packages = [{ include = "derive_client" }]
 
 [tool.poetry.dependencies]
-python = ">=3.9,<=3.12"
+python = ">=3.10,<=3.12"
 requests = "^2"
 web3 = { version = ">=6,<8" }
 websocket-client = ">=0.32.0,<1"
