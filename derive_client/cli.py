@@ -9,8 +9,8 @@ from textwrap import dedent
 import pandas as pd
 import rich_click as click
 from dotenv import load_dotenv
+from returns.result import Failure, Success
 from rich import print
-from returns.result import Success, Failure
 
 from derive_client.analyser import PortfolioAnalyser
 from derive_client.clients.base_client import BaseClient
@@ -159,25 +159,23 @@ def deposit(ctx, chain_id, currency, amount):
     client: BaseClient = ctx.obj["client"]
 
     result = (
-        client
-        .deposit_to_derive(chain_id=chain_id, currency=currency, amount=amount)
+        client.deposit_to_derive(chain_id=chain_id, currency=currency, amount=amount)
         .bind(client.poll_bridge_progress)
         .alt(lambda exc: click.ClickException(f"Error attempting to deposit: {exc}"))
     )
 
     match result:
         case Success(bridge_tx_result):
+            msg_prefix = f"Bridging {currency.name} from {chain_id.name} to DERIVE"
             match bridge_tx_result.status:
                 case TxStatus.SUCCESS:
-                    print(f"[bold green]Bridging {currency.name} from {chain_id.name} to DERIVE successful![/bold green]")
+                    print(f"[bold green]{msg_prefix} successful![/bold green]")
                 case TxStatus.FAILED:
-                    print(f"[bold red]Bridging {currency.name} from {chain_id.name} to DERIVE failed.[/bold red]")
+                    print(f"[bold red]{msg_prefix} failed.[/bold red]")
                 case TxStatus.PENDING:
-                    print(f"[yellow]Bridging {currency.name} from {chain_id.name} to DERIVE is pending...[/yellow]")
-                case _:
-                    raise click.ClickException(f"Exception attempting to deposit:\n{bridge_tx_result}")
+                    print(f"[yellow]{msg_prefix} pending...[/yellow]")
         case Failure(exc):
-            raise exc
+            raise click.ClickException(f"Exception attempting to deposit:\n{exc}")
 
 
 @bridge.command("withdraw")
@@ -217,25 +215,23 @@ def withdraw(ctx, chain_id, currency, amount):
     client: DeriveClient = ctx.obj["client"]
 
     result = (
-        client
-        .withdraw_from_derive(chain_id=chain_id, currency=currency, amount=amount)
+        client.withdraw_from_derive(chain_id=chain_id, currency=currency, amount=amount)
         .bind(client.poll_bridge_progress)
         .alt(lambda exc: click.ClickException(f"Error attempting to withdraw: {exc}"))
     )
 
     match result:
         case Success(bridge_tx_result):
+            msg_prefix = f"Bridging {currency.name} from DERIVE to {chain_id.name}"
             match bridge_tx_result.status:
                 case TxStatus.SUCCESS:
-                    print(f"[bold green]Bridging {currency.name} from DERIVE to {chain_id.name} successful![/bold green]")
+                    print(f"[bold green]{msg_prefix} successful![/bold green]")
                 case TxStatus.FAILED:
-                    print(f"[bold red]Bridging {currency.name} from DERIVE to {chain_id.name} failed.[/bold red]")
+                    print(f"[bold red]{msg_prefix} failed.[/bold red]")
                 case TxStatus.PENDING:
-                    print(f"[yellow]Bridging {currency.name} from DERIVE to {chain_id.name} is pending...[/yellow]")
-                case _:
-                    raise click.ClickException(f"Exception attempting to withdraw:\n{bridge_tx_result}")
+                    print(f"[yellow]{msg_prefix} is pending...[/yellow]")
         case Failure(exc):
-            raise exc
+            raise click.ClickException(f"Exception attempting to withdraw:\n{exc}")
 
 
 @cli.group("instruments")
