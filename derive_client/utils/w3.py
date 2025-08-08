@@ -17,9 +17,9 @@ from web3.contract.contract import ContractEvent
 from web3.datastructures import AttributeDict
 from web3.providers.rpc import HTTPProvider
 
-from derive_client.constants import ABI_DATA_DIR, DEFAULT_RPC_ENDPOINTS, GAS_FEE_BUFFER
+from derive_client.constants import ABI_DATA_DIR, DEFAULT_RPC_ENDPOINTS, GAS_FEE_BUFFER, GAS_LIMIT_BUFFER
 from derive_client.data_types import ChainID, RPCEndpoints, TxResult, TxStatus
-from derive_client.exceptions import NoAvailableRPC, TxSubmissionError
+from derive_client.exceptions import NoAvailableRPC, TxSubmissionError, InsufficientNativeBalance
 from derive_client.utils.logger import get_logger
 from derive_client.utils.retry import exp_backoff_retry
 
@@ -178,7 +178,7 @@ def simulate_tx(w3: Web3, tx: dict, account: Account) -> dict:
     total_cost = max_gas_cost + value
     if not balance >= total_cost:
         ratio = balance / total_cost * 100
-        raise ValueError(f"Insufficient gas balance, have {balance}, need {total_cost}: ({ratio:.2f})")
+        raise InsufficientNativeBalance(f"available: {balance} < required: {total_cost} ({ratio:.2f}%)")
 
     w3.eth.call(tx)
     return tx
@@ -211,9 +211,7 @@ def build_standard_transaction(
         }
     )
 
-    tx["gas"] = w3.eth.estimate_gas(tx)
-    return tx
-
+    tx["gas"] = int(w3.eth.estimate_gas(tx) * GAS_LIMIT_BUFFER)
     return simulate_tx(w3, tx, account)
 
 
