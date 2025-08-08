@@ -61,7 +61,13 @@ from derive_client.data_types import (
     TxResult,
     TxStatus,
 )
-from derive_client.exceptions import AlreadyFinalizedError, BridgeEventParseError, BridgeRouteError, InsufficientGas
+from derive_client.exceptions import (
+    AlreadyFinalizedError,
+    BridgeEventParseError,
+    BridgePrimarySignerRequiredError,
+    BridgeRouteError,
+    InsufficientGas,
+)
 from derive_client.utils import (
     build_standard_transaction,
     get_contract,
@@ -127,7 +133,7 @@ class BridgeClient:
         self.light_account = _load_light_account(w3=self.derive_w3, wallet=wallet)
         self.logger = logger
         if self.owner != self.account.address:
-            raise ValueError(
+            raise BridgePrimarySignerRequiredError(
                 "Bridging disabled for secondary session-key signers: old-style assets "
                 "(USDC, USDT) on Derive cannot specify a custom receiver. Using a "
                 "secondary signer routes funds to the session key's contract instead of "
@@ -215,7 +221,7 @@ class BridgeClient:
             src_event, tgt_event = src_socket.events.MessageOutbound(), tgt_socket.events.ExecutionSuccess()
             return BridgeContext(src_w3, tgt_w3, token_contract, src_event, tgt_event)
 
-        raise ValueError(f"Unsupported bridge_type={bridge_type} for currency={currency}.")
+        raise BridgeRouteError(f"Unsupported bridge_type={bridge_type} for currency={currency}.")
 
     def _resolve_socket_route(
         self,
@@ -238,7 +244,7 @@ class BridgeClient:
             msg = f"Target chain {tgt_chain.name} not found in {src_chain.name} connectors."
             raise BridgeRouteError(msg)
         if src_chain not in tgt_token_data.connectors:
-            msg = f"Target chain {src_chain.name} not found in {tgt_chain.name} connectors."
+            msg = f"Source chain {src_chain.name} not found in {tgt_chain.name} connectors."
             raise BridgeRouteError(msg)
 
         return src_token_data, src_token_data.connectors[tgt_chain][TARGET_SPEED]
@@ -521,7 +527,7 @@ class BridgeClient:
             BridgeType.LAYERZERO: self.fetch_lz_event_log,
         }
         if (fetch_event := bridge_event_fetchers.get(tx_result.bridge)) is None:
-            raise ValueError(f"Invalid bridge_type: {tx_result.bridge}")
+            raise BridgeRouteError(f"Invalid bridge_type: {tx_result.bridge}")
 
         direction = "withdraw" if tx_result.source_chain == ChainID.DERIVE else "deposit"
         context = self._make_bridge_context(

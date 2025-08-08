@@ -55,3 +55,7 @@ class NoAvailableRPC(Exception):
 
 class InsufficientGas(Exception):
     """Raised when a minimum gas requirement is not met."""
+
+
+class BridgePrimarySignerRequiredError(Exception):
+    """Raised when bridging is attempted with a secondary session-key signer."""
