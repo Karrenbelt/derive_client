@@ -61,6 +61,7 @@ from derive_client.exceptions import (
     BridgePrimarySignerRequiredError,
     BridgeRouteError,
     DeriveFundingFailed,
+    DrvWithdrawAmountBelowFee,
     EthGasFundingPending,
     InsufficientNativeBalance,
 )
@@ -419,7 +420,7 @@ class BridgeClient:
         destEID = LayerZeroChainIDv2[context.target_chain.name]
         fee = withdraw_wrapper.functions.getFeeInToken(context.source_token.address, amount, destEID).call()
         if amount < fee:
-            raise ValueError(f"Withdraw amount < fee: {amount} < {fee} ({(fee / amount * 100):.2f}%)")
+            raise DrvWithdrawAmountBelowFee(f"Withdraw amount < fee: {amount} < {fee} ({(fee / amount * 100):.2f}%)")
 
         kwargs = {
             "token": context.source_token.address,
