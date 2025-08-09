@@ -19,7 +19,7 @@ from web3.providers.rpc import HTTPProvider
 
 from derive_client.constants import ABI_DATA_DIR, DEFAULT_RPC_ENDPOINTS, GAS_FEE_BUFFER
 from derive_client.data_types import ChainID, RPCEndpoints, TxResult, TxStatus
-from derive_client.exceptions import NoAvailableRPC, TxSubmissionError
+from derive_client.exceptions import NoAvailableRPC
 from derive_client.utils.logger import get_logger
 from derive_client.utils.retry import exp_backoff_retry
 
@@ -250,7 +250,7 @@ def send_and_confirm_tx(
     """Send and confirm transactions."""
 
     try:
-        
+
         tx_hash = sign_and_send_tx(w3=w3, tx=tx, private_key=private_key, logger=logger)
         tx_result = TxResult(tx_hash=tx_hash.to_0x_hex(), tx_receipt=None, exception=None)
 

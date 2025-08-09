@@ -785,21 +785,21 @@ cython = ["cython"]
 
 [[package]]
 name = "derive-action-signing"
-version = "0.0.11"
+version = "0.0.12"
 description = "Python package to sign on-chain self-custodial requests for orders, transfers, deposits, withdrawals and RFQs."
 optional = false
 python-versions = "<4.0,>=3.9"
 groups = ["main"]
 markers = "python_version <= \"3.11\" or python_version >= \"3.12\""
 files = [
-    {file = "derive_action_signing-0.0.11-py3-none-any.whl", hash = "sha256:3b8c3ee7b3928ef874a9ac57cae6f7e376eeda56312c8ae0b043d47f35213c84"},
-    {file = "derive_action_signing-0.0.11.tar.gz", hash = "sha256:96e49a4a27e0357b0803843a9c9a42e19c9c582c3db5ac0a23621d7df93784c9"},
+    {file = "derive_action_signing-0.0.12-py3-none-any.whl", hash = "sha256:c7fbee46e8fc6abac9204bec6fee9922d22800f647fee4c44f0e15a72eecd187"},
+    {file = "derive_action_signing-0.0.12.tar.gz", hash = "sha256:2ede7861234fd677abd05f88d2e0f27e27966753e02735e938a97be173bd277f"},
 ]
 
 [package.dependencies]
 eth-abi = ">=4.2.1"
 eth-account = ">=0.13.4"
-eth-typing = "4.0.0"
+eth-typing = ">=4,<6"
 hexbytes = ">=0.3.1"
 setuptools = ">=75.8.0,<76.0.0"
 web3 = ">=6.4.0,<7.0.0"
@@ -3516,4 +3516,4 @@ type = ["pytest-mypy"]
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.9,<=3.12"
-content-hash = "c97f166b5e8df7ff7d28ffcd3b86a48dce2197109ad7fc789621cd332eaf2cee"
+content-hash = "51c56da059c0ddc0152a67ba6dbfe9ccd611075194caf9c8520e7341d7ae81d7"
