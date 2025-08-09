@@ -231,9 +231,9 @@ def wait_for_tx_receipt(w3: Web3, tx_hash: str, timeout=120, poll_interval=1) ->
 
 def sign_and_send_tx(w3: Web3, tx: dict, private_key: str, logger: Logger) -> HexBytes:
     signed_tx = w3.eth.account.sign_transaction(tx, private_key=private_key)
-    logger.info(f"signed_tx: {signed_tx}")
+    logger.debug(f"signed_tx: {signed_tx}")
     tx_hash = w3.eth.send_raw_transaction(signed_tx.raw_transaction)
-    logger.info(f"tx_hash: {tx_hash.to_0x_hex()}")
+    logger.debug(f"tx_hash: {tx_hash.to_0x_hex()}")
     return tx_hash
 
 
@@ -330,7 +330,7 @@ def iter_events(
             # For example, when rotating providers are out of sync
             retry_get_logs = exp_backoff_retry(w3.eth.get_logs, attempts=EVENT_LOG_RETRIES)
             logs = retry_get_logs(filter_params=filter_params)
-            logger.info(f"Scanned {cursor} - {end}: {len(logs)} logs")
+            logger.debug(f"Scanned {cursor} - {end}: {len(logs)} logs")
             yield from filter(condition, logs)
             cursor = end + 1  # bounds are inclusive
 
