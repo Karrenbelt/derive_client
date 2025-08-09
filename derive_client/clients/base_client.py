@@ -54,7 +54,7 @@ from derive_client.data_types import (
 )
 from derive_client.endpoints import RestAPI
 from derive_client.exceptions import DeriveJSONRPCException
-from derive_client.utils import get_logger, wait_until
+from derive_client.utils import get_logger, unwrap_or_raise, wait_until
 
 
 def _is_final_tx(res: DeriveTxResult) -> bool:
@@ -137,7 +137,7 @@ class BaseClient:
 
     @safe
     @validate_call
-    def deposit_to_derive(
+    def deposit_to_derive_result(
         self,
         chain_id: ChainID,
         currency: Currency,
@@ -151,6 +151,9 @@ class BaseClient:
             chain_id (ChainID): The chain you are bridging FROM.
             currency (Currency): The asset being bridged.
             amount (float): amount to deposit, in human units (will be scaled to Wei).
+        Returns:
+            Result[BridgeTxResult, Exception]: A Result object containing either the BridgeTxResult on success,
+            or an Exception on failure.
         """
 
         amount = int(amount * 10 ** TOKEN_DECIMALS[UnderlyingCurrency[currency.name.upper()]])
@@ -161,9 +164,32 @@ class BaseClient:
 
         return client.deposit(amount=amount, currency=currency)
 
+    def deposit_to_derive(
+        self,
+        chain_id: ChainID,
+        currency: Currency,
+        amount: float,
+    ) -> BridgeTxResult:
+        """
+        Submit a deposit into the Derive chain funding contract and return its initial BridgeTxResult
+        without waiting for completion.
+
+        Parameters:
+            chain_id (ChainID): The chain you are bridging FROM.
+            currency (Currency): The asset being bridged.
+            amount (float): amount to deposit, in human units (will be scaled to Wei).
+        Raises:
+            Exception: If the deposit fails.
+        Returns:
+            BridgeTxResult: The result of the deposit operation.
+        """
+
+        result = self.deposit_to_derive_result(chain_id=chain_id, currency=currency, amount=amount)
+        return unwrap_or_raise(result)
+
     @safe
     @validate_call
-    def withdraw_from_derive(
+    def withdraw_from_derive_result(
         self,
         chain_id: ChainID,
         currency: Currency,
@@ -177,6 +203,9 @@ class BaseClient:
             chain_id (ChainID): The chain you are bridging TO.
             currency (Currency): The asset being bridged.
             amount (float): amount to withdraw, in human units (will be scaled to Wei).
+        Returns:
+            Result[BridgeTxResult, Exception]: A Result object containing either the BridgeTxResult on success,
+            or an Exception on failure.
         """
 
         amount = int(amount * 10 ** TOKEN_DECIMALS[UnderlyingCurrency[currency.name.upper()]])
@@ -187,20 +216,62 @@ class BaseClient:
 
         return client.withdraw_with_wrapper(amount=amount, currency=currency)
 
+    def withdraw_from_derive(
+        self,
+        chain_id: ChainID,
+        currency: Currency,
+        amount: float,
+    ) -> BridgeTxResult:
+        """
+        Submit a withdrawal from the Derive chain funding contract and return its initial BridgeTxResult
+        without waiting for completion.
+
+        Parameters:
+            chain_id (ChainID): The chain you are bridging TO.
+            currency (Currency): The asset being bridged.
+            amount (float): amount to withdraw, in human units (will be scaled to Wei).
+        Raises:
+            Exception: If the withdrawal fails.
+        Returns:
+            BridgeTxResult: The result of the withdrawal operation.
+        """
+
+        result = self.withdraw_from_derive_result(chain_id=chain_id, currency=currency, amount=amount)
+        return unwrap_or_raise(result)
+
     @safe
     @validate_call
-    def poll_bridge_progress(self, tx_result: BridgeTxResult) -> Result[BridgeTxResult, Exception]:
+    def poll_bridge_progress_result(self, tx_result: BridgeTxResult) -> Result[BridgeTxResult, Exception]:
         """
         Given a pending BridgeTxResult, return a new BridgeTxResult with updated status.
         Raises AlreadyFinalizedError if tx_result is not in PENDING status.
 
         Parameters:
             tx_result (BridgeTxResult): the result to refresh.
+        Returns:
+            Result[BridgeTxResult, Exception]: A Result object containing either the BridgeTxResult on success,
+            or an Exception on failure.
         """
 
         chain_id = tx_result.source_chain if tx_result.source_chain != ChainID.DERIVE else tx_result.target_chain
         client = BridgeClient(self.env, chain_id, account=self.signer, wallet=self.wallet, logger=self.logger)
         return client.poll_bridge_progress(tx_result=tx_result)
+
+    def poll_bridge_progress(self, tx_result: BridgeTxResult) -> BridgeTxResult:
+        """
+        Given a pending BridgeTxResult, return a new BridgeTxResult with updated status.
+        Raises AlreadyFinalizedError if tx_result is not in PENDING status.
+
+        Parameters:
+            tx_result (BridgeTxResult): the result to refresh.
+        Raises:
+            Exception: If the polling fails.
+        Returns:
+            BridgeTxResult: The result of the polling operation.
+        """
+
+        result = self.poll_bridge_progress_result(tx_result=tx_result)
+        return unwrap_or_raise(result)
 
     def fetch_instruments(
         self,
