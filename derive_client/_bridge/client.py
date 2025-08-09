@@ -26,7 +26,6 @@ from derive_client.constants import (
     CONTROLLER_ABI_PATH,
     CONTROLLER_V0_ABI_PATH,
     DEFAULT_GAS_FUNDING_AMOUNT,
-    DEPOSIT_GAS_LIMIT,
     DEPOSIT_HELPER_ABI_PATH,
     DEPOSIT_HOOK_ABI_PATH,
     DERIVE_ABI_PATH,
@@ -565,7 +564,7 @@ class BridgeClient:
 
         return tx_result
 
-    def _ensure_derive_eth_balance(self, tx:dict[str, str]):
+    def _ensure_derive_eth_balance(self, tx: dict[str, str]):
         """Ensure that the Derive EOA wallet has sufficient ETH balance for gas."""
         balance_of_owner = self.derive_w3.eth.get_balance(self.owner)
         required_gas = tx['maxFeePerGas'] * tx['gas']
@@ -594,8 +593,10 @@ class BridgeClient:
         )
         require_gas = tx['maxFeePerGas'] * tx['gas']
         current_balance = w3.eth.get_balance(self.account.address)
-        if not current_balance >= (amount + require_gas ) * 1.1:
-            raise InsufficientGas(f"Insufficient ETH balance for bridging amount {amount} + gas {require_gas}. Balance: {current_balance}")
+        if not current_balance >= (amount + require_gas) * 1.1:
+            raise InsufficientGas(
+                f"Insufficient ETH balance for bridging amount {amount} + gas {require_gas}. Balance: {current_balance}"
+            )
         tx_result = send_and_confirm_tx(
             w3=w3, tx=tx, private_key=self.private_key, action="bridgeETH()", logger=self.logger
         )
