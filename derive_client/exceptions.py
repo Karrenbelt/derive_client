@@ -75,3 +75,15 @@ class DeriveFundingFailed(Exception):
 
 class DrvWithdrawAmountBelowFee(Exception):
     """Raised when the DRV withdrawal amount is less than the fee required to withdraw."""
+
+
+class FinalityTimeout(Exception):
+    """Raised when the transaction was mined but did not reach the required finality within the timeout."""
+
+
+class TxPendingTimeout(Exception):
+    """Raised when the transaction receipt does not materialize and the transaction remains in the mempool."""
+
+
+class TransactionDropped(Exception):
+    """Raised when the transaction the transaction is no longer in the mempool, likely dropped."""
