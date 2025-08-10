@@ -19,7 +19,14 @@ from web3.providers.rpc import HTTPProvider
 
 from derive_client.constants import ABI_DATA_DIR, DEFAULT_RPC_ENDPOINTS, GAS_FEE_BUFFER, GAS_LIMIT_BUFFER
 from derive_client.data_types import ChainID, RPCEndpoints, TxResult, TxStatus
-from derive_client.exceptions import InsufficientNativeBalance, NoAvailableRPC, TxSubmissionError
+from derive_client.exceptions import (
+    FinalityTimeout,
+    InsufficientNativeBalance,
+    NoAvailableRPC,
+    TransactionDropped,
+    TxPendingTimeout,
+    TxSubmissionError,
+)
 from derive_client.utils.logger import get_logger
 from derive_client.utils.retry import exp_backoff_retry
 
@@ -217,15 +224,73 @@ def build_standard_transaction(
 
 def wait_for_tx_receipt(w3: Web3, tx_hash: str, timeout=120, poll_interval=1) -> AttributeDict:
     start_time = time.monotonic()
+
     while True:
         try:
-            receipt = w3.eth.get_transaction_receipt(tx_hash)
+            receipt = AttributeDict(w3.eth.get_transaction_receipt(tx_hash))
         except Exception:
             receipt = None
         if receipt is not None:
             return receipt
         if time.monotonic() - start_time > timeout:
             raise TimeoutError("Timed out waiting for transaction receipt.")
+        time.sleep(poll_interval)
+
+
+def wait_for_tx_finality(
+    w3: Web3,
+    tx_hash: str,
+    finality_blocks: int = 10,
+    timeout: float = 300.0,
+    poll_interval: float = 1.0,
+):
+    """
+    Wait until tx is mined and has `finality_blocks` confirmations.
+    On timeout this raises one of:
+      - FinalityTimeout: receipt exists but not enough confirmations
+      - TxPendingTimeout: no receipt, but tx present and pending in mempool
+      - TransactionDropped: no receipt and tx not known to node (likely dropped)
+    """
+
+    start_time = time.monotonic()
+
+    while True:
+        try:
+            receipt = AttributeDict(w3.eth.get_transaction_receipt(tx_hash))
+        # receipt can disappear temporarily during reorgs, or if RPC provider is not synced
+        except Exception:
+            receipt = None
+        # blockNumber can change as tx gets reorged into different blocks
+        if receipt is not None and (block_number := w3.eth.block_number) >= receipt.blockNumber + finality_blocks:
+            return receipt
+
+        if time.monotonic() - start_time > timeout:
+            # 1) We have a receipt but did not reach required confirmations
+            if receipt is not None:
+                raise FinalityTimeout(
+                    f"Timed out waiting for finality: tx={tx_hash!r}, timeout_s={timeout}. ",
+                    f"Required confirmations={finality_blocks}, "
+                    f"receipt_block={receipt.blockNumber!r}, current_block={block_number!r}, ",
+                )
+            # 2) No receipt: check if tx is known to node (mempool) or dropped
+            try:
+                tx = AttributeDict(w3.eth.get_transaction(tx_hash))
+            except Exception:
+                tx = None
+            # still pending in mempool (covers possible tx receipt disappearance during reorg)
+            if tx is not None and tx.blockNumber is None:
+                raise TxPendingTimeout(
+                    f"No receipt within timeout: tx={tx_hash!r}, timeout_s={timeout}. ",
+                    "Node reports transaction present and pending in mempool. ",
+                    "Consider waiting longer or replacing with higher gas (same nonce).",
+                )
+            # tx dropped or node no longer knows about it
+            else:
+                raise TransactionDropped(
+                    f"Transaction not found after timeout: tx={tx_hash!r}, timeout_s={timeout}. ",
+                    "Node does not report a receipt or pending transaction. ",
+                    "Likely dropped; consider resubmitting with same nonce or check node sync/peers.",
+                )
         time.sleep(poll_interval)
 
 
