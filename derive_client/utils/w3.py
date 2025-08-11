@@ -243,13 +243,28 @@ def wait_for_tx_finality(
     finality_blocks: int = 10,
     timeout: float = 300.0,
     poll_interval: float = 1.0,
-):
+) -> AttributeDict:
     """
     Wait until tx is mined and has `finality_blocks` confirmations.
     On timeout this raises one of:
       - FinalityTimeout: receipt exists but not enough confirmations
       - TxPendingTimeout: no receipt, but tx present and pending in mempool
       - TransactionDropped: no receipt and tx not known to node (likely dropped)
+
+    Notes on reorgs and provider inconsistency:
+      - A chain reorg can cause a previously-seen receipt to disappear (tx becomes "unmined").
+        In that case the tx will often reappear as pending in the mempool (TxPendingTimeout),
+        but it can also be dropped entirely (TransactionDropped) or re-mined later.
+      - With rotating RPC providers you may observe receipts, tx entries, and block numbers
+        from different nodes that disagree. This function classifies a timeout based on a
+        single get_transaction probe and is intentionally conservative; callers should
+        interpret exceptions as:
+          * FinalityTimeout: node reports mined or we observed a receipt but not enough confirms:
+            wait longer; invoke this function again.
+          * TxPendingTimeout: node knows the tx and reports it pending:
+            either wait/poll longer or resubmit (reuse the nonce to prevent duplication).
+          * TransactionDropped: node has no record (likely dropped or node out-of-sync):
+            either wait/poll longer or resubmit (reuse the nonce to prevent duplication).
     """
 
     start_time = time.monotonic()
@@ -268,28 +283,37 @@ def wait_for_tx_finality(
             # 1) We have a receipt but did not reach required confirmations
             if receipt is not None:
                 raise FinalityTimeout(
-                    f"Timed out waiting for finality: tx={tx_hash!r}, timeout_s={timeout}. ",
-                    f"Required confirmations={finality_blocks}, "
-                    f"receipt_block={receipt.blockNumber!r}, current_block={block_number!r}, ",
+                    f"Timed out waiting for finality: tx={tx_hash!r}, timeout_s={timeout}r ",
+                    f"required confirmations={finality_blocks}."
+                    f"\nreceipt_block={receipt.blockNumber!r}, current_block={block_number!r}.",
+                    "\nAction: wait longer / poll for finality again.",
                 )
             # 2) No receipt: check if tx is known to node (mempool) or dropped
             try:
                 tx = AttributeDict(w3.eth.get_transaction(tx_hash))
             except Exception:
                 tx = None
-            # still pending in mempool (covers possible tx receipt disappearance during reorg)
+            # still pending in mempool
             if tx is not None and tx.blockNumber is None:
                 raise TxPendingTimeout(
-                    f"No receipt within timeout: tx={tx_hash!r}, timeout_s={timeout}. ",
-                    "Node reports transaction present and pending in mempool. ",
-                    "Consider waiting longer or replacing with higher gas (same nonce).",
+                    f"No receipt within timeout: tx={tx_hash!r}, timeout_s={timeout}.",
+                    "\nNode reports transaction present and pending in mempool.",
+                    "\nAction: either wait/poll longer or resubmit (reuse the nonce to prevent duplication).",
+                )
+            # node reports tx mined, but no receipt
+            elif tx is not None:
+                raise FinalityTimeout(
+                    f"Timed out waiting for finality: tx={tx_hash!r}, timeout_s={timeout}, "
+                    f"required confirmations={finality_blocks}."
+                    f"\nNode reports tx mined at block {tx.blockNumber!r} but receipt was not observed by this verifier."
+                    "\nAction: wait longer / poll for finality again.",
                 )
             # tx dropped or node no longer knows about it
             else:
                 raise TransactionDropped(
-                    f"Transaction not found after timeout: tx={tx_hash!r}, timeout_s={timeout}. ",
-                    "Node does not report a receipt or pending transaction. ",
-                    "Likely dropped; consider resubmitting with same nonce or check node sync/peers.",
+                    f"Transaction not found after timeout: tx={tx_hash!r}, timeout_s={timeout}.",
+                    "\nNode does not report a receipt or pending transaction (likely dropped).",
+                    "\nAction: either wait/poll longer or resubmit (reuse the nonce to prevent duplication).",
                 )
         time.sleep(poll_interval)
 
