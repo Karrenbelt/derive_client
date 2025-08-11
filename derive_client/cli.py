@@ -428,7 +428,7 @@ def fetch_tickers(ctx, instrument_name):
 )
 def transfer_collateral(ctx, amount, to, asset):
     """Transfer collateral."""
-    client = ctx.obj["client"]
+    client: BaseClient = ctx.obj["client"]
     result = client.transfer_collateral(amount=amount, to=to, asset=CollateralAsset(asset))
 
     print(result)
