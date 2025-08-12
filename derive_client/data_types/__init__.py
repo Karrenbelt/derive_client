@@ -28,6 +28,7 @@ from .enums import (
 from .models import (
     Address,
     BridgeContext,
+    BridgeTxDetails,
     BridgeTxResult,
     CreateSubAccountData,
     CreateSubAccountDetails,
@@ -37,6 +38,7 @@ from .models import (
     ManagerAddress,
     MintableTokenData,
     NonMintableTokenData,
+    PreparedBridgeTx,
     RPCEndpoints,
     SessionKey,
     TxResult,
@@ -82,4 +84,6 @@ __all__ = [
     "DeriveTxResult",
     "SocketAddress",
     "RPCEndpoints",
+    "BridgeTxDetails",
+    "PreparedBridgeTx",
 ]
