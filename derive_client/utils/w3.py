@@ -9,7 +9,7 @@ from typing import Any, Callable, Generator, Literal
 
 import yaml
 from eth_account import Account
-from hexbytes import HexBytes
+from eth_account.datastructures import SignedTransaction
 from requests import RequestException
 from web3 import Web3
 from web3.contract import Contract
@@ -18,14 +18,13 @@ from web3.datastructures import AttributeDict
 from web3.providers.rpc import HTTPProvider
 
 from derive_client.constants import ABI_DATA_DIR, DEFAULT_RPC_ENDPOINTS, GAS_FEE_BUFFER, GAS_LIMIT_BUFFER
-from derive_client.data_types import ChainID, RPCEndpoints, TxResult, TxStatus
+from derive_client.data_types import ChainID, RPCEndpoints
 from derive_client.exceptions import (
     FinalityTimeout,
     InsufficientNativeBalance,
     NoAvailableRPC,
     TransactionDropped,
     TxPendingTimeout,
-    TxSubmissionError,
 )
 from derive_client.utils.logger import get_logger
 from derive_client.utils.retry import exp_backoff_retry
@@ -240,6 +239,7 @@ def wait_for_tx_receipt(w3: Web3, tx_hash: str, timeout=120, poll_interval=1) ->
 def wait_for_tx_finality(
     w3: Web3,
     tx_hash: str,
+    logger: Logger,
     finality_blocks: int = 10,
     timeout: float = 300.0,
     poll_interval: float = 1.0,
@@ -273,11 +273,17 @@ def wait_for_tx_finality(
         try:
             receipt = AttributeDict(w3.eth.get_transaction_receipt(tx_hash))
         # receipt can disappear temporarily during reorgs, or if RPC provider is not synced
-        except Exception:
+        except Exception as exc:
             receipt = None
+            logger.debug("No tx receipt for tx_hash=%s", tx_hash, extra={"exc": exc})
+
         # blockNumber can change as tx gets reorged into different blocks
-        if receipt is not None and (block_number := w3.eth.block_number) >= receipt.blockNumber + finality_blocks:
-            return receipt
+        try:
+            if receipt is not None and (block_number := w3.eth.block_number) >= receipt.blockNumber + finality_blocks:
+                return receipt
+        except Exception as exc:
+            msg = "Failed to fetch block_number trying to assess finality of tx_hash=%s"
+            logger.debug(msg, tx_hash, extra={"exc": exc})
 
         if time.monotonic() - start_time > timeout:
             # 1) We have a receipt but did not reach required confirmations
@@ -291,8 +297,10 @@ def wait_for_tx_finality(
             # 2) No receipt: check if tx is known to node (mempool) or dropped
             try:
                 tx = AttributeDict(w3.eth.get_transaction(tx_hash))
-            except Exception:
+            except Exception as exc:
                 tx = None
+                logger.debug("get_transaction probe failed for tx_hash=%s", tx_hash, extra={"exc": exc})
+
             # still pending in mempool
             if tx is not None and tx.blockNumber is None:
                 raise TxPendingTimeout(
@@ -305,7 +313,7 @@ def wait_for_tx_finality(
                 raise FinalityTimeout(
                     f"Timed out waiting for finality: tx={tx_hash!r}, timeout_s={timeout}, "
                     f"required confirmations={finality_blocks}."
-                    f"\nNode reports tx mined at block {tx.blockNumber!r} but receipt was not observed by this verifier."
+                    f"\nNode reports tx mined at block {tx.blockNumber!r} but receipt not observed by this verifier."
                     "\nAction: wait longer / poll for finality again.",
                 )
             # tx dropped or node no longer knows about it
@@ -315,47 +323,19 @@ def wait_for_tx_finality(
                     "\nNode does not report a receipt or pending transaction (likely dropped).",
                     "\nAction: either wait/poll longer or resubmit (reuse the nonce to prevent duplication).",
                 )
+
+        logger.debug("Waiting for finality: tx=%s sleeping=%.1fs", tx_hash, poll_interval)
         time.sleep(poll_interval)
 
 
-def sign_and_send_tx(w3: Web3, tx: dict, private_key: str, logger: Logger) -> HexBytes:
+def sign_tx(w3: Web3, tx: dict, private_key: str) -> SignedTransaction:
     signed_tx = w3.eth.account.sign_transaction(tx, private_key=private_key)
-    logger.debug(f"signed_tx: {signed_tx}")
+    return signed_tx
+
+
+def send_tx(w3: Web3, signed_tx: SignedTransaction) -> str:
     tx_hash = w3.eth.send_raw_transaction(signed_tx.raw_transaction)
-    logger.debug(f"tx_hash: {tx_hash.to_0x_hex()}")
-    return tx_hash
-
-
-def send_and_confirm_tx(
-    w3: Web3,
-    tx: dict,
-    private_key: str,
-    *,
-    action: str,  # e.g. "approve()", "deposit()", "withdraw()"
-    logger: Logger,
-) -> TxResult:
-    """Send and confirm transactions."""
-
-    try:
-        tx_hash = sign_and_send_tx(w3=w3, tx=tx, private_key=private_key, logger=logger)
-        tx_result = TxResult(tx_hash=tx_hash.to_0x_hex(), tx_receipt=None, exception=None)
-    except Exception as send_err:
-        msg = f"❌ Failed to send tx for {action}, error: {send_err!r}"
-        logger.error(msg)
-        raise TxSubmissionError(msg) from send_err
-
-    try:
-        tx_result.tx_receipt = wait_for_tx_receipt(w3=w3, tx_hash=tx_hash)
-    except TimeoutError:
-        logger.warning(f"⏱️ Timeout waiting for tx receipt of {tx_hash.to_0x_hex()}")
-        return tx_result
-
-    if tx_result.tx_receipt.status == TxStatus.SUCCESS:
-        logger.info(f"✅ {action} succeeded for tx {tx_hash.to_0x_hex()}")
-    else:
-        logger.error(f"❌ {action} reverted for tx {tx_hash.to_0x_hex()}")
-
-    return tx_result
+    return tx_hash.to_0x_hex()
 
 
 def estimate_fees(w3, percentiles: list[int], blocks=20, default_tip=10_000):
