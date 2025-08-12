@@ -158,7 +158,7 @@ def deposit(ctx, chain_id, currency, amount):
     client: BaseClient = ctx.obj["client"]
 
     bridge_tx_result = client.deposit_to_derive(chain_id=chain_id, currency=currency, amount=amount)
-    bridge_tx_result = client.poll_bridge_progress(bridge_tx_result)
+    # bridge_tx_result = client.poll_bridge_progress(bridge_tx_result)
 
     match bridge_tx_result.status:
         case TxStatus.SUCCESS:
@@ -208,7 +208,7 @@ def withdraw(ctx, chain_id, currency, amount):
     client: DeriveClient = ctx.obj["client"]
 
     bridge_tx_result = client.withdraw_from_derive(chain_id=chain_id, currency=currency, amount=amount)
-    bridge_tx_result = client.poll_bridge_progress(bridge_tx_result)
+    # bridge_tx_result = client.poll_bridge_progress(bridge_tx_result)
 
     match bridge_tx_result.status:
         case TxStatus.SUCCESS:
