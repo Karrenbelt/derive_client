@@ -221,21 +221,6 @@ def build_standard_transaction(
     return simulate_tx(w3, tx, account)
 
 
-def wait_for_tx_receipt(w3: Web3, tx_hash: str, timeout=120, poll_interval=1) -> AttributeDict:
-    start_time = time.monotonic()
-
-    while True:
-        try:
-            receipt = AttributeDict(w3.eth.get_transaction_receipt(tx_hash))
-        except Exception:
-            receipt = None
-        if receipt is not None:
-            return receipt
-        if time.monotonic() - start_time > timeout:
-            raise TimeoutError("Timed out waiting for transaction receipt.")
-        time.sleep(poll_interval)
-
-
 def wait_for_tx_finality(
     w3: Web3,
     tx_hash: str,
