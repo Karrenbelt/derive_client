@@ -7,14 +7,13 @@ from __future__ import annotations
 import functools
 import json
 from logging import Logger
-from typing import Literal
 
 from eth_account import Account
 from web3 import Web3
 from web3.contract import Contract
 from web3.contract.contract import ContractFunction
 from web3.datastructures import AttributeDict
-from web3.types import LogReceipt, TxReceipt, HexBytes
+from web3.types import HexBytes, LogReceipt, TxReceipt
 
 from derive_client._bridge.transaction import ensure_token_allowance, ensure_token_balance
 from derive_client.constants import (
@@ -46,6 +45,7 @@ from derive_client.data_types import (
     ChainID,
     Currency,
     DeriveTokenAddresses,
+    Direction,
     Environment,
     LayerZeroChainIDv2,
     MintableTokenData,
@@ -173,12 +173,12 @@ class BridgeClient:
     @functools.lru_cache
     def _make_bridge_context(
         self,
-        direction: Literal["deposit", "withdraw"],
+        direction: Direction,
         bridge_type: BridgeType,
         currency: Currency,
     ) -> BridgeContext:
 
-        is_deposit = direction == "deposit"
+        is_deposit = direction == Direction.DEPOSIT
         src_w3, tgt_w3 = (self.remote_w3, self.derive_w3) if is_deposit else (self.derive_w3, self.remote_w3)
         src_chain, tgt_chain = (
             (self.remote_chain_id, ChainID.DERIVE) if is_deposit else (ChainID.DERIVE, self.remote_chain_id)
@@ -218,7 +218,7 @@ class BridgeClient:
 
     def _get_context(self, state: PreparedBridgeTx | BridgeTxResult) -> BridgeContext:
 
-        direction = "withdraw" if state.source_chain == ChainID.DERIVE else "deposit"
+        direction = Direction.WITHDRAW if state.source_chain == ChainID.DERIVE else Direction.DEPOSIT
         context = self._make_bridge_context(
             direction=direction,
             bridge_type=state.bridge,
@@ -229,13 +229,14 @@ class BridgeClient:
 
     def _resolve_socket_route(
         self,
-        direction: Literal["deposit", "withdraw"],
+        direction: Direction,
         currency: Currency,
     ) -> tuple[MintableTokenData | NonMintableTokenData, Address]:
 
-        is_deposit = direction == "deposit"
         src_chain, tgt_chain = (
-            (self.remote_chain_id, ChainID.DERIVE) if is_deposit else (ChainID.DERIVE, self.remote_chain_id)
+            (self.remote_chain_id, ChainID.DERIVE)
+            if direction == Direction.DEPOSIT
+            else (ChainID.DERIVE, self.remote_chain_id)
         )
 
         if (src_token_data := self.derive_addresses.chains[src_chain].get(currency)) is None:
@@ -313,8 +314,10 @@ class BridgeClient:
 
     def prepare_socket_deposit(self, amount: int, currency: Currency) -> PreparedBridgeTx:
 
-        token_data, _connector = self._resolve_socket_route("deposit", currency=currency)
-        context = self._make_bridge_context("deposit", bridge_type=BridgeType.SOCKET, currency=currency)
+        direction = Direction.DEPOSIT
+        bridge_type = BridgeType.SOCKET
+        token_data, _connector = self._resolve_socket_route(direction, currency=currency)
+        context = self._make_bridge_context(direction, bridge_type=bridge_type, currency=currency)
 
         spender = token_data.Vault if token_data.isNewBridge else self.deposit_helper.address
         ensure_token_balance(context.source_token, self.owner, amount)
@@ -339,8 +342,10 @@ class BridgeClient:
 
     def prepare_socket_withdrawal(self, amount: int, currency: Currency) -> PreparedBridgeTx:
 
-        token_data, connector = self._resolve_socket_route("withdraw", currency=currency)
-        context = self._make_bridge_context("withdraw", bridge_type=BridgeType.SOCKET, currency=currency)
+        direction = Direction.WITHDRAW
+        bridge_type = BridgeType.SOCKET
+        token_data, connector = self._resolve_socket_route(direction, currency=currency)
+        context = self._make_bridge_context(direction, bridge_type=bridge_type, currency=currency)
 
         ensure_token_balance(context.source_token, self.wallet, amount)
         self._check_bridge_funds(token_data, connector, amount)
@@ -369,7 +374,9 @@ class BridgeClient:
 
     def prepare_layerzero_deposit(self, amount: int, currency: Currency) -> PreparedBridgeTx:
 
-        context = self._make_bridge_context("deposit", bridge_type=BridgeType.LAYERZERO, currency=currency)
+        direction = Direction.DEPOSIT
+        bridge_type = BridgeType.LAYERZERO
+        context = self._make_bridge_context(direction, bridge_type=bridge_type, currency=currency)
 
         # check allowance, if needed approve
         ensure_token_balance(context.source_token, self.owner, amount)
@@ -409,7 +416,9 @@ class BridgeClient:
 
     def prepare_layerzero_withdrawal(self, amount: int, currency: Currency) -> PreparedBridgeTx:
 
-        context = self._make_bridge_context("withdraw", bridge_type=BridgeType.LAYERZERO, currency=currency)
+        direction = Direction.WITHDRAW
+        bridge_type = BridgeType.LAYERZERO
+        context = self._make_bridge_context(direction, bridge_type=bridge_type, currency=currency)
 
         abi = json.loads(LYRA_OFT_WITHDRAW_WRAPPER_ABI_PATH.read_text())
         withdraw_wrapper = get_contract(context.source_w3, LYRA_OFT_WITHDRAW_WRAPPER_ADDRESS, abi=abi)

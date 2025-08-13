@@ -9,6 +9,7 @@ from .enums import (
     DeriveJSONRPCErrorCode,
     DeriveTokenAddresses,
     DeriveTxStatus,
+    Direction,
     Environment,
     EthereumJSONRPCErrorCode,
     InstrumentType,
@@ -48,6 +49,7 @@ from .models import (
 __all__ = [
     "TxStatus",
     "DeriveTxStatus",
+    "Direction",
     "BridgeType",
     "BridgeContext",
     "BridgeTxResult",
