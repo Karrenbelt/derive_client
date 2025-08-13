@@ -153,18 +153,15 @@ class BridgeClient:
         return self.account._private_key
 
     def _load_deposit_helper(self) -> Contract:
-        address = (
-            self.config.contracts.DEPOSIT_WRAPPER
-            if self.remote_chain_id
-            not in [
-                ChainID.ARBITRUM,
-                ChainID.OPTIMISM,
-            ]
-            else getattr(
-                self.config.contracts,
-                f"{self.remote_chain_id.name}_DEPOSIT_WRAPPER",
-            )
-        )
+
+        match self.remote_chain_id:
+            case ChainID.ARBITRUM:
+                address = self.config.contracts.ARBITRUM_DEPOSIT_WRAPPER
+            case ChainID.OPTIMISM:
+                address = self.config.contracts.OPTIMISM_DEPOSIT_WRAPPER
+            case _:
+                address = self.config.contracts.DEPOSIT_WRAPPER
+
         abi = json.loads(DEPOSIT_HELPER_ABI_PATH.read_text())
         return get_contract(w3=self.remote_w3, address=address, abi=abi)
 
@@ -220,12 +217,14 @@ class BridgeClient:
         raise BridgeRouteError(f"Unsupported bridge_type={bridge_type} for currency={currency}.")
 
     def _get_context(self, state: PreparedBridgeTx | BridgeTxResult) -> BridgeContext:
+
         direction = "withdraw" if state.source_chain == ChainID.DERIVE else "deposit"
         context = self._make_bridge_context(
             direction=direction,
             bridge_type=state.bridge,
             currency=state.currency,
         )
+
         return context
 
     def _resolve_socket_route(
@@ -233,6 +232,7 @@ class BridgeClient:
         direction: Literal["deposit", "withdraw"],
         currency: Currency,
     ) -> tuple[MintableTokenData | NonMintableTokenData, Address]:
+
         is_deposit = direction == "deposit"
         src_chain, tgt_chain = (
             (self.remote_chain_id, ChainID.DERIVE) if is_deposit else (ChainID.DERIVE, self.remote_chain_id)
