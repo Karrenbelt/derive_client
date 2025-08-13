@@ -59,6 +59,7 @@ from derive_client.exceptions import (
     BridgePrimarySignerRequiredError,
     BridgeRouteError,
     DrvWithdrawAmountBelowFee,
+    PartialBridgeResult,
 )
 from derive_client.utils import (
     build_standard_transaction,
@@ -306,9 +307,12 @@ class BridgeClient:
     def submit_bridge_tx(self, prepared_tx: PreparedBridgeTx) -> BridgeTxResult:
 
         tx_result = self.send_tx(prepared_tx=prepared_tx)
-        tx_result.source_tx.tx_receipt = self.confirm_source_tx(tx_result=tx_result)
-        tx_result.target_tx = TxResult(tx_hash=self.wait_for_target_event(tx_result=tx_result))
-        tx_result.target_tx.tx_receipt = self.confirm_target_tx(tx_result=tx_result)
+        try:
+            tx_result.source_tx.tx_receipt = self.confirm_source_tx(tx_result=tx_result)
+            tx_result.target_tx = TxResult(tx_hash=self.wait_for_target_event(tx_result=tx_result))
+            tx_result.target_tx.tx_receipt = self.confirm_target_tx(tx_result=tx_result)
+        except Exception as e:
+            raise PartialBridgeResult(f"Bridge pipeline failed: {e}", tx_result=tx_result) from e
 
         return tx_result
 

@@ -87,3 +87,11 @@ class TxPendingTimeout(Exception):
 
 class TransactionDropped(Exception):
     """Raised when the transaction the transaction is no longer in the mempool, likely dropped."""
+
+
+class PartialBridgeResult(Exception):
+    """Raised after submission when the bridge pipeline fails"""
+
+    def __init__(self, message: str, *, tx_result: "BridgeTxResult"):
+        super().__init__(message)
+        self.tx_result = tx_result
