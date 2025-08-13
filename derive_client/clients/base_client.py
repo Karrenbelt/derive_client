@@ -164,8 +164,9 @@ class BaseClient:
         client = BridgeClient(self.env, chain_id, account=self.signer, wallet=self.wallet, logger=self.logger)
 
         prepared_tx = client.prepare_deposit(amount=amount, currency=currency)
+        tx_result = client.submit_bridge_tx(prepared_tx)
 
-        return client.submit_bridge_tx(prepared_tx)
+        return client.poll_bridge_progress(tx_result=tx_result)
 
     def deposit_to_derive(
         self,
@@ -215,8 +216,9 @@ class BaseClient:
         client = BridgeClient(self.env, chain_id, account=self.signer, wallet=self.wallet, logger=self.logger)
 
         prepared_tx = client.prepare_withdrawal(amount=amount, currency=currency)
+        tx_result = client.submit_bridge_tx(prepared_tx=prepared_tx)
 
-        return client.submit_bridge_tx(prepared_tx=prepared_tx)
+        return client.poll_bridge_progress(tx_result=tx_result)
 
     def withdraw_from_derive(
         self,

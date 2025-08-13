@@ -308,7 +308,7 @@ class BridgeClient:
 
         tx_result = self.send_bridge_tx(prepared_tx=prepared_tx)
 
-        return self.poll_bridge_progress(tx_result)
+        return tx_result
 
     def poll_bridge_progress(self, tx_result: BridgeTxResult) -> BridgeTxResult:
 
