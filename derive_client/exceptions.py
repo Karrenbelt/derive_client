@@ -95,3 +95,8 @@ class PartialBridgeResult(Exception):
     def __init__(self, message: str, *, tx_result: "BridgeTxResult"):
         super().__init__(message)
         self.tx_result = tx_result
+
+    @property
+    def cause(self) -> Exception | None:
+        """Provides access to the orignal Exception."""
+        return self.__cause__

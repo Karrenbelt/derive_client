@@ -317,7 +317,7 @@ class BridgeClient:
             tx_result.target_tx = TxResult(tx_hash=self.wait_for_target_event(tx_result=tx_result))
             tx_result.target_tx.tx_receipt = self.confirm_target_tx(tx_result=tx_result)
         except Exception as e:
-            raise PartialBridgeResult(f"Bridge pipeline failed: {e}", tx_result=tx_result) from e
+            raise PartialBridgeResult("Bridge pipeline failed", tx_result=tx_result) from e
 
         return tx_result
 
