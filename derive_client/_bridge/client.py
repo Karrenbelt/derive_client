@@ -120,8 +120,6 @@ class BridgeClient:
         self.derive_w3 = get_w3_connection(chain_id=ChainID.DERIVE, logger=logger)
         self.remote_w3 = get_w3_connection(chain_id=chain_id, logger=logger)
         self.account = account
-        self.withdraw_wrapper = self._load_withdraw_wrapper()
-        self.deposit_helper = self._load_deposit_helper()
         self.derive_addresses = get_prod_derive_addresses()
         self.light_account = _load_light_account(w3=self.derive_w3, wallet=wallet)
         self.logger = logger
@@ -153,7 +151,8 @@ class BridgeClient:
         """Private key of the owner (EOA) of the smart contract funding account."""
         return self.account._private_key
 
-    def _load_deposit_helper(self) -> Contract:
+    @functools.cached_property
+    def deposit_helper(self) -> Contract:
 
         match self.remote_chain_id:
             case ChainID.ARBITRUM:
@@ -166,7 +165,8 @@ class BridgeClient:
         abi = json.loads(DEPOSIT_HELPER_ABI_PATH.read_text())
         return get_contract(w3=self.remote_w3, address=address, abi=abi)
 
-    def _load_withdraw_wrapper(self) -> Contract:
+    @functools.cached_property
+    def withdraw_wrapper(self) -> Contract:
         address = self.config.contracts.WITHDRAW_WRAPPER_V2
         abi = json.loads(WITHDRAW_WRAPPER_V2_ABI_PATH.read_text())
         return get_contract(w3=self.derive_w3, address=address, abi=abi)
