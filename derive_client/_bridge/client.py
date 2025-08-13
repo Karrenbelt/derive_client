@@ -306,7 +306,12 @@ class BridgeClient:
 
     def submit_bridge_tx(self, prepared_tx: PreparedBridgeTx) -> BridgeTxResult:
 
-        tx_result = self.send_tx(prepared_tx=prepared_tx)
+        tx_result = self.send_bridge_tx(prepared_tx=prepared_tx)
+
+        return self.poll_bridge_progress(tx_result)
+
+    def poll_bridge_progress(self, tx_result: BridgeTxResult) -> BridgeTxResult:
+
         try:
             tx_result.source_tx.tx_receipt = self.confirm_source_tx(tx_result=tx_result)
             tx_result.target_tx = TxResult(tx_hash=self.wait_for_target_event(tx_result=tx_result))
@@ -452,7 +457,7 @@ class BridgeClient:
 
         return prepared_tx
 
-    def send_tx(self, prepared_tx: PreparedBridgeTx) -> BridgeTxResult:
+    def send_bridge_tx(self, prepared_tx: PreparedBridgeTx) -> BridgeTxResult:
 
         context = self._get_context(prepared_tx)
 
