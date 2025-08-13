@@ -289,18 +289,18 @@ class BridgeClient:
     def prepare_deposit(self, amount: int, currency: Currency) -> PreparedBridgeTx:
 
         if currency == Currency.DRV:
-            prepared_tx = self.prepare_layerzero_deposit(amount=amount, currency=currency)
+            prepared_tx = self._prepare_layerzero_deposit(amount=amount, currency=currency)
         else:
-            prepared_tx = self.prepare_socket_deposit(amount=amount, currency=currency)
+            prepared_tx = self._prepare_socket_deposit(amount=amount, currency=currency)
 
         return prepared_tx
 
     def prepare_withdrawal(self, amount: int, currency: Currency) -> PreparedBridgeTx:
 
         if currency == Currency.DRV:
-            prepared_tx = self.prepare_layerzero_withdrawal(amount=amount, currency=currency)
+            prepared_tx = self._prepare_layerzero_withdrawal(amount=amount, currency=currency)
         else:
-            prepared_tx = self.prepare_socket_withdrawal(amount=amount, currency=currency)
+            prepared_tx = self._prepare_socket_withdrawal(amount=amount, currency=currency)
 
         return prepared_tx
 
@@ -321,7 +321,7 @@ class BridgeClient:
 
         return tx_result
 
-    def prepare_socket_deposit(self, amount: int, currency: Currency) -> PreparedBridgeTx:
+    def _prepare_socket_deposit(self, amount: int, currency: Currency) -> PreparedBridgeTx:
 
         direction = Direction.DEPOSIT
         bridge_type = BridgeType.SOCKET
@@ -349,7 +349,7 @@ class BridgeClient:
 
         return prepared_tx
 
-    def prepare_socket_withdrawal(self, amount: int, currency: Currency) -> PreparedBridgeTx:
+    def _prepare_socket_withdrawal(self, amount: int, currency: Currency) -> PreparedBridgeTx:
 
         direction = Direction.WITHDRAW
         bridge_type = BridgeType.SOCKET
@@ -381,7 +381,7 @@ class BridgeClient:
 
         return prepared_tx
 
-    def prepare_layerzero_deposit(self, amount: int, currency: Currency) -> PreparedBridgeTx:
+    def _prepare_layerzero_deposit(self, amount: int, currency: Currency) -> PreparedBridgeTx:
 
         direction = Direction.DEPOSIT
         bridge_type = BridgeType.LAYERZERO
@@ -423,7 +423,7 @@ class BridgeClient:
 
         return prepared_tx
 
-    def prepare_layerzero_withdrawal(self, amount: int, currency: Currency) -> PreparedBridgeTx:
+    def _prepare_layerzero_withdrawal(self, amount: int, currency: Currency) -> PreparedBridgeTx:
 
         direction = Direction.WITHDRAW
         bridge_type = BridgeType.LAYERZERO
@@ -496,8 +496,8 @@ class BridgeClient:
     def wait_for_target_event(self, tx_result: BridgeTxResult) -> HexBytes:
 
         bridge_event_fetchers = {
-            BridgeType.SOCKET: self.fetch_socket_event_log,
-            BridgeType.LAYERZERO: self.fetch_lz_event_log,
+            BridgeType.SOCKET: self._fetch_socket_event_log,
+            BridgeType.LAYERZERO: self._fetch_lz_event_log,
         }
         if (fetch_event := bridge_event_fetchers.get(tx_result.bridge)) is None:
             raise BridgeRouteError(f"Invalid bridge_type: {tx_result.bridge}")
@@ -522,7 +522,7 @@ class BridgeClient:
 
         return tx_receipt
 
-    def fetch_lz_event_log(self, tx_result: BridgeTxResult, context: BridgeContext) -> LogReceipt:
+    def _fetch_lz_event_log(self, tx_result: BridgeTxResult, context: BridgeContext) -> LogReceipt:
 
         try:
             source_event = context.source_event.process_log(tx_result.source_tx.tx_receipt.logs[-1])
@@ -545,7 +545,7 @@ class BridgeClient:
 
         return wait_for_event(context.target_w3, filter_params, logger=self.logger)
 
-    def fetch_socket_event_log(self, tx_result: BridgeTxResult, context: BridgeContext) -> LogReceipt:
+    def _fetch_socket_event_log(self, tx_result: BridgeTxResult, context: BridgeContext) -> LogReceipt:
 
         try:
             source_event = context.source_event.process_log(tx_result.source_tx.tx_receipt.logs[-2])
