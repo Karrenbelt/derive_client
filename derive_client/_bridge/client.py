@@ -14,7 +14,7 @@ from web3 import Web3
 from web3.contract import Contract
 from web3.contract.contract import ContractFunction
 from web3.datastructures import AttributeDict
-from web3.types import LogReceipt
+from web3.types import LogReceipt, TxReceipt, HexBytes
 
 from derive_client._bridge.transaction import ensure_token_allowance, ensure_token_balance
 from derive_client.constants import (
@@ -305,9 +305,9 @@ class BridgeClient:
     def submit_bridge_tx(self, prepared_tx: PreparedBridgeTx) -> BridgeTxResult:
 
         tx_result = self.send_tx(prepared_tx=prepared_tx)
-        tx_result = self.confirm_source_tx(tx_result=tx_result)
-        tx_result = self.wait_for_target_event(tx_result=tx_result)
-        tx_result = self.confirm_target_tx(tx_result=tx_result)
+        tx_result.source_tx.tx_receipt = self.confirm_source_tx(tx_result=tx_result)
+        tx_result.target_tx = TxResult(tx_hash=self.wait_for_target_event(tx_result=tx_result))
+        tx_result.target_tx.tx_receipt = self.confirm_target_tx(tx_result=tx_result)
 
         return tx_result
 
@@ -462,20 +462,20 @@ class BridgeClient:
 
         return tx_result
 
-    def confirm_source_tx(self, tx_result: BridgeTxResult) -> BridgeTxResult:
+    def confirm_source_tx(self, tx_result: BridgeTxResult) -> TxReceipt:
 
         context = self._get_context(tx_result)
         msg = "⏳ Checking source chain [%s] tx receipt for %s"
         self.logger.info(msg, tx_result.source_chain.name, tx_result.source_tx.tx_hash)
-        tx_result.source_tx.tx_receipt = wait_for_tx_finality(
+        tx_receipt = wait_for_tx_finality(
             w3=context.source_w3,
             tx_hash=tx_result.source_tx.tx_hash,
             logger=self.logger,
         )
 
-        return tx_result
+        return tx_receipt
 
-    def wait_for_target_event(self, tx_result: BridgeTxResult) -> BridgeTxResult:
+    def wait_for_target_event(self, tx_result: BridgeTxResult) -> HexBytes:
 
         bridge_event_fetchers = {
             BridgeType.SOCKET: self.fetch_socket_event_log,
@@ -486,23 +486,23 @@ class BridgeClient:
 
         context = self._get_context(tx_result)
         event_log = fetch_event(tx_result, context)
-        tx_result.target_tx = TxResult(event_log["transactionHash"].to_0x_hex())
-        self.logger.info(f"Target event tx_hash found: {tx_result.target_tx.tx_hash}")
+        tx_hash = event_log["transactionHash"]
+        self.logger.info(f"Target event tx_hash found: {tx_hash.to_0x_hex()}")
 
-        return tx_result
+        return tx_hash
 
-    def confirm_target_tx(self, tx_result: BridgeTxResult) -> BridgeTxResult:
+    def confirm_target_tx(self, tx_result: BridgeTxResult) -> TxReceipt:
 
         context = self._get_context(tx_result)
         msg = "⏳ Checking target chain [%s] tx receipt for %s"
         self.logger.info(msg, tx_result.target_chain.name, tx_result.target_tx.tx_hash)
-        tx_result.target_tx.tx_receipt = wait_for_tx_finality(
+        tx_receipt = wait_for_tx_finality(
             w3=context.target_w3,
             tx_hash=tx_result.target_tx.tx_hash,
             logger=self.logger,
         )
 
-        return tx_result
+        return tx_receipt
 
     def fetch_lz_event_log(self, tx_result: BridgeTxResult, context: BridgeContext) -> LogReceipt:
 

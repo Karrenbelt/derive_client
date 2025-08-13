@@ -103,7 +103,7 @@ class PSignedTransaction(SignedTransaction):
 class Address(str):
     @classmethod
     def __get_pydantic_core_schema__(cls, _source, _handler: GetCoreSchemaHandler) -> core_schema.CoreSchema:
-        return core_schema.no_info_before_validator_function(cls._validate, core_schema.str_schema())
+        return core_schema.no_info_before_validator_function(cls._validate, core_schema.any_schema())
 
     @classmethod
     def __get_pydantic_json_schema__(cls, _schema, _handler: GetJsonSchemaHandler) -> dict:
@@ -126,9 +126,11 @@ class TxHash(str):
         return {"type": "string", "format": "ethereum-tx-hash"}
 
     @classmethod
-    def _validate(cls, v: str) -> str:
+    def _validate(cls, v: str | HexBytes) -> str:
+        if isinstance(v, HexBytes):
+            v = v.to_0x_hex()
         if not isinstance(v, str):
-            raise TypeError("Expected a string for TxHash")
+            raise TypeError("Expected a string or HexBytes for TxHash")
         if not is_0x_prefixed(v) or not is_hex(v) or len(v) != 66:
             raise ValueError(f"Invalid Ethereum transaction hash: {v}")
         return v
