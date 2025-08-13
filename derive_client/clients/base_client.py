@@ -163,7 +163,9 @@ class BaseClient:
         amount = int(amount * 10 ** TOKEN_DECIMALS[UnderlyingCurrency[currency.name.upper()]])
         client = BridgeClient(self.env, chain_id, account=self.signer, wallet=self.wallet, logger=self.logger)
 
-        return client.deposit(amount=amount, currency=currency)
+        prepared_tx = client.prepare_deposit(amount=amount, currency=currency)
+
+        return client.submit_bridge_tx(prepared_tx)
 
     def deposit_to_derive(
         self,
@@ -212,10 +214,9 @@ class BaseClient:
         amount = int(amount * 10 ** TOKEN_DECIMALS[UnderlyingCurrency[currency.name.upper()]])
         client = BridgeClient(self.env, chain_id, account=self.signer, wallet=self.wallet, logger=self.logger)
 
-        # if currency == Currency.DRV:
-        #     return client.withdraw(amount=amount, currency=currency)
+        prepared_tx = client.prepare_withdrawal(amount=amount, currency=currency)
 
-        return client.withdraw(amount=amount, currency=currency)
+        return client.submit_bridge_tx(prepared_tx=prepared_tx)
 
     def withdraw_from_derive(
         self,

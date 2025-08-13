@@ -12,7 +12,9 @@ from typing import Literal
 from eth_account import Account
 from web3 import Web3
 from web3.contract import Contract
+from web3.contract.contract import ContractFunction
 from web3.datastructures import AttributeDict
+from web3.types import LogReceipt
 
 from derive_client._bridge.transaction import ensure_token_allowance, ensure_token_balance
 from derive_client.constants import (
@@ -146,7 +148,7 @@ class BridgeClient:
         return self.light_account.functions.owner().call()
 
     @property
-    def private_key(self):
+    def private_key(self) -> str:
         """Private key of the owner (EOA) of the smart contract funding account."""
         return self.account._private_key
 
@@ -173,8 +175,12 @@ class BridgeClient:
 
     @functools.lru_cache
     def _make_bridge_context(
-        self, direction: Literal["deposit", "withdraw"], bridge_type: BridgeType, currency: Currency
+        self,
+        direction: Literal["deposit", "withdraw"],
+        bridge_type: BridgeType,
+        currency: Currency,
     ) -> BridgeContext:
+
         is_deposit = direction == "deposit"
         src_w3, tgt_w3 = (self.remote_w3, self.derive_w3) if is_deposit else (self.derive_w3, self.remote_w3)
         src_chain, tgt_chain = (
@@ -248,7 +254,13 @@ class BridgeClient:
 
         return src_token_data, src_token_data.connectors[tgt_chain][TARGET_SPEED]
 
-    def _prepare_tx(self, func, value, currency, context) -> PreparedBridgeTx:
+    def _prepare_tx(
+        self,
+        func: ContractFunction,
+        value: int,
+        currency: Currency,
+        context: BridgeContext,
+    ) -> PreparedBridgeTx:
 
         tx = build_standard_transaction(func=func, account=self.account, w3=context.source_w3, value=value)
         signed_tx = sign_tx(w3=context.source_w3, tx=tx, private_key=self.private_key)
@@ -273,9 +285,33 @@ class BridgeClient:
         return prepared_tx
 
     def prepare_deposit(self, amount: int, currency: Currency) -> PreparedBridgeTx:
-        """
-        Deposit funds by preparing, signing, and sending a bridging transaction.
-        """
+
+        if currency == Currency.DRV:
+            prepared_tx = self.prepare_layerzero_deposit(amount=amount, currency=currency)
+        else:
+            prepared_tx = self.prepare_socket_deposit(amount=amount, currency=currency)
+
+        return prepared_tx
+
+    def prepare_withdrawal(self, amount: int, currency: Currency) -> PreparedBridgeTx:
+
+        if currency == Currency.DRV:
+            prepared_tx = self.prepare_layerzero_withdrawal(amount=amount, currency=currency)
+        else:
+            prepared_tx = self.prepare_socket_withdrawal(amount=amount, currency=currency)
+
+        return prepared_tx
+
+    def submit_bridge_tx(self, prepared_tx: PreparedBridgeTx) -> BridgeTxResult:
+
+        tx_result = self.send_tx(prepared_tx=prepared_tx)
+        tx_result = self.confirm_source_tx(tx_result=tx_result)
+        tx_result = self.wait_for_target_event(tx_result=tx_result)
+        tx_result = self.confirm_target_tx(tx_result=tx_result)
+
+        return tx_result
+
+    def prepare_socket_deposit(self, amount: int, currency: Currency) -> PreparedBridgeTx:
 
         token_data, _connector = self._resolve_socket_route("deposit", currency=currency)
         context = self._make_bridge_context("deposit", bridge_type=BridgeType.SOCKET, currency=currency)
@@ -298,6 +334,109 @@ class BridgeClient:
             func, fees = self._prepare_old_style_deposit(token_data, amount)
 
         prepared_tx = self._prepare_tx(func=func, value=fees + 1, currency=currency, context=context)
+
+        return prepared_tx
+
+    def prepare_socket_withdrawal(self, amount: int, currency: Currency) -> PreparedBridgeTx:
+
+        token_data, connector = self._resolve_socket_route("withdraw", currency=currency)
+        context = self._make_bridge_context("withdraw", bridge_type=BridgeType.SOCKET, currency=currency)
+
+        ensure_token_balance(context.source_token, self.wallet, amount)
+        self._check_bridge_funds(token_data, connector, amount)
+
+        kwargs = {
+            "token": context.source_token.address,
+            "amount": amount,
+            "recipient": self.owner,
+            "socketController": token_data.Controller,
+            "connector": connector,
+            "gasLimit": MSG_GAS_LIMIT,
+        }
+
+        # Encode the token approval and withdrawToChain for the withdraw wrapper.
+        approve_data = context.source_token.encodeABI(fn_name="approve", args=[self.withdraw_wrapper.address, amount])
+        bridge_data = self.withdraw_wrapper.encodeABI(fn_name="withdrawToChain", args=list(kwargs.values()))
+
+        # Build the batch execution call via the Light Account.
+        func = self.light_account.functions.executeBatch(
+            dest=[context.source_token.address, self.withdraw_wrapper.address],
+            func=[approve_data, bridge_data],
+        )
+        prepared_tx = self._prepare_tx(func=func, value=0, currency=currency, context=context)
+
+        return prepared_tx
+
+    def prepare_layerzero_deposit(self, amount: int, currency: Currency) -> PreparedBridgeTx:
+
+        context = self._make_bridge_context("deposit", bridge_type=BridgeType.LAYERZERO, currency=currency)
+
+        # check allowance, if needed approve
+        ensure_token_balance(context.source_token, self.owner, amount)
+        ensure_token_allowance(
+            w3=context.source_w3,
+            token_contract=context.source_token,
+            owner=self.owner,
+            spender=context.source_token.address,
+            amount=amount,
+            private_key=self.private_key,
+            logger=self.logger,
+        )
+
+        # build the send tx
+        receiver_bytes32 = Web3.to_bytes(hexstr=self.wallet).rjust(32, b"\x00")
+
+        kwargs = {
+            "dstEid": LayerZeroChainIDv2.DERIVE.value,
+            "receiver": receiver_bytes32,
+            "amountLD": amount,
+            "minAmountLD": 0,
+            "extraOptions": b"",
+            "composeMsg": b"",
+            "oftCmd": b"",
+        }
+
+        pay_in_lz_token = False
+        send_params = tuple(kwargs.values())
+        fees = context.source_token.functions.quoteSend(send_params, pay_in_lz_token).call()
+        native_fee, lz_token_fee = fees
+        refund_address = self.owner
+
+        func = context.source_token.functions.send(send_params, fees, refund_address)
+        prepared_tx = self._prepare_tx(func=func, value=native_fee, currency=currency, context=context)
+
+        return prepared_tx
+
+    def prepare_layerzero_withdrawal(self, amount: int, currency: Currency) -> PreparedBridgeTx:
+
+        context = self._make_bridge_context("withdraw", bridge_type=BridgeType.LAYERZERO, currency=currency)
+
+        abi = json.loads(LYRA_OFT_WITHDRAW_WRAPPER_ABI_PATH.read_text())
+        withdraw_wrapper = get_contract(context.source_w3, LYRA_OFT_WITHDRAW_WRAPPER_ADDRESS, abi=abi)
+
+        ensure_token_balance(context.source_token, self.wallet, amount)
+
+        destEID = LayerZeroChainIDv2[context.target_chain.name]
+        fee = withdraw_wrapper.functions.getFeeInToken(context.source_token.address, amount, destEID).call()
+        if amount < fee:
+            raise DrvWithdrawAmountBelowFee(f"Withdraw amount < fee: {amount} < {fee} ({(fee / amount * 100):.2f}%)")
+
+        kwargs = {
+            "token": context.source_token.address,
+            "amount": amount,
+            "toAddress": self.owner,
+            "destEID": destEID,
+        }
+
+        approve_data = context.source_token.encodeABI(fn_name="approve", args=[withdraw_wrapper.address, amount])
+        bridge_data = withdraw_wrapper.encodeABI(fn_name="withdrawToChain", args=list(kwargs.values()))
+
+        func = self.light_account.functions.executeBatch(
+            dest=[context.source_token.address, withdraw_wrapper.address],
+            func=[approve_data, bridge_data],
+        )
+        prepared_tx = self._prepare_tx(func=func, value=0, currency=currency, context=context)
+
         return prepared_tx
 
     def send_tx(self, prepared_tx: PreparedBridgeTx) -> BridgeTxResult:
@@ -365,147 +504,7 @@ class BridgeClient:
 
         return tx_result
 
-    def deposit(self, amount: int, currency: Currency) -> BridgeTxResult:
-        """
-        Deposit funds by preparing, signing, and sending a bridging transaction.
-        """
-
-        if currency == Currency.DRV:
-            prepared_tx = self.prepare_deposit_drv(amount=amount, currency=currency)
-        else:
-            prepared_tx = self.prepare_deposit(amount=amount, currency=currency)
-
-        tx_result = self.send_tx(prepared_tx=prepared_tx)
-        tx_result = self.confirm_source_tx(tx_result=tx_result)
-        tx_result = self.wait_for_target_event(tx_result=tx_result)
-        tx_result = self.confirm_target_tx(tx_result=tx_result)
-
-        return tx_result
-
-    def withdraw(self, amount: int, currency: Currency) -> BridgeTxResult:
-
-        if currency == Currency.DRV:
-            prepared_tx = self.prepare_withdraw_drv(amount=amount, currency=currency)
-        else:
-            prepared_tx = self.prepare_withdraw(amount=amount, currency=currency)
-
-        tx_result = self.send_tx(prepared_tx=prepared_tx)
-        tx_result = self.confirm_source_tx(tx_result=tx_result)
-        tx_result = self.wait_for_target_event(tx_result=tx_result)
-        tx_result = self.confirm_target_tx(tx_result=tx_result)
-
-        return tx_result
-
-    def prepare_withdraw(self, amount: int, currency: Currency) -> BridgeTxResult:
-        """
-        Checks if sufficent gas is available in derive, if not funds the wallet.
-        Prepares, signs, and sends a withdrawal transaction using the withdraw wrapper.
-        """
-
-        token_data, connector = self._resolve_socket_route("withdraw", currency=currency)
-        context = self._make_bridge_context("withdraw", bridge_type=BridgeType.SOCKET, currency=currency)
-
-        ensure_token_balance(context.source_token, self.wallet, amount)
-
-        self._check_bridge_funds(token_data, connector, amount)
-
-        kwargs = {
-            "token": context.source_token.address,
-            "amount": amount,
-            "recipient": self.owner,
-            "socketController": token_data.Controller,
-            "connector": connector,
-            "gasLimit": MSG_GAS_LIMIT,
-        }
-
-        # Encode the token approval and withdrawToChain for the withdraw wrapper.
-        approve_data = context.source_token.encodeABI(fn_name="approve", args=[self.withdraw_wrapper.address, amount])
-        bridge_data = self.withdraw_wrapper.encodeABI(fn_name="withdrawToChain", args=list(kwargs.values()))
-
-        # Build the batch execution call via the Light Account.
-        func = self.light_account.functions.executeBatch(
-            dest=[context.source_token.address, self.withdraw_wrapper.address],
-            func=[approve_data, bridge_data],
-        )
-        prepared_tx = self._prepare_tx(func=func, value=0, currency=currency, context=context)
-
-        return prepared_tx
-
-    def prepare_deposit_drv(self, amount: int, currency: Currency) -> PreparedBridgeTx:
-        """
-        Deposit funds by preparing, signing, and sending a bridging transaction.
-        """
-
-        context = self._make_bridge_context("deposit", bridge_type=BridgeType.LAYERZERO, currency=currency)
-
-        # check allowance, if needed approve
-        ensure_token_balance(context.source_token, self.owner, amount)
-        ensure_token_allowance(
-            w3=context.source_w3,
-            token_contract=context.source_token,
-            owner=self.owner,
-            spender=context.source_token.address,
-            amount=amount,
-            private_key=self.private_key,
-            logger=self.logger,
-        )
-
-        # build the send tx
-        receiver_bytes32 = Web3.to_bytes(hexstr=self.wallet).rjust(32, b"\x00")
-
-        kwargs = {
-            "dstEid": LayerZeroChainIDv2.DERIVE.value,
-            "receiver": receiver_bytes32,
-            "amountLD": amount,
-            "minAmountLD": 0,
-            "extraOptions": b"",
-            "composeMsg": b"",
-            "oftCmd": b"",
-        }
-
-        pay_in_lz_token = False
-        send_params = tuple(kwargs.values())
-        fees = context.source_token.functions.quoteSend(send_params, pay_in_lz_token).call()
-        native_fee, lz_token_fee = fees
-        refund_address = self.owner
-
-        func = context.source_token.functions.send(send_params, fees, refund_address)
-        prepared_tx = self._prepare_tx(func=func, value=native_fee, currency=currency, context=context)
-
-        return prepared_tx
-
-    def prepare_withdraw_drv(self, amount: int, currency: Currency) -> BridgeTxResult:
-
-        context = self._make_bridge_context("withdraw", bridge_type=BridgeType.LAYERZERO, currency=currency)
-
-        abi = json.loads(LYRA_OFT_WITHDRAW_WRAPPER_ABI_PATH.read_text())
-        withdraw_wrapper = get_contract(context.source_w3, LYRA_OFT_WITHDRAW_WRAPPER_ADDRESS, abi=abi)
-
-        ensure_token_balance(context.source_token, self.wallet, amount)
-
-        destEID = LayerZeroChainIDv2[context.target_chain.name]
-        fee = withdraw_wrapper.functions.getFeeInToken(context.source_token.address, amount, destEID).call()
-        if amount < fee:
-            raise DrvWithdrawAmountBelowFee(f"Withdraw amount < fee: {amount} < {fee} ({(fee / amount * 100):.2f}%)")
-
-        kwargs = {
-            "token": context.source_token.address,
-            "amount": amount,
-            "toAddress": self.owner,
-            "destEID": destEID,
-        }
-
-        approve_data = context.source_token.encodeABI(fn_name="approve", args=[withdraw_wrapper.address, amount])
-        bridge_data = withdraw_wrapper.encodeABI(fn_name="withdrawToChain", args=list(kwargs.values()))
-
-        func = self.light_account.functions.executeBatch(
-            dest=[context.source_token.address, withdraw_wrapper.address],
-            func=[approve_data, bridge_data],
-        )
-        prepared_tx = self._prepare_tx(func=func, value=0, currency=currency, context=context)
-        return prepared_tx
-
-    def fetch_lz_event_log(self, tx_result: BridgeTxResult, context: BridgeContext):
+    def fetch_lz_event_log(self, tx_result: BridgeTxResult, context: BridgeContext) -> LogReceipt:
 
         try:
             source_event = context.source_event.process_log(tx_result.source_tx.tx_receipt.logs[-1])
@@ -525,9 +524,10 @@ class BridgeClient:
         self.logger.info(
             f"🔍 Listening for OFTReceived on [{tx_result.target_chain.name}] at {context.target_event.address}"
         )
+
         return wait_for_event(context.target_w3, filter_params, logger=self.logger)
 
-    def fetch_socket_event_log(self, tx_result: BridgeTxResult, context: BridgeContext):
+    def fetch_socket_event_log(self, tx_result: BridgeTxResult, context: BridgeContext) -> LogReceipt:
 
         try:
             source_event = context.source_event.process_log(tx_result.source_tx.tx_receipt.logs[-2])
@@ -548,9 +548,11 @@ class BridgeClient:
         self.logger.info(
             f"🔍 Listening for ExecutionSuccess on [{tx_result.target_chain.name}] at {context.target_event.address}"
         )
+
         return wait_for_event(context.target_w3, filter_params, condition=matching_message_id, logger=self.logger)
 
-    def _prepare_new_style_deposit(self, token_data: NonMintableTokenData, amount: int) -> dict:
+    def _prepare_new_style_deposit(self, token_data: NonMintableTokenData, amount: int) -> tuple[ContractFunction, int]:
+
         vault_contract = _load_vault_contract(w3=self.remote_w3, token_data=token_data)
         connector = token_data.connectors[ChainID.DERIVE][TARGET_SPEED]
         fees = _get_min_fees(bridge_contract=vault_contract, connector=connector, token_data=token_data)
@@ -562,9 +564,11 @@ class BridgeClient:
             extraData_=b"",
             options_=b"",
         )
+
         return func, fees
 
-    def _prepare_old_style_deposit(self, token_data: NonMintableTokenData, amount: int) -> dict:
+    def _prepare_old_style_deposit(self, token_data: NonMintableTokenData, amount: int) -> tuple[ContractFunction, int]:
+
         vault_contract = _load_vault_contract(w3=self.remote_w3, token_data=token_data)
         connector = token_data.connectors[ChainID.DERIVE][TARGET_SPEED]
         fees = _get_min_fees(bridge_contract=vault_contract, connector=connector, token_data=token_data)
@@ -576,9 +580,11 @@ class BridgeClient:
             gasLimit=MSG_GAS_LIMIT,
             connector=connector,
         )
+
         return func, fees
 
-    def _check_bridge_funds(self, token_data, connector: Address, amount: int):
+    def _check_bridge_funds(self, token_data, connector: Address, amount: int) -> None:
+
         controller = _load_controller_contract(w3=self.derive_w3, token_data=token_data)
         if token_data.isNewBridge:
             deposit_hook = controller.functions.hook__().call()
