@@ -225,7 +225,7 @@ def wait_for_tx_finality(
     w3: Web3,
     tx_hash: str,
     logger: Logger,
-    finality_blocks: int = 10,
+    finality_blocks: int = 120,
     timeout: float = 300.0,
     poll_interval: float = 1.0,
 ) -> AttributeDict:
