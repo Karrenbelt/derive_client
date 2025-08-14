@@ -162,19 +162,20 @@ class BaseClient:
         """
 
         amount = int(amount * 10 ** TOKEN_DECIMALS[UnderlyingCurrency[currency.name.upper()]])
-        client = BridgeClient(self.env, chain_id, account=self.signer, wallet=self.wallet, logger=self.logger)
+        # client = BridgeClient(self.env, chain_id, account=self.signer, wallet=self.wallet, logger=self.logger)
 
         # prepared_tx = client.prepare_deposit(amount=amount, currency=currency)
         # tx_result = client.submit_bridge_tx(prepared_tx)
 
         # return client.poll_bridge_progress(tx_result=tx_result)
 
-        async def _run():
+        async def _run(account, wallet, logger):
+            client = await BridgeClient.create(self.env, chain_id, account=account, wallet=wallet, logger=logger)
             prepared_tx = await client.prepare_deposit(amount=amount, currency=currency)
             tx_result = await client.submit_bridge_tx(prepared_tx)
             return await client.poll_bridge_progress(tx_result=tx_result)
         
-        return asyncio.run(_run())
+        return asyncio.run(_run(account=self.signer, wallet=self.wallet, logger=self.logger))
 
     def deposit_to_derive(
         self,
@@ -221,19 +222,20 @@ class BaseClient:
         """
 
         amount = int(amount * 10 ** TOKEN_DECIMALS[UnderlyingCurrency[currency.name.upper()]])
-        client = BridgeClient(self.env, chain_id, account=self.signer, wallet=self.wallet, logger=self.logger)
+        # client = BridgeClient(self.env, chain_id, account=self.signer, wallet=self.wallet, logger=self.logger)
 
         # prepared_tx = client.prepare_withdrawal(amount=amount, currency=currency)
         # tx_result = client.submit_bridge_tx(prepared_tx=prepared_tx)
 
         # return client.poll_bridge_progress(tx_result=tx_result)
 
-        async def _run():
+        async def _run(account, wallet, logger):
+            client = await BridgeClient.create(self.env, chain_id, account=account, wallet=wallet, logger=logger)
             prepared_tx = await client.prepare_withdrawal(amount=amount, currency=currency)
             tx_result = await client.submit_bridge_tx(prepared_tx)
             return await client.poll_bridge_progress(tx_result=tx_result)
         
-        return asyncio.run(_run())
+        return asyncio.run(_run(account=self.signer, wallet=self.wallet, logger=self.logger))
 
     def withdraw_from_derive(
         self,

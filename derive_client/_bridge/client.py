@@ -62,7 +62,7 @@ from derive_client.exceptions import (
     PartialBridgeResult,
 )
 from derive_client.utils import get_prod_derive_addresses
-from .utils.w3 import (
+from .w3 import (
     build_standard_transaction,
     get_contract,
     get_w3_connection,
@@ -114,6 +114,8 @@ def _get_min_fees(
 
 class BridgeClient:
     def __init__(self, env: Environment, chain_id: ChainID, account: Account, wallet: Address, logger: Logger):
+        """Private init - use Bridge.create() instead."""
+        # raise RuntimeError("Use Bridge.create() async factory method instead of direct instantiation.")
         if not env == Environment.PROD:
             raise RuntimeError(f"Bridging is not supported in the {env.name} environment.")
         self.config = CONFIGS[env]
@@ -123,8 +125,8 @@ class BridgeClient:
         self.derive_addresses = get_prod_derive_addresses()
         self.light_account = _load_light_account(w3=self.derive_w3, wallet=wallet)
         self.logger = logger
-        self.owner = self.account.address
         self.remote_chain_id = chain_id
+        self.owner = self.account.address
         if self.owner != self.account.address:
             raise BridgePrimarySignerRequiredError(
                 "Bridging disabled for secondary session-key signers: old-style assets "
@@ -133,6 +135,35 @@ class BridgeClient:
                 "the primary owner's. Please run all bridge operations with the "
                 "primary wallet owner."
             )
+
+    @classmethod
+    async def create(cls, env: Environment, chain_id: ChainID, account: Account, wallet: Address, logger: Logger):
+        """Async factory method to create and validate a Bridge instance."""
+        if not env == Environment.PROD:
+            raise RuntimeError(f"Bridging is not supported in the {env.name} environment.")
+
+        instance = cls.__new__(cls)
+        instance.config = CONFIGS[env]
+        instance.derive_w3 = get_w3_connection(chain_id=ChainID.DERIVE, logger=logger)
+        instance.remote_w3 = get_w3_connection(chain_id=chain_id, logger=logger)
+        instance.account = account
+        instance.derive_addresses = get_prod_derive_addresses()
+        instance.light_account = _load_light_account(w3=instance.derive_w3, wallet=wallet)
+        instance.logger = logger
+        instance.remote_chain_id = chain_id
+
+        owner = await instance.light_account.functions.owner().call()
+        if owner != account.address:
+            raise BridgePrimarySignerRequiredError(
+                "Bridging disabled for secondary session-key signers: old-style assets "
+                "(USDC, USDT) on Derive cannot specify a custom receiver. Using a "
+                "secondary signer routes funds to the session key's contract instead of "
+                "the primary owner's. Please run all bridge operations with the "
+                "primary wallet owner."
+            )
+        instance.owner = owner
+
+        return instance
 
     # @property
     # def remote_chain_id(self) -> ChainID:
@@ -146,7 +177,7 @@ class BridgeClient:
     # @functools.cached_property
     # def owner(self) -> Address:
     #     """Owner of smart contract funding wallet, must be the same as self.account.address."""
-    #     return await self.light_account.functions.owner().call()
+    #     return self.light_account.functions.owner().call()
 
     @property
     def private_key(self) -> str:
