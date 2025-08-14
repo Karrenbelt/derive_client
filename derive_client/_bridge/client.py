@@ -117,26 +117,7 @@ def _get_min_fees(
 class BridgeClient:
     def __init__(self, env: Environment, chain_id: ChainID, account: Account, wallet: Address, logger: Logger):
         """Private init - use Bridge.create() instead."""
-        # raise RuntimeError("Use Bridge.create() async factory method instead of direct instantiation.")
-        if not env == Environment.PROD:
-            raise RuntimeError(f"Bridging is not supported in the {env.name} environment.")
-        self.config = CONFIGS[env]
-        self.derive_w3 = get_w3_connection(chain_id=ChainID.DERIVE, logger=logger)
-        self.remote_w3 = get_w3_connection(chain_id=chain_id, logger=logger)
-        self.account = account
-        self.derive_addresses = get_prod_derive_addresses()
-        self.light_account = _load_light_account(w3=self.derive_w3, wallet=wallet)
-        self.logger = logger
-        self.remote_chain_id = chain_id
-        self.owner = self.account.address
-        if self.owner != self.account.address:
-            raise BridgePrimarySignerRequiredError(
-                "Bridging disabled for secondary session-key signers: old-style assets "
-                "(USDC, USDT) on Derive cannot specify a custom receiver. Using a "
-                "secondary signer routes funds to the session key's contract instead of "
-                "the primary owner's. Please run all bridge operations with the "
-                "primary wallet owner."
-            )
+        raise RuntimeError("Use Bridge.create() async factory method instead of direct instantiation.")
 
     @classmethod
     async def create(cls, env: Environment, chain_id: ChainID, account: Account, wallet: Address, logger: Logger):
@@ -167,19 +148,10 @@ class BridgeClient:
 
         return instance
 
-    # @property
-    # def remote_chain_id(self) -> ChainID:
-    #     return ChainID(self.remote_w3.eth.chain_id)
-
     @property
     def wallet(self) -> Address:
         """Smart contract funding wallet."""
         return self.light_account.address
-
-    # @functools.cached_property
-    # def owner(self) -> Address:
-    #     """Owner of smart contract funding wallet, must be the same as self.account.address."""
-    #     return self.light_account.functions.owner().call()
 
     @property
     def private_key(self) -> str:

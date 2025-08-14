@@ -7,7 +7,6 @@ from .retry import exp_backoff_retry, get_retry_session, wait_until
 from .unwrap import unwrap_or_raise
 from .w3 import get_w3_connection, load_rpc_endpoints
 
-
 __all__ = [
     "get_logger",
     "get_prod_derive_addresses",
