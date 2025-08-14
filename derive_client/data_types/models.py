@@ -215,18 +215,6 @@ class BridgeContext:
     source_chain: ChainID
     target_chain: ChainID
 
-    # async def init_chains(self):
-    #     self._source_chain = ChainID(await self.source_w3.eth.chain_id)
-    #     self._target_chain = ChainID(await self.target_w3.eth.chain_id)
-
-    # @property
-    # def source_chain(self) -> ChainID:
-    #     return self._source_chain
-
-    # @property
-    # def target_chain(self) -> ChainID:
-    #     return self._target_chain
-
 
 @dataclass
 class BridgeTxDetails:
@@ -286,7 +274,7 @@ class BridgeTxResult:
     target_chain: ChainID
     source_tx: TxResult
     tx_details: BridgeTxDetails
-    target_from_block: int | None = None
+    target_from_block: int
     event_id: str | None = None
     target_tx: TxResult | None = None
 
