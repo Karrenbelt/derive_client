@@ -12,9 +12,8 @@ from pydantic import BaseModel, ConfigDict, Field, GetCoreSchemaHandler, GetJson
 from pydantic.dataclasses import dataclass
 from pydantic_core import core_schema
 from web3 import Web3, AsyncWeb3
-from web3.contract import Contract, AsyncContract
+from web3.contract import AsyncContract
 from web3.contract.async_contract import AsyncContractEvent
-from web3.contract.contract import ContractEvent
 from web3.datastructures import AttributeDict
 
 from .enums import BridgeType, ChainID, Currency, DeriveTxStatus, MainnetCurrency, MarginType, SessionKeyScope, TxStatus
