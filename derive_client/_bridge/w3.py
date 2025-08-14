@@ -1,17 +1,14 @@
 import asyncio
-import functools
 import heapq
 import json
 import time
 from logging import Logger
-from pathlib import Path
 from typing import Any, Callable, Generator, Literal
 
-import yaml
 from eth_account import Account
 from eth_account.datastructures import SignedTransaction
 from requests import RequestException
-from web3 import Web3, AsyncWeb3, AsyncHTTPProvider
+from web3 import AsyncWeb3, AsyncHTTPProvider
 from web3.contract import Contract
 from web3.contract.contract import ContractEvent
 from web3.datastructures import AttributeDict
@@ -40,7 +37,7 @@ def make_rotating_provider_middleware(
     initial_backoff: float = 1.0,
     max_backoff: float = 600.0,
     logger: Logger,
-) -> Callable[[Callable[[str, Any], Any], Web3], Callable[[str, Any], Any]]:
+) -> Callable[[Callable[[str, Any], Any], AsyncWeb3], Callable[[str, Any], Any]]:
     """
     v6.11-style middleware:
      - round-robin via a min-heap of `next_available` times
@@ -51,7 +48,7 @@ def make_rotating_provider_middleware(
     heapq.heapify(heap)
     lock = asyncio.Lock()
 
-    async def middleware_factory(make_request: Callable[[str, Any], Any], w3: Web3) -> Callable[[str, Any], Any]:
+    async def middleware_factory(make_request: Callable[[str, Any], Any], w3: AsyncWeb3) -> Callable[[str, Any], Any]:
         async def rotating_backoff(method: str, params: Any) -> Any:
             now = time.monotonic()
 
@@ -128,7 +125,7 @@ def get_w3_connection(
     *,
     rpc_endpoints: RPCEndpoints | None = None,
     logger: Logger | None = None,
-) -> Web3:
+) -> AsyncWeb3:
     rpc_endpoints = rpc_endpoints or load_rpc_endpoints(DEFAULT_RPC_ENDPOINTS)
     providers = [AsyncHTTPProvider(str(url)) for url in rpc_endpoints[chain_id]]
 
@@ -146,17 +143,17 @@ def get_w3_connection(
     return w3
 
 
-def get_contract(w3: Web3, address: str, abi: list) -> Contract:
-    return w3.eth.contract(address=Web3.to_checksum_address(address), abi=abi)
+def get_contract(w3: AsyncWeb3, address: str, abi: list) -> Contract:
+    return w3.eth.contract(address=AsyncWeb3.to_checksum_address(address), abi=abi)
 
 
-def get_erc20_contract(w3: Web3, token_address: str) -> Contract:
+def get_erc20_contract(w3: AsyncWeb3, token_address: str) -> Contract:
     erc20_abi_path = ABI_DATA_DIR / "erc20.json"
     abi = json.loads(erc20_abi_path.read_text())
     return get_contract(w3=w3, address=token_address, abi=abi)
 
 
-async def simulate_tx(w3: Web3, tx: dict, account: Account) -> dict:
+async def simulate_tx(w3: AsyncWeb3, tx: dict, account: Account) -> dict:
     balance = await w3.eth.get_balance(account.address)
     max_fee_per_gas = tx["maxFeePerGas"]
     gas_limit = tx["gas"]
@@ -176,7 +173,7 @@ async def simulate_tx(w3: Web3, tx: dict, account: Account) -> dict:
 async def build_standard_transaction(
     func,
     account: Account,
-    w3: Web3,
+    w3: AsyncWeb3,
     value: int = 0,
     gas_blocks: int = 100,
     gas_percentile: int = 99,
@@ -204,7 +201,7 @@ async def build_standard_transaction(
 
 
 async def wait_for_tx_finality(
-    w3: Web3,
+    w3: AsyncWeb3,
     tx_hash: str,
     logger: Logger,
     finality_blocks: int = 10,
@@ -295,12 +292,12 @@ async def wait_for_tx_finality(
         await asyncio.sleep(poll_interval)
 
 
-def sign_tx(w3: Web3, tx: dict, private_key: str) -> SignedTransaction:
+def sign_tx(w3: AsyncWeb3, tx: dict, private_key: str) -> SignedTransaction:
     signed_tx =w3.eth.account.sign_transaction(tx, private_key=private_key)
     return signed_tx
 
 
-async def send_tx(w3: Web3, signed_tx: SignedTransaction) -> str:
+async def send_tx(w3: AsyncWeb3, signed_tx: SignedTransaction) -> str:
     tx_hash = await w3.eth.send_raw_transaction(signed_tx.raw_transaction)
     return tx_hash.to_0x_hex()
 
@@ -333,7 +330,7 @@ async def estimate_fees(w3, percentiles: list[int], blocks=20, default_tip=10_00
 
 
 async def iter_events(
-    w3: Web3,
+    w3: AsyncWeb3,
     filter_params: dict,
     *,
     condition: Callable[[AttributeDict], bool] = lambda _: True,
@@ -378,7 +375,7 @@ async def iter_events(
 
 
 async def wait_for_event(
-    w3: Web3,
+    w3: AsyncWeb3,
     filter_params: dict,
     *,
     condition: Callable[[AttributeDict], bool] = lambda _: True,
@@ -413,9 +410,9 @@ def make_filter_params(
     filter_params["topics"] = tuple(filter_params["topics"])
     address = filter_params["address"]
     if isinstance(address, str):
-        filter_params["address"] = Web3.to_checksum_address(address)
+        filter_params["address"] = AsyncWeb3.to_checksum_address(address)
     elif isinstance(address, (list, tuple)) and len(address) == 1:
-        filter_params["address"] = Web3.to_checksum_address(address[0])
+        filter_params["address"] = AsyncWeb3.to_checksum_address(address[0])
     else:
         raise ValueError(f"Unexpected address filter: {address!r}")
 
