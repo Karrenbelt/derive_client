@@ -8,7 +8,7 @@ from typing import Any, Callable, Generator, Literal
 from eth_account import Account
 from eth_account.datastructures import SignedTransaction
 from requests import RequestException
-from web3 import AsyncHTTPProvider, AsyncWeb3, Web3
+from web3 import AsyncHTTPProvider, AsyncWeb3
 from web3.contract import Contract
 from web3.contract.async_contract import AsyncContract, AsyncContractEvent
 from web3.datastructures import AttributeDict
@@ -167,7 +167,7 @@ async def ensure_token_balance(token_contract: Contract, owner: Address, amount:
 
 
 async def ensure_token_allowance(
-    w3: Web3,
+    w3: AsyncWeb3,
     token_contract: Contract,
     owner: Address,
     spender: Address,
@@ -190,7 +190,7 @@ async def ensure_token_allowance(
 
 
 async def _increase_token_allowance(
-    w3: Web3,
+    w3: AsyncWeb3,
     from_account: Account,
     erc20_contract: Contract,
     spender: Address,
