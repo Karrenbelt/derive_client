@@ -11,12 +11,21 @@ from hexbytes import HexBytes
 from pydantic import BaseModel, ConfigDict, Field, GetCoreSchemaHandler, GetJsonSchemaHandler, HttpUrl
 from pydantic.dataclasses import dataclass
 from pydantic_core import core_schema
-from web3 import Web3, AsyncWeb3
+from web3 import AsyncWeb3, Web3
 from web3.contract import AsyncContract
 from web3.contract.async_contract import AsyncContractEvent
 from web3.datastructures import AttributeDict
 
-from .enums import BridgeType, ChainID, Currency, DeriveTxStatus, MainnetCurrency, MarginType, SessionKeyScope, TxStatus
+from .enums import (
+    BridgeType,
+    ChainID,
+    Currency,
+    DeriveTxStatus,
+    MainnetCurrency,
+    MarginType,
+    SessionKeyScope,
+    TxStatus,
+)
 
 
 class PAttributeDict(AttributeDict):
@@ -206,6 +215,7 @@ class ManagerAddress(BaseModel):
 
 @dataclass(config=ConfigDict(arbitrary_types_allowed=True))
 class BridgeContext:
+    currency: Currency
     source_w3: AsyncWeb3
     target_w3: AsyncWeb3
     source_token: AsyncContract
@@ -213,6 +223,10 @@ class BridgeContext:
     target_event: AsyncContractEvent
     source_chain: ChainID
     target_chain: ChainID
+
+    @property
+    def bridge_type(self) -> BridgeType:
+        return BridgeType.LAYERZERO if self.currency == Currency.DRV else BridgeType.SOCKET
 
 
 @dataclass
@@ -237,7 +251,6 @@ class BridgeTxDetails:
 @dataclass
 class PreparedBridgeTx:
     currency: Currency
-    bridge: BridgeType
     source_chain: ChainID
     target_chain: ChainID
     tx_details: BridgeTxDetails

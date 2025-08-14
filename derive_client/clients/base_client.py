@@ -162,14 +162,14 @@ class BaseClient:
         """
 
         amount = int(amount * 10 ** TOKEN_DECIMALS[UnderlyingCurrency[currency.name.upper()]])
+        client = BridgeClient(self.env, chain_id, account=self.signer, wallet=self.wallet, logger=self.logger)
 
-        async def _run(account, wallet, logger):
-            client = await BridgeClient.create(self.env, chain_id, account=account, wallet=wallet, logger=logger)
-            prepared_tx = await client.prepare_deposit(amount=amount, currency=currency)
+        async def _run():
+            prepared_tx = await client.prepare_deposit(amount=amount, currency=currency, chain_id=chain_id)
             tx_result = await client.submit_bridge_tx(prepared_tx)
             return await client.poll_bridge_progress(tx_result=tx_result)
 
-        return asyncio.run(_run(account=self.signer, wallet=self.wallet, logger=self.logger))
+        return asyncio.run(_run())
 
     def deposit_to_derive(
         self,
@@ -216,14 +216,14 @@ class BaseClient:
         """
 
         amount = int(amount * 10 ** TOKEN_DECIMALS[UnderlyingCurrency[currency.name.upper()]])
+        client = BridgeClient(self.env, account=self.signer, wallet=self.wallet, logger=self.logger)
 
-        async def _run(account, wallet, logger):
-            client = await BridgeClient.create(self.env, chain_id, account=account, wallet=wallet, logger=logger)
-            prepared_tx = await client.prepare_withdrawal(amount=amount, currency=currency)
+        async def _run():
+            prepared_tx = await client.prepare_withdrawal(amount=amount, currency=currency, chain_id=chain_id)
             tx_result = await client.submit_bridge_tx(prepared_tx)
             return await client.poll_bridge_progress(tx_result=tx_result)
 
-        return asyncio.run(_run(account=self.signer, wallet=self.wallet, logger=self.logger))
+        return asyncio.run(_run())
 
     def withdraw_from_derive(
         self,
@@ -262,13 +262,12 @@ class BaseClient:
             or an Exception on failure.
         """
 
-        chain_id = tx_result.source_chain if tx_result.source_chain != ChainID.DERIVE else tx_result.target_chain
+        client = BridgeClient(account=self.signer, wallet=self.wallet, logger=self.logger)
 
-        async def _run(account, wallet, logger):
-            client = await BridgeClient.create(self.env, chain_id, account=account, wallet=wallet, logger=logger)
+        async def _run():
             return await client.poll_bridge_progress(tx_result=tx_result)
 
-        return asyncio.run(_run(account=self.signer, wallet=self.wallet, logger=self.logger))
+        return asyncio.run(_run())
 
     def poll_bridge_progress(self, tx_result: BridgeTxResult) -> BridgeTxResult:
         """
