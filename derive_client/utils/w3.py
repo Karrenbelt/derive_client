@@ -1,7 +1,7 @@
+import asyncio
 import functools
 import heapq
 import json
-import threading
 import time
 from logging import Logger
 from pathlib import Path
@@ -11,7 +11,7 @@ import yaml
 from eth_account import Account
 from eth_account.datastructures import SignedTransaction
 from requests import RequestException
-from web3 import Web3
+from web3 import Web3, AsyncWeb3, AsyncHTTPProvider
 from web3.contract import Contract
 from web3.contract.contract import ContractEvent
 from web3.datastructures import AttributeDict
@@ -62,20 +62,20 @@ def make_rotating_provider_middleware(
 
     heap: list[EndpointState] = [EndpointState(p) for p in endpoints]
     heapq.heapify(heap)
-    lock = threading.Lock()
+    lock = asyncio.Lock()
 
-    def middleware_factory(make_request: Callable[[str, Any], Any], w3: Web3) -> Callable[[str, Any], Any]:
-        def rotating_backoff(method: str, params: Any) -> Any:
+    async def middleware_factory(make_request: Callable[[str, Any], Any], w3: Web3) -> Callable[[str, Any], Any]:
+        async def rotating_backoff(method: str, params: Any) -> Any:
             now = time.monotonic()
 
             while True:
                 # 1) grab the earlies-available endpoint
-                with lock:
+                async with lock:
                     state = heapq.heappop(heap)
 
                 # 2) if it's not yet ready, push back and error out
                 if state.next_available > now:
-                    with lock:
+                    async with lock:
                         heapq.heappush(heap, state)
                     msg = "All RPC endpoints are cooling down. Try again in %.2f seconds."
                     logger.warning(msg, state.next_available - now)
@@ -83,14 +83,14 @@ def make_rotating_provider_middleware(
 
                 try:
                     # 3) attempt the request
-                    resp = state.provider.make_request(method, params)
+                    resp = await state.provider.make_request(method, params)
 
                     # Json‑RPC error branch
                     if isinstance(resp, dict) and (error := resp.get("error")):
                         state.backoff = state.backoff * 2 if state.backoff else initial_backoff
                         state.backoff = min(state.backoff, max_backoff)
                         state.next_available = now + state.backoff
-                        with lock:
+                        async with lock:
                             heapq.heappush(heap, state)
                         err_msg = error.get("message", "")
                         msg = "RPC error on %s: %s → backing off %.2fs"
@@ -100,7 +100,7 @@ def make_rotating_provider_middleware(
                     # 4) on success, reset its backoff and re-schedule immediately
                     state.backoff = 0.0
                     state.next_available = now
-                    with lock:
+                    async with lock:
                         heapq.heappush(heap, state)
                     return resp
 
@@ -117,7 +117,7 @@ def make_rotating_provider_middleware(
                     # cap backoff and schedule
                     state.backoff = min(backoff, max_backoff)
                     state.next_available = now + state.backoff
-                    with lock:
+                    async with lock:
                         heapq.heappush(heap, state)
                     msg = "Backing off %s for %.2fs"
                     logger.info(msg, state.provider.endpoint_uri, backoff)
@@ -127,7 +127,7 @@ def make_rotating_provider_middleware(
                     logger.exception(msg, method, params, state.provider.endpoint_uri, max_backoff, exc_info=e)
                     state.backoff = max_backoff
                     state.next_available = now + state.backoff
-                    with lock:
+                    async with lock:
                         heapq.heappush(heap, state)
                     continue
 
@@ -148,12 +148,12 @@ def get_w3_connection(
     logger: Logger | None = None,
 ) -> Web3:
     rpc_endpoints = rpc_endpoints or load_rpc_endpoints(DEFAULT_RPC_ENDPOINTS)
-    providers = [HTTPProvider(url) for url in rpc_endpoints[chain_id]]
+    providers = [AsyncHTTPProvider(str(url)) for url in rpc_endpoints[chain_id]]
 
     logger = logger or get_logger()
 
     # NOTE: Initial provider is a no-op once middleware is in place
-    w3 = Web3()
+    w3 = AsyncWeb3(providers[0])
     rotator = make_rotating_provider_middleware(
         providers,
         initial_backoff=1.0,
@@ -174,8 +174,8 @@ def get_erc20_contract(w3: Web3, token_address: str) -> Contract:
     return get_contract(w3=w3, address=token_address, abi=abi)
 
 
-def simulate_tx(w3: Web3, tx: dict, account: Account) -> dict:
-    balance = w3.eth.get_balance(account.address)
+async def simulate_tx(w3: Web3, tx: dict, account: Account) -> dict:
+    balance = await w3.eth.get_balance(account.address)
     max_fee_per_gas = tx["maxFeePerGas"]
     gas_limit = tx["gas"]
     value = tx.get("value", 0)
@@ -186,12 +186,12 @@ def simulate_tx(w3: Web3, tx: dict, account: Account) -> dict:
         ratio = balance / total_cost * 100
         raise InsufficientNativeBalance(f"available: {balance} < required: {total_cost} ({ratio:.2f}%)")
 
-    w3.eth.call(tx)
+    await w3.eth.call(tx)
     return tx
 
 
-@exp_backoff_retry
-def build_standard_transaction(
+# @exp_backoff_retry
+async def build_standard_transaction(
     func,
     account: Account,
     w3: Web3,
@@ -201,31 +201,31 @@ def build_standard_transaction(
 ) -> dict:
     """Standardized transaction building with EIP-1559 and gas estimation"""
 
-    nonce = w3.eth.get_transaction_count(account.address)
-    fee_estimations = estimate_fees(w3, blocks=gas_blocks, percentiles=[gas_percentile])
+    nonce = await w3.eth.get_transaction_count(account.address)
+    fee_estimations = await estimate_fees(w3, blocks=gas_blocks, percentiles=[gas_percentile])
     max_fee = fee_estimations[0]["maxFeePerGas"]
     priority_fee = fee_estimations[0]["maxPriorityFeePerGas"]
 
-    tx = func.build_transaction(
+    tx = await func.build_transaction(
         {
             "from": account.address,
             "nonce": nonce,
             "maxFeePerGas": max_fee,
             "maxPriorityFeePerGas": priority_fee,
-            "chainId": w3.eth.chain_id,
+            "chainId": await w3.eth.chain_id,
             "value": value,
         }
     )
 
-    tx["gas"] = int(w3.eth.estimate_gas(tx) * GAS_LIMIT_BUFFER)
-    return simulate_tx(w3, tx, account)
+    tx["gas"] = int(await w3.eth.estimate_gas(tx) * GAS_LIMIT_BUFFER)
+    return await simulate_tx(w3, tx, account)
 
 
-def wait_for_tx_finality(
+async def wait_for_tx_finality(
     w3: Web3,
     tx_hash: str,
     logger: Logger,
-    finality_blocks: int = 120,
+    finality_blocks: int = 10,
     timeout: float = 300.0,
     poll_interval: float = 1.0,
 ) -> AttributeDict:
@@ -256,7 +256,7 @@ def wait_for_tx_finality(
 
     while True:
         try:
-            receipt = AttributeDict(w3.eth.get_transaction_receipt(tx_hash))
+            receipt = AttributeDict(await w3.eth.get_transaction_receipt(tx_hash))
         # receipt can disappear temporarily during reorgs, or if RPC provider is not synced
         except Exception as exc:
             receipt = None
@@ -264,7 +264,7 @@ def wait_for_tx_finality(
 
         # blockNumber can change as tx gets reorged into different blocks
         try:
-            if receipt is not None and (block_number := w3.eth.block_number) >= receipt.blockNumber + finality_blocks:
+            if receipt is not None and (block_number := await w3.eth.block_number) >= receipt.blockNumber + finality_blocks:
                 return receipt
         except Exception as exc:
             msg = "Failed to fetch block_number trying to assess finality of tx_hash=%s"
@@ -310,21 +310,21 @@ def wait_for_tx_finality(
                 )
 
         logger.debug("Waiting for finality: tx=%s sleeping=%.1fs", tx_hash, poll_interval)
-        time.sleep(poll_interval)
+        await asyncio.sleep(poll_interval)
 
 
 def sign_tx(w3: Web3, tx: dict, private_key: str) -> SignedTransaction:
-    signed_tx = w3.eth.account.sign_transaction(tx, private_key=private_key)
+    signed_tx =w3.eth.account.sign_transaction(tx, private_key=private_key)
     return signed_tx
 
 
-def send_tx(w3: Web3, signed_tx: SignedTransaction) -> str:
-    tx_hash = w3.eth.send_raw_transaction(signed_tx.raw_transaction)
+async def send_tx(w3: Web3, signed_tx: SignedTransaction) -> str:
+    tx_hash = await w3.eth.send_raw_transaction(signed_tx.raw_transaction)
     return tx_hash.to_0x_hex()
 
 
-def estimate_fees(w3, percentiles: list[int], blocks=20, default_tip=10_000):
-    fee_history = w3.eth.fee_history(blocks, "pending", percentiles)
+async def estimate_fees(w3, percentiles: list[int], blocks=20, default_tip=10_000):
+    fee_history = await w3.eth.fee_history(blocks, "pending", percentiles)
     base_fees = fee_history["baseFeePerGas"]
     rewards = fee_history["reward"]
 
@@ -350,7 +350,7 @@ def estimate_fees(w3, percentiles: list[int], blocks=20, default_tip=10_000):
     return fee_estimations
 
 
-def iter_events(
+async def iter_events(
     w3: Web3,
     filter_params: dict,
     *,
@@ -364,7 +364,7 @@ def iter_events(
 
     original_filter_params = filter_params.copy()  # return original in TimeoutError
     if (cursor := filter_params["fromBlock"]) == "latest":
-        cursor = w3.eth.block_number
+        cursor = await w3.eth.block_number
 
     start_block = cursor
     filter_params["toBlock"] = filter_params.get("toBlock", "latest")
@@ -376,25 +376,26 @@ def iter_events(
             msg = f"Timed out waiting for events after scanning blocks {start_block}-{cursor}"
             logger.warning(msg)
             raise TimeoutError(f"{msg}: filter_params: {original_filter_params}")
-        upper = fixed_ceiling or w3.eth.block_number
+        upper = fixed_ceiling or await w3.eth.block_number
         if cursor <= upper:
             end = min(upper, cursor + max_block_range - 1)
             filter_params["fromBlock"] = hex(cursor)
             filter_params["toBlock"] = hex(end)
             # For example, when rotating providers are out of sync
             retry_get_logs = exp_backoff_retry(w3.eth.get_logs, attempts=EVENT_LOG_RETRIES)
-            logs = retry_get_logs(filter_params=filter_params)
+            logs = await retry_get_logs(filter_params=filter_params)
             logger.debug(f"Scanned {cursor} - {end}: {len(logs)} logs")
-            yield from filter(condition, logs)
+            for log in filter(condition, logs):
+                yield log
             cursor = end + 1  # bounds are inclusive
 
         if fixed_ceiling and cursor > fixed_ceiling:
             raise StopIteration
 
-        time.sleep(poll_interval)
+        await asyncio.sleep(poll_interval)
 
 
-def wait_for_event(
+async def wait_for_event(
     w3: Web3,
     filter_params: dict,
     *,
@@ -406,7 +407,7 @@ def wait_for_event(
 ) -> AttributeDict:
     """Return the first log from iter_events, or raise TimeoutError after `timeout` seconds."""
 
-    return next(iter_events(**locals()))
+    return await anext(iter_events(**locals()))
 
 
 def make_filter_params(

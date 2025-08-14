@@ -2,6 +2,7 @@
 Base Client for the derive dex.
 """
 
+import asyncio
 import json
 import random
 from decimal import Decimal
@@ -163,10 +164,17 @@ class BaseClient:
         amount = int(amount * 10 ** TOKEN_DECIMALS[UnderlyingCurrency[currency.name.upper()]])
         client = BridgeClient(self.env, chain_id, account=self.signer, wallet=self.wallet, logger=self.logger)
 
-        prepared_tx = client.prepare_deposit(amount=amount, currency=currency)
-        tx_result = client.submit_bridge_tx(prepared_tx)
+        # prepared_tx = client.prepare_deposit(amount=amount, currency=currency)
+        # tx_result = client.submit_bridge_tx(prepared_tx)
 
-        return client.poll_bridge_progress(tx_result=tx_result)
+        # return client.poll_bridge_progress(tx_result=tx_result)
+
+        async def _run():
+            prepared_tx = await client.prepare_deposit(amount=amount, currency=currency)
+            tx_result = await client.submit_bridge_tx(prepared_tx)
+            return await client.poll_bridge_progress(tx_result=tx_result)
+        
+        return asyncio.run(_run())
 
     def deposit_to_derive(
         self,
@@ -215,10 +223,17 @@ class BaseClient:
         amount = int(amount * 10 ** TOKEN_DECIMALS[UnderlyingCurrency[currency.name.upper()]])
         client = BridgeClient(self.env, chain_id, account=self.signer, wallet=self.wallet, logger=self.logger)
 
-        prepared_tx = client.prepare_withdrawal(amount=amount, currency=currency)
-        tx_result = client.submit_bridge_tx(prepared_tx=prepared_tx)
+        # prepared_tx = client.prepare_withdrawal(amount=amount, currency=currency)
+        # tx_result = client.submit_bridge_tx(prepared_tx=prepared_tx)
 
-        return client.poll_bridge_progress(tx_result=tx_result)
+        # return client.poll_bridge_progress(tx_result=tx_result)
+
+        async def _run():
+            prepared_tx = await client.prepare_withdrawal(amount=amount, currency=currency)
+            tx_result = await client.submit_bridge_tx(prepared_tx)
+            return await client.poll_bridge_progress(tx_result=tx_result)
+        
+        return asyncio.run(_run())
 
     def withdraw_from_derive(
         self,

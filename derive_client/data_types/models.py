@@ -11,8 +11,9 @@ from hexbytes import HexBytes
 from pydantic import BaseModel, ConfigDict, Field, GetCoreSchemaHandler, GetJsonSchemaHandler, HttpUrl
 from pydantic.dataclasses import dataclass
 from pydantic_core import core_schema
-from web3 import Web3
-from web3.contract import Contract
+from web3 import Web3, AsyncWeb3
+from web3.contract import Contract, AsyncContract
+from web3.contract.async_contract import AsyncContractEvent
 from web3.contract.contract import ContractEvent
 from web3.datastructures import AttributeDict
 
@@ -206,19 +207,25 @@ class ManagerAddress(BaseModel):
 
 @dataclass(config=ConfigDict(arbitrary_types_allowed=True))
 class BridgeContext:
-    source_w3: Web3
-    target_w3: Web3
-    source_token: Contract
-    source_event: ContractEvent
-    target_event: ContractEvent
+    source_w3: AsyncWeb3
+    target_w3: AsyncWeb3
+    source_token: AsyncContract
+    source_event: AsyncContractEvent
+    target_event: AsyncContractEvent
+    source_chain: ChainID
+    target_chain: ChainID
 
-    @property
-    def source_chain(self) -> ChainID:
-        return ChainID(self.source_w3.eth.chain_id)
+    # async def init_chains(self):
+    #     self._source_chain = ChainID(await self.source_w3.eth.chain_id)
+    #     self._target_chain = ChainID(await self.target_w3.eth.chain_id)
 
-    @property
-    def target_chain(self) -> ChainID:
-        return ChainID(self.target_w3.eth.chain_id)
+    # @property
+    # def source_chain(self) -> ChainID:
+    #     return self._source_chain
+
+    # @property
+    # def target_chain(self) -> ChainID:
+    #     return self._target_chain
 
 
 @dataclass
