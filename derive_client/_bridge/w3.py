@@ -9,10 +9,8 @@ from eth_account import Account
 from eth_account.datastructures import SignedTransaction
 from requests import RequestException
 from web3 import AsyncWeb3, AsyncHTTPProvider
-from web3.contract import Contract
-from web3.contract.contract import ContractEvent
+from web3.contract.async_contract import AsyncContract, AsyncContractEvent
 from web3.datastructures import AttributeDict
-from web3.providers.rpc import HTTPProvider
 
 from derive_client.constants import ABI_DATA_DIR, DEFAULT_RPC_ENDPOINTS, GAS_FEE_BUFFER, GAS_LIMIT_BUFFER
 from derive_client.data_types import ChainID, RPCEndpoints
@@ -32,7 +30,7 @@ EVENT_LOG_RETRIES = 10
 
 
 def make_rotating_provider_middleware(
-    endpoints: list[HTTPProvider],
+    endpoints: list[AsyncHTTPProvider],
     *,
     initial_backoff: float = 1.0,
     max_backoff: float = 600.0,
@@ -50,6 +48,7 @@ def make_rotating_provider_middleware(
 
     async def middleware_factory(make_request: Callable[[str, Any], Any], w3: AsyncWeb3) -> Callable[[str, Any], Any]:
         async def rotating_backoff(method: str, params: Any) -> Any:
+
             now = time.monotonic()
 
             while True:
@@ -126,28 +125,33 @@ def get_w3_connection(
     rpc_endpoints: RPCEndpoints | None = None,
     logger: Logger | None = None,
 ) -> AsyncWeb3:
+
     rpc_endpoints = rpc_endpoints or load_rpc_endpoints(DEFAULT_RPC_ENDPOINTS)
     providers = [AsyncHTTPProvider(str(url)) for url in rpc_endpoints[chain_id]]
 
     logger = logger or get_logger()
 
     # NOTE: Initial provider is a no-op once middleware is in place
-    w3 = AsyncWeb3(providers[0])
+    # NOTE: If you don't set a dummy provider, bad things will happen!
+    provider = AsyncHTTPProvider()
+    w3 = AsyncWeb3(provider)
+
     rotator = make_rotating_provider_middleware(
         providers,
         initial_backoff=1.0,
         max_backoff=600.0,
         logger=logger,
     )
-    w3.middleware_onion.add(rotator)
+    w3.middleware_onion.add(rotator, name="rotating_provider")
+
     return w3
 
 
-def get_contract(w3: AsyncWeb3, address: str, abi: list) -> Contract:
+def get_contract(w3: AsyncWeb3, address: str, abi: list) -> AsyncContract:
     return w3.eth.contract(address=AsyncWeb3.to_checksum_address(address), abi=abi)
 
 
-def get_erc20_contract(w3: AsyncWeb3, token_address: str) -> Contract:
+def get_erc20_contract(w3: AsyncWeb3, token_address: str) -> AsyncContract:
     erc20_abi_path = ABI_DATA_DIR / "erc20.json"
     abi = json.loads(erc20_abi_path.read_text())
     return get_contract(w3=w3, address=token_address, abi=abi)
@@ -169,7 +173,7 @@ async def simulate_tx(w3: AsyncWeb3, tx: dict, account: Account) -> dict:
     return tx
 
 
-# @exp_backoff_retry
+@exp_backoff_retry
 async def build_standard_transaction(
     func,
     account: Account,
@@ -390,7 +394,7 @@ async def wait_for_event(
 
 
 def make_filter_params(
-    event: ContractEvent,
+    event: AsyncContractEvent,
     from_block: int | Literal["latest"],
     to_block: int | Literal["latest"] = "latest",
     argument_filters: dict | None = None,
