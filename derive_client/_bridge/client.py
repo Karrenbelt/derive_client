@@ -15,7 +15,6 @@ from web3.contract.contract import ContractFunction
 from web3.datastructures import AttributeDict
 from web3.types import HexBytes, LogReceipt, TxReceipt
 
-from derive_client._bridge.transaction import ensure_token_allowance, ensure_token_balance
 from derive_client.constants import (
     CONFIGS,
     CONTROLLER_ABI_PATH,
@@ -62,8 +61,11 @@ from derive_client.exceptions import (
     PartialBridgeResult,
 )
 from derive_client.utils import get_prod_derive_addresses
+
 from .w3 import (
     build_standard_transaction,
+    ensure_token_allowance,
+    ensure_token_balance,
     get_contract,
     get_w3_connection,
     make_filter_params,
@@ -609,7 +611,7 @@ class BridgeClient:
 
         vault_contract = _load_vault_contract(w3=self.remote_w3, token_data=token_data)
         connector = token_data.connectors[ChainID.DERIVE][TARGET_SPEED]
-        fees_func =_get_min_fees(bridge_contract=vault_contract, connector=connector, token_data=token_data)
+        fees_func = _get_min_fees(bridge_contract=vault_contract, connector=connector, token_data=token_data)
         func = vault_contract.functions.bridge(
             receiver_=self.wallet,
             amount_=amount,

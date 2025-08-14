@@ -8,23 +8,24 @@ from typing import Any, Callable, Generator, Literal
 from eth_account import Account
 from eth_account.datastructures import SignedTransaction
 from requests import RequestException
-from web3 import AsyncWeb3, AsyncHTTPProvider
+from web3 import AsyncHTTPProvider, AsyncWeb3, Web3
+from web3.contract import Contract
 from web3.contract.async_contract import AsyncContract, AsyncContractEvent
 from web3.datastructures import AttributeDict
 
 from derive_client.constants import ABI_DATA_DIR, DEFAULT_RPC_ENDPOINTS, GAS_FEE_BUFFER, GAS_LIMIT_BUFFER
-from derive_client.data_types import ChainID, RPCEndpoints
+from derive_client.data_types import Address, ChainID, RPCEndpoints, TxStatus
 from derive_client.exceptions import (
     FinalityTimeout,
     InsufficientNativeBalance,
+    InsufficientTokenBalance,
     NoAvailableRPC,
     TransactionDropped,
     TxPendingTimeout,
 )
 from derive_client.utils.logger import get_logger
 from derive_client.utils.retry import exp_backoff_retry
-from derive_client.utils.w3 import load_rpc_endpoints, EndpointState
-
+from derive_client.utils.w3 import EndpointState, load_rpc_endpoints
 
 EVENT_LOG_RETRIES = 10
 
@@ -157,6 +158,55 @@ def get_erc20_contract(w3: AsyncWeb3, token_address: str) -> AsyncContract:
     return get_contract(w3=w3, address=token_address, abi=abi)
 
 
+async def ensure_token_balance(token_contract: Contract, owner: Address, amount: int):
+    balance = await token_contract.functions.balanceOf(owner).call()
+    if amount > balance:
+        raise InsufficientTokenBalance(
+            f"Not enough tokens to withdraw: {amount} < {balance} ({(balance / amount * 100):.2f}%)"
+        )
+
+
+async def ensure_token_allowance(
+    w3: Web3,
+    token_contract: Contract,
+    owner: Address,
+    spender: Address,
+    amount: int,
+    private_key: str,
+    logger: Logger,
+):
+    allowance = await token_contract.functions.allowance(owner, spender).call()
+    if amount > allowance:
+        logger.info(f"Increasing allowance from {allowance} to {amount}")
+        await _increase_token_allowance(
+            w3=w3,
+            from_account=Account.from_key(private_key),
+            erc20_contract=token_contract,
+            spender=spender,
+            amount=amount,
+            private_key=private_key,
+            logger=logger,
+        )
+
+
+async def _increase_token_allowance(
+    w3: Web3,
+    from_account: Account,
+    erc20_contract: Contract,
+    spender: Address,
+    amount: int,
+    private_key: str,
+    logger: Logger,
+) -> None:
+    func = erc20_contract.functions.approve(spender, amount)
+    tx = await build_standard_transaction(func=func, account=from_account, w3=w3)
+    signed_tx = sign_tx(w3=w3, tx=tx, private_key=private_key)
+    tx_hash = await send_tx(w3=w3, signed_tx=signed_tx)
+    tx_receipt = await wait_for_tx_finality(w3=w3, tx_hash=tx_hash, logger=logger)
+    if tx_receipt.status != TxStatus.SUCCESS:
+        raise RuntimeError("approve() failed")
+
+
 async def simulate_tx(w3: AsyncWeb3, tx: dict, account: Account) -> dict:
     balance = await w3.eth.get_balance(account.address)
     max_fee_per_gas = tx["maxFeePerGas"]
@@ -247,7 +297,10 @@ async def wait_for_tx_finality(
 
         # blockNumber can change as tx gets reorged into different blocks
         try:
-            if receipt is not None and (block_number := await w3.eth.block_number) >= receipt.blockNumber + finality_blocks:
+            if (
+                receipt is not None
+                and (block_number := await w3.eth.block_number) >= receipt.blockNumber + finality_blocks
+            ):
                 return receipt
         except Exception as exc:
             msg = "Failed to fetch block_number trying to assess finality of tx_hash=%s"
@@ -297,7 +350,7 @@ async def wait_for_tx_finality(
 
 
 def sign_tx(w3: AsyncWeb3, tx: dict, private_key: str) -> SignedTransaction:
-    signed_tx =w3.eth.account.sign_transaction(tx, private_key=private_key)
+    signed_tx = w3.eth.account.sign_transaction(tx, private_key=private_key)
     return signed_tx
 
 
