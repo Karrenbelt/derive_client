@@ -61,10 +61,10 @@ from derive_client.exceptions import (
     DrvWithdrawAmountBelowFee,
     PartialBridgeResult,
 )
-from derive_client.utils import (
+from derive_client.utils import get_prod_derive_addresses
+from .utils.w3 import (
     build_standard_transaction,
     get_contract,
-    get_prod_derive_addresses,
     get_w3_connection,
     make_filter_params,
     send_tx,

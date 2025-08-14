@@ -6,7 +6,7 @@ from web3.contract import Contract
 
 from derive_client.data_types import Address, TxStatus
 from derive_client.exceptions import InsufficientTokenBalance
-from derive_client.utils import build_standard_transaction, send_tx, sign_tx, wait_for_tx_finality
+from .w3 import build_standard_transaction, send_tx, sign_tx, wait_for_tx_finality
 
 
 async def ensure_token_balance(token_contract: Contract, owner: Address, amount: int):
