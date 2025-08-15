@@ -3,6 +3,7 @@ Async client for Derive
 """
 
 import asyncio
+import functools
 import json
 import time
 from datetime import datetime
@@ -11,8 +12,21 @@ from decimal import Decimal
 import aiohttp
 from derive_action_signing.utils import sign_ws_login, utc_now_ms
 
+from derive_client._bridge import BridgeClient
 from derive_client.constants import DEFAULT_REFERER, TEST_PRIVATE_KEY
-from derive_client.data_types import Environment, InstrumentType, OrderSide, OrderType, TimeInForce, UnderlyingCurrency
+from derive_client.data_types import (
+    BridgeTxResult,
+    ChainID,
+    Currency,
+    Environment,
+    InstrumentType,
+    OrderSide,
+    OrderType,
+    PreparedBridgeTx,
+    TimeInForce,
+    UnderlyingCurrency,
+)
+from derive_client.utils import unwrap_or_raise
 
 from .base_client import DeriveJSONRPCException
 from .ws_client import WsClient
@@ -49,7 +63,36 @@ class AsyncClient(WsClient):
 
         self.message_queues = {}
         self.connecting = False
-        # we make sure to get the event loop
+
+    @functools.cached_property
+    def bridge(self) -> BridgeClient:
+        return BridgeClient(env=self.env, account=self.signer, wallet=self.wallet, logger=self.logger)
+
+    async def prepare_deposit_to_derive(
+        self,
+        amount: float,
+        currency: Currency,
+        chain_id: ChainID,
+    ) -> PreparedBridgeTx:
+        result = await self.bridge.prepare_deposit(token_amount=amount, currency=currency, chain_id=chain_id)
+        return unwrap_or_raise(result)
+
+    async def prepare_withdrawal_from_derive(
+        self,
+        amount: float,
+        currency: Currency,
+        chain_id: ChainID,
+    ) -> PreparedBridgeTx:
+        result = await self.bridge.prepare_withdrawal(token_amount=amount, currency=currency, chain_id=chain_id)
+        return unwrap_or_raise(result)
+
+    async def submit_bridge_tx(self, prepared_tx: PreparedBridgeTx) -> BridgeTxResult:
+        result = await self.bridge.submit_bridge_tx(prepared_tx=prepared_tx)
+        return unwrap_or_raise(result)
+
+    async def poll_bridge_progress(self, tx_result: BridgeTxResult) -> BridgeTxResult:
+        result = await self.bridge.poll_bridge_progress(tx_result=tx_result)
+        return unwrap_or_raise(result)
 
     def get_subscription_id(self, instrument_name: str, group: str = "1", depth: str = "100"):
         return f"orderbook.{instrument_name}.{group}.{depth}"
