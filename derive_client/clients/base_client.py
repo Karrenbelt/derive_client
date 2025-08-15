@@ -162,14 +162,17 @@ class BaseClient:
         """
 
         amount = int(amount * 10 ** TOKEN_DECIMALS[UnderlyingCurrency[currency.name.upper()]])
-        client = BridgeClient(self.env, chain_id, account=self.signer, wallet=self.wallet, logger=self.logger)
+        client = BridgeClient(self.env, account=self.signer, wallet=self.wallet, logger=self.logger)
 
         async def _run():
-            prepared_tx = await client.prepare_deposit(amount=amount, currency=currency, chain_id=chain_id)
-            tx_result = await client.submit_bridge_tx(prepared_tx)
-            return await client.poll_bridge_progress(tx_result=tx_result)
+            future = (
+                client.prepare_deposit(amount=amount, currency=currency, chain_id=chain_id)
+                .bind(client.submit_bridge_tx)
+                .bind(client.poll_bridge_progress)
+            )
+            return await future.awaitable()
 
-        return asyncio.run(_run())
+        return unwrap_or_raise(asyncio.run(_run()))
 
     def deposit_to_derive(
         self,
@@ -219,11 +222,14 @@ class BaseClient:
         client = BridgeClient(self.env, account=self.signer, wallet=self.wallet, logger=self.logger)
 
         async def _run():
-            prepared_tx = await client.prepare_withdrawal(amount=amount, currency=currency, chain_id=chain_id)
-            tx_result = await client.submit_bridge_tx(prepared_tx)
-            return await client.poll_bridge_progress(tx_result=tx_result)
+            future = (
+                client.prepare_withdrawal(amount=amount, currency=currency, chain_id=chain_id)
+                .bind(client.submit_bridge_tx)
+                .bind(client.poll_bridge_progress)
+            )
+            return await future.awaitable()
 
-        return asyncio.run(_run())
+        return unwrap_or_raise(asyncio.run(_run()))
 
     def withdraw_from_derive(
         self,

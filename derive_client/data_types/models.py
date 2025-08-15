@@ -16,16 +16,7 @@ from web3.contract import AsyncContract
 from web3.contract.async_contract import AsyncContractEvent
 from web3.datastructures import AttributeDict
 
-from .enums import (
-    BridgeType,
-    ChainID,
-    Currency,
-    DeriveTxStatus,
-    MainnetCurrency,
-    MarginType,
-    SessionKeyScope,
-    TxStatus,
-)
+from .enums import BridgeType, ChainID, Currency, DeriveTxStatus, MainnetCurrency, MarginType, SessionKeyScope, TxStatus
 
 
 class PAttributeDict(AttributeDict):

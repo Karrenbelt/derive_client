@@ -9,6 +9,8 @@ import json
 from logging import Logger
 
 from eth_account import Account
+from returns.future import future_safe
+from returns.io import IOResult
 from web3 import Web3
 from web3.contract import Contract
 from web3.contract.contract import ContractFunction
@@ -286,7 +288,14 @@ class BridgeClient:
 
         return prepared_tx
 
-    async def prepare_deposit(self, amount: int, currency: Currency, chain_id: ChainID) -> PreparedBridgeTx:
+    @future_safe
+    async def prepare_deposit(
+        self,
+        amount: int,
+        currency: Currency,
+        chain_id: ChainID,
+    ) -> IOResult[PreparedBridgeTx, Exception]:
+
         await self.verify_owner()
 
         direction = Direction.DEPOSIT
@@ -300,7 +309,14 @@ class BridgeClient:
 
         return prepared_tx
 
-    async def prepare_withdrawal(self, amount: int, currency: Currency, chain_id: ChainID) -> PreparedBridgeTx:
+    @future_safe
+    async def prepare_withdrawal(
+        self,
+        amount: int,
+        currency: Currency,
+        chain_id: ChainID,
+    ) -> IOResult[PreparedBridgeTx, Exception]:
+
         await self.verify_owner()
 
         direction = Direction.WITHDRAW
@@ -314,20 +330,22 @@ class BridgeClient:
 
         return prepared_tx
 
-    async def submit_bridge_tx(self, prepared_tx: PreparedBridgeTx) -> BridgeTxResult:
+    @future_safe
+    async def submit_bridge_tx(self, prepared_tx: PreparedBridgeTx) -> IOResult[BridgeTxResult, Exception]:
 
-        tx_result = await self.send_bridge_tx(prepared_tx=prepared_tx)
+        tx_result = await self._send_bridge_tx(prepared_tx=prepared_tx)
 
         return tx_result
 
-    async def poll_bridge_progress(self, tx_result: BridgeTxResult) -> BridgeTxResult:
+    @future_safe
+    async def poll_bridge_progress(self, tx_result: BridgeTxResult) -> IOResult[BridgeTxResult, Exception]:
 
         try:
-            tx_result.source_tx.tx_receipt = await self.confirm_source_tx(tx_result=tx_result)
-            tx_result.target_tx = TxResult(tx_hash=await self.wait_for_target_event(tx_result=tx_result))
-            tx_result.target_tx.tx_receipt = await self.confirm_target_tx(tx_result=tx_result)
+            tx_result.source_tx.tx_receipt = await self._confirm_source_tx(tx_result=tx_result)
+            tx_result.target_tx = TxResult(tx_hash=await self._wait_for_target_event(tx_result=tx_result))
+            tx_result.target_tx.tx_receipt = await self._confirm_target_tx(tx_result=tx_result)
         except Exception as e:
-            raise PartialBridgeResult("Bridge pipeline failed", tx_result=tx_result) from e
+            raise PartialBridgeResult(f"Bridge pipeline failed: {e}", tx_result=tx_result) from e
 
         return tx_result
 
@@ -454,7 +472,7 @@ class BridgeClient:
 
         return prepared_tx
 
-    async def send_bridge_tx(self, prepared_tx: PreparedBridgeTx) -> BridgeTxResult:
+    async def _send_bridge_tx(self, prepared_tx: PreparedBridgeTx) -> BridgeTxResult:
 
         context = self._get_context(prepared_tx)
 
@@ -477,7 +495,7 @@ class BridgeClient:
 
         return tx_result
 
-    async def confirm_source_tx(self, tx_result: BridgeTxResult) -> TxReceipt:
+    async def _confirm_source_tx(self, tx_result: BridgeTxResult) -> TxReceipt:
 
         context = self._get_context(tx_result)
         msg = "⏳ Checking source chain [%s] tx receipt for %s"
@@ -490,7 +508,7 @@ class BridgeClient:
 
         return tx_receipt
 
-    async def wait_for_target_event(self, tx_result: BridgeTxResult) -> HexBytes:
+    async def _wait_for_target_event(self, tx_result: BridgeTxResult) -> HexBytes:
 
         bridge_event_fetchers = {
             BridgeType.SOCKET: self._fetch_socket_event_log,
@@ -506,7 +524,7 @@ class BridgeClient:
 
         return tx_hash
 
-    async def confirm_target_tx(self, tx_result: BridgeTxResult) -> TxReceipt:
+    async def _confirm_target_tx(self, tx_result: BridgeTxResult) -> TxReceipt:
 
         context = self._get_context(tx_result)
         msg = "⏳ Checking target chain [%s] tx receipt for %s"
