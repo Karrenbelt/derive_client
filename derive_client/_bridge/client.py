@@ -63,6 +63,7 @@ from derive_client.exceptions import (
     PartialBridgeResult,
 )
 from derive_client.utils import get_prod_derive_addresses
+from derive_client.utils.w3 import to_base_units
 
 from .w3 import (
     build_standard_transaction,
@@ -291,11 +292,12 @@ class BridgeClient:
     @future_safe
     async def prepare_deposit(
         self,
-        amount: int,
+        token_amount: float,
         currency: Currency,
         chain_id: ChainID,
     ) -> IOResult[PreparedBridgeTx, Exception]:
 
+        amount: int = to_base_units(token_amount=token_amount, currency=currency)
         await self.verify_owner()
 
         direction = Direction.DEPOSIT
@@ -312,11 +314,12 @@ class BridgeClient:
     @future_safe
     async def prepare_withdrawal(
         self,
-        amount: int,
+        token_amount: float,
         currency: Currency,
         chain_id: ChainID,
     ) -> IOResult[PreparedBridgeTx, Exception]:
 
+        amount: int = to_base_units(token_amount=token_amount, currency=currency)
         await self.verify_owner()
 
         direction = Direction.WITHDRAW

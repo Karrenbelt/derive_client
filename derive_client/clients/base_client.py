@@ -161,12 +161,11 @@ class BaseClient:
             or an Exception on failure.
         """
 
-        amount = int(amount * 10 ** TOKEN_DECIMALS[UnderlyingCurrency[currency.name.upper()]])
         client = BridgeClient(self.env, account=self.signer, wallet=self.wallet, logger=self.logger)
 
         async def _run():
             future = (
-                client.prepare_deposit(amount=amount, currency=currency, chain_id=chain_id)
+                client.prepare_deposit(token_amount=amount, currency=currency, chain_id=chain_id)
                 .bind(client.submit_bridge_tx)
                 .bind(client.poll_bridge_progress)
             )
@@ -218,12 +217,11 @@ class BaseClient:
             or an Exception on failure.
         """
 
-        amount = int(amount * 10 ** TOKEN_DECIMALS[UnderlyingCurrency[currency.name.upper()]])
         client = BridgeClient(self.env, account=self.signer, wallet=self.wallet, logger=self.logger)
 
         async def _run():
             future = (
-                client.prepare_withdrawal(amount=amount, currency=currency, chain_id=chain_id)
+                client.prepare_withdrawal(token_amount=amount, currency=currency, chain_id=chain_id)
                 .bind(client.submit_bridge_tx)
                 .bind(client.poll_bridge_progress)
             )
