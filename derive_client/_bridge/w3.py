@@ -1,10 +1,10 @@
 import asyncio
 import heapq
 import json
+import statistics
 import time
 from logging import Logger
 from typing import Any, Callable, Generator, Literal
-import statistics
 
 from eth_account import Account
 from eth_account.datastructures import SignedTransaction
@@ -14,16 +14,17 @@ from web3.contract import Contract
 from web3.contract.async_contract import AsyncContract, AsyncContractEvent
 from web3.datastructures import AttributeDict
 
-from derive_client.constants import ABI_DATA_DIR, DEFAULT_RPC_ENDPOINTS, GAS_FEE_BUFFER, GAS_LIMIT_BUFFER
+from derive_client.constants import ABI_DATA_DIR, ASSUMED_BRIDGE_GAS_LIMIT, DEFAULT_RPC_ENDPOINTS, GAS_FEE_BUFFER
 from derive_client.data_types import (
     Address,
     ChainID,
-    RPCEndpoints,
-    TxStatus,
-    FeeHistory,
     FeeEstimate,
     FeeEstimates,
+    FeeHistory,
     GasPriority,
+    RPCEndpoints,
+    TxStatus,
+    Wei,
 )
 from derive_client.exceptions import (
     FinalityTimeout,
@@ -87,8 +88,9 @@ def make_rotating_provider_middleware(
                         async with lock:
                             heapq.heappush(heap, state)
                         err_msg = error.get("message", "")
-                        msg = "RPC error on %s: %s → backing off %.2fs"
-                        logger.info(msg, state.provider.endpoint_uri, err_msg, state.backoff, extra=resp)
+                        err_code = error.get("code", "")
+                        msg = "RPC error on %s: %s (code: %s)→ backing off %.2fs"
+                        logger.info(msg, state.provider.endpoint_uri, err_msg, err_code, state.backoff)
                         continue
 
                     # 4) on success, reset its backoff and re-schedule immediately
@@ -245,20 +247,21 @@ async def estimate_fees(w3, blocks: int = 20) -> FeeEstimates:
     return FeeEstimates(estimates)
 
 
-async def simulate_tx(w3: AsyncWeb3, tx: dict, account: Account) -> dict:
+async def preflight_native_balance_check(
+    w3: AsyncWeb3, fee_estimate: FeeEstimate, account: Account, value: Wei
+) -> None:
     balance = await w3.eth.get_balance(account.address)
-    max_fee_per_gas = tx["maxFeePerGas"]
-    gas_limit = tx["gas"]
-    value = tx.get("value", 0)
+    max_fee_per_gas = fee_estimate.max_fee_per_gas
 
-    max_gas_cost = gas_limit * max_fee_per_gas
+    max_gas_cost = ASSUMED_BRIDGE_GAS_LIMIT * max_fee_per_gas
     total_cost = max_gas_cost + value
+
     if not balance >= total_cost:
         ratio = balance / total_cost * 100
-        raise InsufficientNativeBalance(f"available: {balance} < required: {total_cost} ({ratio:.2f}%)")
-
-    await w3.eth.call(tx)
-    return tx
+        raise InsufficientNativeBalance(
+            f"Insufficient funds: balance={balance}, required={total_cost} {ratio:.2f}% available "
+            f"(includes value={value} and assumed gas limit={ASSUMED_BRIDGE_GAS_LIMIT} at {max_fee_per_gas} wei/gas)"
+        )
 
 
 @exp_backoff_retry
@@ -282,6 +285,8 @@ async def build_standard_transaction(
     fee_estimate = fee_estimations[gas_priority]
     logger.info(f"Fee estimate: {fee_estimate} [Gas priority {gas_priority.name} | {gas_priority.value}% Percentile]")
 
+    await preflight_native_balance_check(w3=w3, account=account, fee_estimate=fee_estimate, value=value)
+
     tx = await func.build_transaction(
         {
             "from": account.address,
@@ -293,8 +298,14 @@ async def build_standard_transaction(
         }
     )
 
-    tx["gas"] = int(await w3.eth.estimate_gas(tx) * GAS_LIMIT_BUFFER)
-    return await simulate_tx(w3, tx, account)
+    # Warn if actual gas exceeds ASSUMED_BRIDGE_GAS_LIMIT; may indicate the limit is too low
+    # and could cause unhandled RPC errors instead of raising InsufficientNativeBalance
+    if tx["gas"] > ASSUMED_BRIDGE_GAS_LIMIT:
+        logger.warning(f"Bridge tx gas {tx['gas']} exceeds assumed limit {ASSUMED_BRIDGE_GAS_LIMIT}")
+
+    # simulate the tx
+    await w3.eth.call(tx)
+    return tx
 
 
 async def wait_for_tx_finality(

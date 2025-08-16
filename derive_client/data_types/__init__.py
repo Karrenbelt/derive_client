@@ -12,6 +12,7 @@ from .enums import (
     Direction,
     Environment,
     EthereumJSONRPCErrorCode,
+    GasPriority,
     InstrumentType,
     LayerZeroChainIDv2,
     MainnetCurrency,
@@ -25,7 +26,6 @@ from .enums import (
     TimeInForce,
     TxStatus,
     UnderlyingCurrency,
-    GasPriority,
 )
 from .models import (
     Address,
@@ -37,6 +37,9 @@ from .models import (
     DepositResult,
     DeriveAddresses,
     DeriveTxResult,
+    FeeEstimate,
+    FeeEstimates,
+    FeeHistory,
     ManagerAddress,
     MintableTokenData,
     NonMintableTokenData,
@@ -44,10 +47,8 @@ from .models import (
     RPCEndpoints,
     SessionKey,
     TxResult,
+    Wei,
     WithdrawResult,
-    FeeHistory,
-    FeeEstimate,
-    FeeEstimates,
 )
 
 __all__ = [
@@ -96,4 +97,5 @@ __all__ = [
     "RPCEndpoints",
     "BridgeTxDetails",
     "PreparedBridgeTx",
+    "Wei",
 ]
