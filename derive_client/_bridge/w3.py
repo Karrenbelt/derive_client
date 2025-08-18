@@ -6,12 +6,13 @@ import time
 from logging import Logger
 from typing import Any, Callable, Generator, Literal
 
+from eth_abi import encode
 from eth_account import Account
 from eth_account.datastructures import SignedTransaction
 from requests import RequestException
 from web3 import AsyncHTTPProvider, AsyncWeb3
 from web3.contract import Contract
-from web3.contract.async_contract import AsyncContract, AsyncContractEvent
+from web3.contract.async_contract import AsyncContract, AsyncContractEvent, AsyncContractFunction
 from web3.datastructures import AttributeDict
 
 from derive_client.constants import ABI_DATA_DIR, ASSUMED_BRIDGE_GAS_LIMIT, DEFAULT_RPC_ENDPOINTS, GAS_FEE_BUFFER
@@ -257,10 +258,15 @@ async def preflight_native_balance_check(
     total_cost = max_gas_cost + value
 
     if not balance >= total_cost:
+        chain_id = ChainID(await w3.eth.chain_id)
         ratio = balance / total_cost * 100
         raise InsufficientNativeBalance(
-            f"Insufficient funds: balance={balance}, required={total_cost} {ratio:.2f}% available "
-            f"(includes value={value} and assumed gas limit={ASSUMED_BRIDGE_GAS_LIMIT} at {max_fee_per_gas} wei/gas)"
+            f"Insufficient funds on {chain_id}: balance={balance}, required={total_cost} {ratio:.2f}% available "
+            f"(includes value={value} and assumed gas limit={ASSUMED_BRIDGE_GAS_LIMIT} at {max_fee_per_gas} wei/gas)",
+            balance=balance,
+            chain_id=chain_id,
+            assumed_gas_limit=ASSUMED_BRIDGE_GAS_LIMIT,
+            fee_estimate=fee_estimate,
         )
 
 
@@ -501,3 +507,12 @@ def make_filter_params(
         raise ValueError(f"Unexpected address filter: {address!r}")
 
     return filter_params
+
+
+def encode_abi(func: AsyncContractFunction) -> bytes:
+    """Get the ABI-encoded data (including 4-byte selector)."""
+
+    types = [arg["internalType"] for arg in func.abi["inputs"]]
+    selector = bytes.fromhex(func.selector.removeprefix("0x"))
+
+    return selector + encode(types, func.arguments)
