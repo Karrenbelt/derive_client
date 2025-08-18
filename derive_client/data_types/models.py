@@ -269,6 +269,7 @@ class BridgeTxDetails:
 
 @dataclass
 class PreparedBridgeTx:
+    amount: int
     currency: Currency
     source_chain: ChainID
     target_chain: ChainID
@@ -299,6 +300,7 @@ class TxResult:
 
 @dataclass(config=ConfigDict(validate_assignment=True))
 class BridgeTxResult:
+    amount: int
     currency: Currency
     bridge: BridgeType
     source_chain: ChainID
