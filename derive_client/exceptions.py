@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    from derive_client.data_types import BridgeTxResult
+    from derive_client.data_types import BridgeTxResult, ChainID, Wei, FeeEstimate
 
 
 class ApiException(Exception):
@@ -61,6 +61,13 @@ class NoAvailableRPC(Exception):
 class InsufficientNativeBalance(Exception):
     """Raised when the native currency balance is insufficient for gas and/or value transfer."""
 
+    def __init__(self, message: str, *, chain_id: ChainID, balance: Wei, assumed_gas_limit: Wei, fee_estimate: FeeEstimate):
+        super().__init__(message)
+        self.chain_id = chain_id
+        self.balance = balance
+        self.assumed_gas_limit = assumed_gas_limit
+        self.fee_estimate = fee_estimate
+
 
 class InsufficientTokenBalance(Exception):
     """Raised when the token balance is insufficient for the requested operation."""
@@ -97,7 +104,7 @@ class TransactionDropped(Exception):
 class PartialBridgeResult(Exception):
     """Raised after submission when the bridge pipeline fails"""
 
-    def __init__(self, message: str, *, tx_result: "BridgeTxResult"):
+    def __init__(self, message: str, *, tx_result: BridgeTxResult):
         super().__init__(message)
         self.tx_result = tx_result
 
