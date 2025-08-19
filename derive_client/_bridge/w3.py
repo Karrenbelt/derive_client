@@ -34,6 +34,7 @@ from derive_client.exceptions import (
     NoAvailableRPC,
     TransactionDropped,
     TxPendingTimeout,
+    BridgeEventTimeout,
 )
 from derive_client.utils.logger import get_logger
 from derive_client.utils.retry import exp_backoff_retry
@@ -468,7 +469,7 @@ async def iter_events(
         await asyncio.sleep(poll_interval)
 
 
-async def wait_for_event(
+async def wait_for_bridge_event(
     w3: AsyncWeb3,
     filter_params: dict,
     *,
@@ -478,9 +479,12 @@ async def wait_for_event(
     timeout: float = 300.0,
     logger: Logger,
 ) -> AttributeDict:
-    """Return the first log from iter_events, or raise TimeoutError after `timeout` seconds."""
+    """Wait for the first matching bridge-related log on the target chain or raise BridgeEventTimeout."""
 
-    return await anext(iter_events(**locals()))
+    try:
+        return await anext(iter_events(**locals()))
+    except TimeoutError as e:
+        raise BridgeEventTimeout("Timed out waiting for target chain bridge event") from e
 
 
 def make_filter_params(

@@ -102,6 +102,10 @@ class TransactionDropped(Exception):
     """Raised when the transaction the transaction is no longer in the mempool, likely dropped."""
 
 
+class BridgeEventTimeout(Exception):
+    """Raised when no matching bridge event was seen before deadline."""
+
+
 class PartialBridgeResult(Exception):
     """Raised after submission when the bridge pipeline fails"""
 
