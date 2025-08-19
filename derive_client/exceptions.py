@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
+    from web3.types import LogReceipt
     from derive_client.data_types import BridgeTxResult, ChainID, Wei, FeeEstimate
 
 
@@ -112,3 +113,10 @@ class PartialBridgeResult(Exception):
     def cause(self) -> Exception | None:
         """Provides access to the orignal Exception."""
         return self.__cause__
+
+class StandardBridgeRelayFailed(Exception):
+    """Raised when the L2 messenger emits FailedRelayedMessage."""
+
+    def __init__(self, message: str, *, event_log: LogReceipt):
+        super().__init__(message)
+        self.event_log = event_log

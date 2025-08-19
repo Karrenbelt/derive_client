@@ -45,7 +45,7 @@ from derive_client.constants import (
     RESOLVED_DELEGATE_PROXY,
     MSG_GAS_LIMIT,
 )
-from derive_client.exceptions import BridgeEventParseError
+from derive_client.exceptions import BridgeEventParseError, StandardBridgeRelayFailed
 
 
 def _load_l1_contract(w3: AsyncWeb3) -> AsyncContract:
@@ -292,10 +292,21 @@ class StandardBridge:
         relayed_task = asyncio.create_task(wait_for_event(target_w3, filter_params, logger=self.logger))
         failed_task = asyncio.create_task(wait_for_event(target_w3, failed_filter_params, logger=self.logger))
         done, pending = await asyncio.wait([relayed_task, failed_task], return_when=asyncio.FIRST_COMPLETED)
+
         for task in pending:
             task.cancel()
         if failed_task in done:
-            raise 
+            event_log = done.pop().result()  # reraises Exceptions (i.e. TimeoutError), and in this scenario not raise StandardBridgeRelayFailed
+            raise StandardBridgeRelayFailed(
+                "The relay was attempted but reverted on L2. "
+                "Likely causes are out-of-gas, non-standard token implementation, or target contract reversion.\n"
+                "Action:\n"
+                "- Inspect the L2 tx receipt logs for the revert reason.\n"
+                "- If out-of-gas, resubmit with higher _minGasLimit.\n"
+                "- If token mismatch, check that the L2 token contract matches the expected bridgeable ERC20.\n"
+                "- If paused/reverted, retry after resolving the underlying contract state.",
+                event_log=event_log,
+            )
         
         event_log = done.pop().result()
 
