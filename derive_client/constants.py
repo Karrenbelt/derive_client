@@ -103,6 +103,7 @@ GAS_FEE_BUFFER = 1.1  # buffer multiplier to pad maxFeePerGas
 GAS_LIMIT_BUFFER = 1.1  # buffer multiplier to pad gas limit
 MSG_GAS_LIMIT = 200_000
 ASSUMED_BRIDGE_GAS_LIMIT = 1_000_000
+MIN_PRIORITY_FEE = 10_000
 PAYLOAD_SIZE = 161
 TARGET_SPEED = "FAST"
 
