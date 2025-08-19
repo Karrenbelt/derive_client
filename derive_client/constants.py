@@ -6,7 +6,7 @@ from pathlib import Path
 
 from pydantic import BaseModel
 
-from derive_client.data_types import Environment, UnderlyingCurrency
+from derive_client.data_types import Environment, UnderlyingCurrency, Currency
 
 
 class ContractAddresses(BaseModel, frozen=True):
@@ -123,6 +123,35 @@ TOKEN_DECIMALS = {
     UnderlyingCurrency.USDT: 6,
     UnderlyingCurrency.OLAS: 18,
     UnderlyingCurrency.DRV: 18,
+}
+
+CURRENCY_DECIMALS = {
+    Currency.ETH: 18,
+    Currency.weETH: 18,
+    Currency.rswETH: 18,
+    Currency.rsETH: 18,
+    Currency.USDe: 18,
+    Currency.deUSD: 18,
+    Currency.PYUSD: 6,
+    Currency.sUSDe: 18,
+    Currency.SolvBTC: 18,
+    Currency.SolvBTCBBN: 18,
+    Currency.LBTC: 8,
+    Currency.OP: 18,
+    Currency.DAI: 18,
+    Currency.sDAI: 18,
+    Currency.cbBTC: 8,
+    Currency.eBTC: 8,
+    Currency.AAVE: 18,
+    Currency.OLAS: 18,
+    Currency.DRV: 18,
+    Currency.WBTC: 8,
+    Currency.WETH: 18,
+    Currency.USDC: 6,
+    Currency.USDT: 6,
+    Currency.wstETH: 18,
+    Currency.USDCe: 6,
+    Currency.SNX: 18,
 }
 
 DEFAULT_RPC_ENDPOINTS = DATA_DIR / "rpc_endpoints.yaml"
