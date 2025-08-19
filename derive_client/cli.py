@@ -13,6 +13,7 @@ from rich import print
 
 from derive_client.analyser import PortfolioAnalyser
 from derive_client.clients.base_client import BaseClient
+from derive_client.clients.http_client import HttpClient
 from derive_client.data_types import (
     ChainID,
     CollateralAsset,
@@ -155,9 +156,11 @@ def deposit(ctx, chain_id, currency, amount):
     chain_id = ChainID[chain_id]
     currency = Currency[currency]
 
-    client: BaseClient = ctx.obj["client"]
+    client: HttpClient = ctx.obj["client"]
 
-    bridge_tx_result = client.deposit_to_derive(chain_id=chain_id, currency=currency, amount=amount)
+    prepared_tx = client.prepare_deposit_to_derive(chain_id=chain_id, currency=currency, token_amount=amount)
+    tx_result = client.submit_bridge_tx(prepared_tx=prepared_tx)
+    bridge_tx_result = client.poll_bridge_progress(tx_result=tx_result)
 
     match bridge_tx_result.status:
         case TxStatus.SUCCESS:
@@ -204,9 +207,11 @@ def withdraw(ctx, chain_id, currency, amount):
     chain_id = ChainID[chain_id]
     currency = Currency[currency]
 
-    client: DeriveClient = ctx.obj["client"]
+    client: HttpClient = ctx.obj["client"]
 
-    bridge_tx_result = client.withdraw_from_derive(chain_id=chain_id, currency=currency, amount=amount)
+    prepared_tx = client.prepare_withdrawal_from_derive(chain_id=chain_id, currency=currency, token_amount=amount)
+    tx_result = client.submit_bridge_tx(prepared_tx=prepared_tx)
+    bridge_tx_result = client.poll_bridge_progress(tx_result=tx_result)
 
     match bridge_tx_result.status:
         case TxStatus.SUCCESS:

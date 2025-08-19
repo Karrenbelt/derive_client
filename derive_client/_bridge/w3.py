@@ -265,7 +265,7 @@ async def preflight_native_balance_check(
         chain_id = ChainID(await w3.eth.chain_id)
         ratio = balance / total_cost * 100
         raise InsufficientNativeBalance(
-            f"Insufficient funds on {chain_id}: balance={balance}, required={total_cost} {ratio:.2f}% available "
+            f"Insufficient funds on {chain_id.name} ({chain_id}): balance={balance}, required={total_cost} {ratio:.2f}% available "
             f"(includes value={value} and assumed gas limit={ASSUMED_BRIDGE_GAS_LIMIT} at {max_fee_per_gas} wei/gas)",
             balance=balance,
             chain_id=chain_id,
