@@ -18,6 +18,8 @@ from web3.datastructures import AttributeDict
 from web3.types import HexBytes, LogReceipt, TxReceipt
 
 from derive_client.constants import (
+    ARBITRUM_DEPOSIT_WRAPPER,
+    BASE_DEPOSIT_WRAPPER,
     CONFIGS,
     CONTROLLER_ABI_PATH,
     CONTROLLER_V0_ABI_PATH,
@@ -32,9 +34,11 @@ from derive_client.constants import (
     MSG_GAS_LIMIT,
     NEW_VAULT_ABI_PATH,
     OLD_VAULT_ABI_PATH,
+    OPTIMISM_DEPOSIT_WRAPPER,
     PAYLOAD_SIZE,
     SOCKET_ABI_PATH,
     TARGET_SPEED,
+    WITHDRAW_WRAPPER_V2,
     WITHDRAW_WRAPPER_V2_ABI_PATH,
 )
 from derive_client.data_types import (
@@ -159,22 +163,24 @@ class BridgeClient:
                 "primary wallet owner."
             )
 
-    def get_deposit_helper(self, context: BridgeContext) -> Contract:
+    def get_deposit_helper(self, chain_id: ChainID) -> Contract:
 
-        match context.source_chain:
+        match chain_id:
             case ChainID.ARBITRUM:
-                address = self.config.contracts.ARBITRUM_DEPOSIT_WRAPPER
+                address = ARBITRUM_DEPOSIT_WRAPPER
             case ChainID.OPTIMISM:
-                address = self.config.contracts.OPTIMISM_DEPOSIT_WRAPPER
+                address = OPTIMISM_DEPOSIT_WRAPPER
+            case ChainID.BASE:
+                address = BASE_DEPOSIT_WRAPPER
             case _:
-                address = self.config.contracts.DEPOSIT_WRAPPER
+                raise ValueError(f"Deposit helper not supported on : {chain_id.name}")
 
         abi = json.loads(DEPOSIT_HELPER_ABI_PATH.read_text())
-        return get_contract(w3=self.w3s[context.source_chain], address=address, abi=abi)
+        return get_contract(w3=self.w3s[chain_id], address=address, abi=abi)
 
     @functools.cached_property
     def withdraw_wrapper(self) -> Contract:
-        address = self.config.contracts.WITHDRAW_WRAPPER_V2
+        address = WITHDRAW_WRAPPER_V2
         abi = json.loads(WITHDRAW_WRAPPER_V2_ABI_PATH.read_text())
         return get_contract(w3=self.derive_w3, address=address, abi=abi)
 
@@ -282,9 +288,11 @@ class BridgeClient:
         )
 
         prepared_tx = PreparedBridgeTx(
+            amount=value,
             currency=context.currency,
             source_chain=context.source_chain,
             target_chain=context.target_chain,
+            bridge_type=context.bridge_type,
             tx_details=tx_details,
         )
 
@@ -297,6 +305,9 @@ class BridgeClient:
         currency: Currency,
         chain_id: ChainID,
     ) -> IOResult[PreparedBridgeTx, Exception]:
+
+        if currency is Currency.ETH:
+            raise NotImplementedError("ETH deposits are not implemented.")
 
         amount: int = to_base_units(token_amount=token_amount, currency=currency)
         await self.verify_owner()
@@ -319,6 +330,9 @@ class BridgeClient:
         currency: Currency,
         chain_id: ChainID,
     ) -> IOResult[PreparedBridgeTx, Exception]:
+
+        if currency is Currency.ETH:
+            raise NotImplementedError("ETH withdrawals are not implemented.")
 
         amount: int = to_base_units(token_amount=token_amount, currency=currency)
         await self.verify_owner()
@@ -357,7 +371,7 @@ class BridgeClient:
 
         token_data, _connector = self._resolve_socket_route(context=context)
 
-        spender = token_data.Vault if token_data.isNewBridge else self.get_deposit_helper(context).address
+        spender = token_data.Vault if token_data.isNewBridge else self.get_deposit_helper(context.source_chain).address
         await ensure_token_balance(context.source_token, self.owner, amount)
         await ensure_token_allowance(
             w3=context.source_w3,
@@ -383,8 +397,8 @@ class BridgeClient:
 
         token_data, connector = self._resolve_socket_route(context=context)
 
-        # ensure_token_balance(context.source_token, self.wallet, amount)
-        # self._check_bridge_funds(token_data, connector, amount)
+        await ensure_token_balance(context.source_token, self.wallet, amount)
+        await self._check_bridge_funds(token_data, connector, amount)
 
         kwargs = {
             "token": context.source_token.address,
@@ -488,10 +502,11 @@ class BridgeClient:
         source_tx = TxResult(tx_hash=tx_hash)
 
         tx_result = BridgeTxResult(
+            amount=prepared_tx.amount,
             currency=prepared_tx.currency,
-            bridge=context.bridge_type,
-            source_chain=context.source_chain,
-            target_chain=context.target_chain,
+            bridge_type=prepared_tx.bridge_type,
+            source_chain=prepared_tx.source_chain,
+            target_chain=prepared_tx.target_chain,
             source_tx=source_tx,
             target_from_block=target_from_block,
             tx_details=prepared_tx.tx_details,
@@ -518,8 +533,8 @@ class BridgeClient:
             BridgeType.SOCKET: self._fetch_socket_event_log,
             BridgeType.LAYERZERO: self._fetch_lz_event_log,
         }
-        if (fetch_event := bridge_event_fetchers.get(tx_result.bridge)) is None:
-            raise BridgeRouteError(f"Invalid bridge_type: {tx_result.bridge}")
+        if (fetch_event := bridge_event_fetchers.get(tx_result.bridge_type)) is None:
+            raise BridgeRouteError(f"Invalid bridge_type: {tx_result.bridge_type}")
 
         context = self._get_context(tx_result)
         event_log = await fetch_event(tx_result, context)
@@ -613,7 +628,7 @@ class BridgeClient:
         vault_contract = _load_vault_contract(w3=self.w3s[context.source_chain], token_data=token_data)
         connector = token_data.connectors[ChainID.DERIVE][TARGET_SPEED]
         fees_func = _get_min_fees(bridge_contract=vault_contract, connector=connector, token_data=token_data)
-        func = self.get_deposit_helper(context).functions.depositToLyra(
+        func = self.get_deposit_helper(context.source_chain).functions.depositToLyra(
             token=token_data.NonMintableToken,
             socketVault=token_data.Vault,
             isSCW=True,
@@ -624,21 +639,21 @@ class BridgeClient:
 
         return func, fees_func
 
-    def _check_bridge_funds(self, token_data, connector: Address, amount: int) -> None:
+    async def _check_bridge_funds(self, token_data, connector: Address, amount: int) -> None:
 
         controller = _load_controller_contract(w3=self.derive_w3, token_data=token_data)
         if token_data.isNewBridge:
-            deposit_hook = controller.functions.hook__().call()
+            deposit_hook = await controller.functions.hook__().call()
             expected_hook = token_data.LyraTSAShareHandlerDepositHook
             if not deposit_hook == token_data.LyraTSAShareHandlerDepositHook:
                 msg = f"Controller deposit hook {deposit_hook} does not match expected address {expected_hook}"
                 raise ValueError(msg)
             deposit_contract = _load_deposit_contract(w3=self.derive_w3, token_data=token_data)
-            pool_id = deposit_contract.functions.connectorPoolIds(connector).call()
-            locked = deposit_contract.functions.poolLockedAmounts(pool_id).call()
+            pool_id = await deposit_contract.functions.connectorPoolIds(connector).call()
+            locked = await deposit_contract.functions.poolLockedAmounts(pool_id).call()
         else:
-            pool_id = controller.functions.connectorPoolIds(connector).call()
-            locked = controller.functions.poolLockedAmounts(pool_id).call()
+            pool_id = await controller.functions.connectorPoolIds(connector).call()
+            locked = await controller.functions.poolLockedAmounts(pool_id).call()
 
         if amount > locked:
             raise RuntimeError(
