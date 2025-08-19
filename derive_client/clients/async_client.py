@@ -31,11 +31,10 @@ from derive_client.data_types import (
 )
 from derive_client.utils import unwrap_or_raise
 
-from .base_client import DeriveJSONRPCException
-from .ws_client import WsClient
+from .base_client import BaseClient, DeriveJSONRPCException
 
 
-class AsyncClient(WsClient):
+class AsyncClient(BaseClient):
     """
     We use the async client to make async requests to the derive API
     We us the ws client to make async requests to the derive ws API
@@ -61,18 +60,17 @@ class AsyncClient(WsClient):
             logger=logger,
             verbose=verbose,
             subaccount_id=subaccount_id,
-            referral_code=None,
         )
 
         self.message_queues = {}
         self.connecting = False
 
     @functools.cached_property
-    def bridge(self) -> BridgeClient:
+    def _bridge(self) -> BridgeClient:
         return BridgeClient(env=self.env, account=self.signer, wallet=self.wallet, logger=self.logger)
 
     @functools.cached_property
-    def standard_bridge(self) -> StandardBridge:
+    def _standard_bridge(self) -> StandardBridge:
         return StandardBridge(self.account, self.logger)
 
     async def prepare_standard_tx(
@@ -108,7 +106,7 @@ class AsyncClient(WsClient):
             - Submit with submit_bridge_tx() on approval
         """
 
-        result = self.standard_bridge.prepare_tx(
+        result = await self._standard_bridge.prepare_tx(
             token_amount=token_amount,
             currency=currency,
             to=to,
@@ -153,7 +151,7 @@ class AsyncClient(WsClient):
                 "For gas funding of the owner (EOA) use `prepare_standard_tx`."
             )
 
-        result = await self.bridge.prepare_deposit(token_amount=token_amount, currency=currency, chain_id=chain_id)
+        result = await self._bridge.prepare_deposit(token_amount=token_amount, currency=currency, chain_id=chain_id)
         return unwrap_or_raise(result)
 
     async def prepare_withdrawal_from_derive(
@@ -185,7 +183,7 @@ class AsyncClient(WsClient):
             - Submit with submit_bridge_tx() when ready
         """
 
-        result = await self.bridge.prepare_withdrawal(token_amount=token_amount, currency=currency, chain_id=chain_id)
+        result = await self._bridge.prepare_withdrawal(token_amount=token_amount, currency=currency, chain_id=chain_id)
         return unwrap_or_raise(result)
 
     async def submit_bridge_tx(self, prepared_tx: PreparedBridgeTx) -> BridgeTxResult:
@@ -212,9 +210,9 @@ class AsyncClient(WsClient):
         """
 
         if prepared_tx.currency == Currency.ETH:
-            result = await self.standard_bridge.submit_bridge_tx(prepared_tx=prepared_tx)
+            result = await self._standard_bridge.submit_bridge_tx(prepared_tx=prepared_tx)
         else:
-            result = await self.bridge.submit_bridge_tx(prepared_tx=prepared_tx)
+            result = await self._bridge.submit_bridge_tx(prepared_tx=prepared_tx)
 
         return unwrap_or_raise(result)
 
@@ -253,9 +251,9 @@ class AsyncClient(WsClient):
         """
 
         if tx_result.currency == Currency.ETH:
-            result = await self.standard_bridge.poll_bridge_progress(tx_result=tx_result)
+            result = await self._standard_bridge.poll_bridge_progress(tx_result=tx_result)
         else:
-            result = await self.bridge.poll_bridge_progress(tx_result=tx_result)
+            result = await self._bridge.poll_bridge_progress(tx_result=tx_result)
 
         return unwrap_or_raise(result)
 
@@ -503,7 +501,7 @@ class AsyncClient(WsClient):
             "order_type": order_type.name.lower(),
             "mmp": False,
             "time_in_force": time_in_force.value,
-            "referral_code": DEFAULT_REFERER if not self.referral_code else self.referral_code,
+            "referral_code": DEFAULT_REFERER,
             **signed_action.to_json(),
         }
         try:
