@@ -11,9 +11,9 @@ from logging import Logger
 from eth_account import Account
 from returns.future import future_safe
 from returns.io import IOResult
-from web3 import Web3
-from web3.contract import Contract
-from web3.contract.contract import ContractFunction
+from web3 import AsyncWeb3
+from web3.contract import AsyncContract
+from web3.contract.async_contract import AsyncContractFunction
 from web3.datastructures import AttributeDict
 from web3.types import HexBytes, LogReceipt, TxReceipt
 
@@ -83,31 +83,31 @@ from .w3 import (
 )
 
 
-def _load_vault_contract(w3: Web3, token_data: NonMintableTokenData) -> Contract:
+def _load_vault_contract(w3: AsyncWeb3, token_data: NonMintableTokenData) -> AsyncContract:
     path = NEW_VAULT_ABI_PATH if token_data.isNewBridge else OLD_VAULT_ABI_PATH
     abi = json.loads(path.read_text())
     return get_contract(w3=w3, address=token_data.Vault, abi=abi)
 
 
-def _load_controller_contract(w3: Web3, token_data: MintableTokenData) -> Contract:
+def _load_controller_contract(w3: AsyncWeb3, token_data: MintableTokenData) -> AsyncContract:
     path = CONTROLLER_ABI_PATH if token_data.isNewBridge else CONTROLLER_V0_ABI_PATH
     abi = json.loads(path.read_text())
     return get_contract(w3=w3, address=token_data.Controller, abi=abi)
 
 
-def _load_deposit_contract(w3: Web3, token_data: MintableTokenData) -> Contract:
+def _load_deposit_contract(w3: AsyncWeb3, token_data: MintableTokenData) -> AsyncContract:
     address = token_data.LyraTSAShareHandlerDepositHook
     abi = json.loads(DEPOSIT_HOOK_ABI_PATH.read_text())
     return get_contract(w3=w3, address=address, abi=abi)
 
 
-def _load_light_account(w3: Web3, wallet: Address) -> Contract:
+def _load_light_account(w3: AsyncWeb3, wallet: Address) -> AsyncContract:
     abi = json.loads(LIGHT_ACCOUNT_ABI_PATH.read_text())
     return get_contract(w3=w3, address=wallet, abi=abi)
 
 
 def _get_min_fees(
-    bridge_contract: Contract,
+    bridge_contract: AsyncContract,
     connector: Address,
     token_data: NonMintableTokenData | MintableTokenData,
 ) -> int:
@@ -137,11 +137,11 @@ class BridgeClient:
         self.logger = logger
 
     @property
-    def derive_w3(self):
+    def derive_w3(self) -> AsyncWeb3:
         return self.w3s[ChainID.DERIVE]
 
     @property
-    def private_key(self) -> str:
+    def private_key(self) -> HexBytes:
         """Private key of the owner (EOA) of the smart contract funding account."""
         return self.account._private_key
 
@@ -163,7 +163,7 @@ class BridgeClient:
                 "primary wallet owner."
             )
 
-    def get_deposit_helper(self, chain_id: ChainID) -> Contract:
+    def get_deposit_helper(self, chain_id: ChainID) -> AsyncContract:
 
         match chain_id:
             case ChainID.ARBITRUM:
@@ -179,7 +179,7 @@ class BridgeClient:
         return get_contract(w3=self.w3s[chain_id], address=address, abi=abi)
 
     @functools.cached_property
-    def withdraw_wrapper(self) -> Contract:
+    def withdraw_wrapper(self) -> AsyncContract:
         address = WITHDRAW_WRAPPER_V2
         abi = json.loads(WITHDRAW_WRAPPER_V2_ABI_PATH.read_text())
         return get_contract(w3=self.derive_w3, address=address, abi=abi)
@@ -270,7 +270,7 @@ class BridgeClient:
 
     async def _prepare_tx(
         self,
-        func: ContractFunction,
+        func: AsyncContractFunction,
         value: int,
         context: BridgeContext,
     ) -> PreparedBridgeTx:
@@ -437,7 +437,7 @@ class BridgeClient:
         )
 
         # build the send tx
-        receiver_bytes32 = Web3.to_bytes(hexstr=self.wallet).rjust(32, b"\x00")
+        receiver_bytes32 = AsyncWeb3.to_bytes(hexstr=self.wallet).rjust(32, b"\x00")
 
         kwargs = {
             "dstEid": LayerZeroChainIDv2.DERIVE.value,
@@ -604,8 +604,8 @@ class BridgeClient:
         return await wait_for_event(context.target_w3, filter_params, condition=matching_message_id, logger=self.logger)
 
     def _prepare_new_style_deposit(
-        self, token_data: NonMintableTokenData, amount: int, context: BridgeContext
-    ) -> tuple[ContractFunction, int]:
+        self, token_data: NonMintableTokenData, amount: int, context: BridgeContext,
+    ) -> tuple[AsyncContractFunction, int]:
 
         vault_contract = _load_vault_contract(w3=self.w3s[context.source_chain], token_data=token_data)
         connector = token_data.connectors[ChainID.DERIVE][TARGET_SPEED]
@@ -622,8 +622,8 @@ class BridgeClient:
         return func, fees_func
 
     def _prepare_old_style_deposit(
-        self, token_data: NonMintableTokenData, amount: int, context: BridgeContext
-    ) -> tuple[ContractFunction, int]:
+        self, token_data: NonMintableTokenData, amount: int, context: BridgeContext,
+    ) -> tuple[AsyncContractFunction, int]:
 
         vault_contract = _load_vault_contract(w3=self.w3s[context.source_chain], token_data=token_data)
         connector = token_data.connectors[ChainID.DERIVE][TARGET_SPEED]
