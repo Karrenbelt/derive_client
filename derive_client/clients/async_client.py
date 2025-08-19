@@ -83,6 +83,30 @@ class AsyncClient(WsClient):
         source_chain: ChainID,
         target_chain: ChainID,
     ) -> PreparedBridgeTx:
+        """
+        Prepare a transaction to bridge tokens to using Standard Bridge.
+
+        This creates a signed transaction ready for submission but does not execute it.
+        Review the returned PreparedBridgeTx before calling submit_bridge_tx().
+
+        Args:
+            token_amount: Amount in token units (e.g., 1.5 USDC, 0.1 ETH)
+            currency: Currency enum value describing the token to bridge
+            to: Destination address on the target chain
+            source_chain: ChainID for the source chain
+            target_chain: ChainID for the target chain
+
+        Returns:
+            PreparedBridgeTx: Contains transaction details including:
+                - tx_hash: Pre-computed transaction hash
+                - nonce: Transaction nonce for replacement/cancellation
+                - tx_details: Contract address, method, gas estimates, signed transaction
+                - currency, amount, source_chain, target_chain, bridge_type: Bridge context
+
+        Use the returned object to:
+            - Verify contract addresses and gas costs before submission
+            - Submit with submit_bridge_tx() on approval
+        """
 
         result = self.standard_bridge.prepare_tx(
             token_amount=token_amount,
@@ -91,6 +115,7 @@ class AsyncClient(WsClient):
             source_chain=source_chain,
             target_chain=target_chain,
         )
+
         return unwrap_or_raise(result)
 
     async def prepare_deposit_to_derive(
@@ -115,7 +140,7 @@ class AsyncClient(WsClient):
                 - tx_hash: Pre-computed transaction hash
                 - nonce: Transaction nonce for replacement/cancellation
                 - tx_details: Contract address, method, gas estimates, signed transaction
-                - currency, source_chain, target_chain: Bridge context
+                - currency, amount, source_chain, target_chain, bridge_type: Bridge context
 
         Use the returned object to:
             - Verify contract addresses and gas costs before submission
@@ -153,7 +178,7 @@ class AsyncClient(WsClient):
                 - tx_hash: Pre-computed transaction hash
                 - nonce: Transaction nonce for replacement/cancellation
                 - tx_details: Contract address, method, gas estimates, signed transaction
-                - currency, source_chain, target_chain: Bridge context
+                - currency, amount, source_chain, target_chain, bridge_type: Bridge context
 
         Use the returned object to:
             - Verify contract addresses and gas costs before submission
