@@ -3,7 +3,6 @@ import threading
 from concurrent.futures import TimeoutError as _TimeoutError
 from typing import Any, Optional
 
-
 _bg = {"loop": None, "thread": None, "started": False, "start_ev": threading.Event()}
 _start_lock = threading.Lock()
 

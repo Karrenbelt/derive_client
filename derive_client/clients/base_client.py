@@ -20,9 +20,9 @@ from derive_action_signing.module_data import (
 )
 from derive_action_signing.signed_action import SignedAction
 from derive_action_signing.utils import MAX_INT_32, get_action_nonce, sign_rest_auth_header, utc_now_ms
+from hexbytes import HexBytes
 from pydantic import validate_call
 from web3 import Web3
-from hexbytes import HexBytes
 
 from derive_client.constants import CONFIGS, DEFAULT_REFERER, PUBLIC_HEADERS, TOKEN_DECIMALS
 from derive_client.data_types import (

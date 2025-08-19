@@ -5,11 +5,11 @@ Base class for HTTP client.
 import functools
 from logging import Logger, LoggerAdapter
 
-from derive_client.data_types import Address, Environment, Currency, ChainID, PreparedBridgeTx, BridgeTxResult
+from derive_client.data_types import Address, BridgeTxResult, ChainID, Currency, Environment, PreparedBridgeTx
 from derive_client.utils.asyncio_sync import run_coroutine_sync
 
-from .base_client import BaseClient
 from .async_client import AsyncClient
+from .base_client import BaseClient
 
 
 class HttpClient(BaseClient):
@@ -72,7 +72,11 @@ class HttpClient(BaseClient):
     ) -> PreparedBridgeTx:
         """Thin sync wrapper around AsyncClient.prepare_deposit_to_derive."""
 
-        coroutine = self._async_client.prepare_deposit_to_derive(token_amount=token_amount, currency=currency, chain_id=chain_id)
+        coroutine = self._async_client.prepare_deposit_to_derive(
+            token_amount=token_amount,
+            currency=currency,
+            chain_id=chain_id,
+        )
         return run_coroutine_sync(coroutine)
 
     def prepare_withdrawal_from_derive(
@@ -83,7 +87,11 @@ class HttpClient(BaseClient):
     ) -> PreparedBridgeTx:
         """Thin sync wrapper around AsyncClient.prepare_withdrawal_from_derive."""
 
-        coroutine = self._async_client.prepare_withdrawal_from_derive(token_amount=token_amount, currency=currency, chain_id=chain_id)
+        coroutine = self._async_client.prepare_withdrawal_from_derive(
+            token_amount=token_amount,
+            currency=currency,
+            chain_id=chain_id,
+        )
         return run_coroutine_sync(coroutine)
 
     def submit_bridge_tx(self, prepared_tx: PreparedBridgeTx) -> BridgeTxResult:

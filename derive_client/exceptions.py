@@ -6,7 +6,8 @@ from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from web3.types import LogReceipt
-    from derive_client.data_types import BridgeTxResult, ChainID, Wei, FeeEstimate
+
+    from derive_client.data_types import BridgeTxResult, ChainID, FeeEstimate, Wei
 
 
 class ApiException(Exception):
@@ -62,7 +63,15 @@ class NoAvailableRPC(Exception):
 class InsufficientNativeBalance(Exception):
     """Raised when the native currency balance is insufficient for gas and/or value transfer."""
 
-    def __init__(self, message: str, *, chain_id: ChainID, balance: Wei, assumed_gas_limit: Wei, fee_estimate: FeeEstimate):
+    def __init__(
+        self,
+        message: str,
+        *,
+        chain_id: ChainID,
+        balance: Wei,
+        assumed_gas_limit: Wei,
+        fee_estimate: FeeEstimate,
+    ):
         super().__init__(message)
         self.chain_id = chain_id
         self.balance = balance
@@ -117,6 +126,7 @@ class PartialBridgeResult(Exception):
     def cause(self) -> Exception | None:
         """Provides access to the orignal Exception."""
         return self.__cause__
+
 
 class StandardBridgeRelayFailed(Exception):
     """Raised when the L2 messenger emits FailedRelayedMessage."""

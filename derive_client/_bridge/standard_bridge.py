@@ -1,31 +1,42 @@
-
-import json
 import asyncio
+import json
 from logging import Logger
 
 from eth_account import Account
+from eth_utils import keccak
+from returns.future import future_safe
+from returns.io import IOResult
 from web3 import AsyncWeb3
 from web3.contract import AsyncContract
 from web3.types import HexBytes, LogReceipt, TxReceipt
-from returns.future import future_safe
-from returns.io import IOResult
-from eth_utils import keccak
 
+from derive_client.constants import (
+    L1_CHUG_SPLASH_PROXY,
+    L1_CROSS_DOMAIN_MESSENGER_ABI_PATH,
+    L1_STANDARD_BRIDGE_ABI_PATH,
+    L2_CROSS_DOMAIN_MESSENGER_ABI_PATH,
+    L2_CROSS_DOMAIN_MESSENGER_PROXY,
+    L2_STANDARD_BRIDGE_ABI_PATH,
+    L2_STANDARD_BRIDGE_PROXY,
+    MSG_GAS_LIMIT,
+    RESOLVED_DELEGATE_PROXY,
+)
 from derive_client.data_types import (
     Address,
-    ChainID,
-    BridgeTxResult,
-    Currency,
     BridgeTxDetails,
-    PreparedBridgeTx,
+    BridgeTxResult,
     BridgeType,
+    ChainID,
+    Currency,
+    PreparedBridgeTx,
     TxResult,
 )
-from derive_client.exceptions import PartialBridgeResult
+from derive_client.exceptions import BridgeEventParseError, PartialBridgeResult, StandardBridgeRelayFailed
 from derive_client.utils.w3 import to_base_units
+
 from .w3 import (
-    encode_abi,
     build_standard_transaction,
+    encode_abi,
     get_contract,
     get_w3_connections,
     make_filter_params,
@@ -34,18 +45,6 @@ from .w3 import (
     wait_for_event,
     wait_for_tx_finality,
 )
-from derive_client.constants import (
-    L1_STANDARD_BRIDGE_ABI_PATH,
-    L2_STANDARD_BRIDGE_ABI_PATH,
-    L1_CROSS_DOMAIN_MESSENGER_ABI_PATH,
-    L1_CHUG_SPLASH_PROXY,
-    L2_STANDARD_BRIDGE_PROXY,
-    L2_CROSS_DOMAIN_MESSENGER_ABI_PATH,
-    L2_CROSS_DOMAIN_MESSENGER_PROXY,
-    RESOLVED_DELEGATE_PROXY,
-    MSG_GAS_LIMIT,
-)
-from derive_client.exceptions import BridgeEventParseError, StandardBridgeRelayFailed
 
 
 def _load_l1_contract(w3: AsyncWeb3) -> AsyncContract:
@@ -98,11 +97,18 @@ class StandardBridge:
         target_chain: ChainID,
     ) -> IOResult[PreparedBridgeTx, Exception]:
 
-        if currency is not Currency.ETH or source_chain is not ChainID.ETH or target_chain is not ChainID.DERIVE or to != self.account.address:
+        if (
+            currency is not Currency.ETH
+            or source_chain is not ChainID.ETH
+            or target_chain is not ChainID.DERIVE
+            or to != self.account.address
+        ):
             raise NotImplementedError("Only ETH transfers from Ethereum to Derive EOA are currently supported.")
 
         amount: int = to_base_units(token_amount=token_amount, currency=currency)
-        prepared_tx = await self._prepare_tx(amount=amount, currency=currency, to=to, source_chain=source_chain, target_chain=target_chain)
+        prepared_tx = await self._prepare_tx(
+            amount=amount, currency=currency, to=to, source_chain=source_chain, target_chain=target_chain
+        )
 
         return prepared_tx
 
@@ -153,7 +159,7 @@ class StandardBridge:
 
         tx_gas_cost = tx["gas"] * tx["maxFeePerGas"]
         if value < tx_gas_cost:
-            msg = f"⚠️ Bridge tx value {value} is smaller than gas cost {tx_gas_cost} (~{tx_gas_cost/value:.2f}x value)."
+            msg = f"⚠️ Bridge tx value {value} is smaller than gas cost {tx_gas_cost} (~{tx_gas_cost/value:.2f}x value)"
             self.logger.warning(msg)
 
         signed_tx = sign_tx(w3=w3, tx=tx, private_key=self.private_key)
@@ -184,7 +190,7 @@ class StandardBridge:
 
         # record on target chain where we should start polling
         target_from_block = await target_w3.eth.block_number
-  
+
         signed_tx = prepared_tx.tx_details.signed_tx
         tx_hash = await send_tx(w3=source_w3, signed_tx=signed_tx)
         source_tx = TxResult(tx_hash=tx_hash)
@@ -241,7 +247,7 @@ class StandardBridge:
     async def _fetch_standard_event_log(self, tx_result: BridgeTxResult) -> LogReceipt:
 
         source_event = self.l1_messenger_proxy.events.SentMessage()
-    
+
         target_w3 = self.w3s[tx_result.target_chain]
         try:
             source_event_log = source_event.process_log(tx_result.source_tx.tx_receipt.logs[3])
@@ -269,7 +275,7 @@ class StandardBridge:
 
         msg_hash = keccak(encode_abi(func))
         tx_result.event_id = msg_hash.hex()
-        self.logger.info(f"🗝️ Computed msgHash: {tx_result.event_id}") 
+        self.logger.info(f"🗝️ Computed msgHash: {tx_result.event_id}")
 
         target_event = self.l2_messenger_proxy.events.RelayedMessage()
         failed_target_event = self.l2_messenger_proxy.events.FailedRelayedMessage()
@@ -285,9 +291,7 @@ class StandardBridge:
             argument_filters={"msgHash": msg_hash},
         )
 
-        self.logger.info(
-            f"🔍 Listening for msgHash on [{tx_result.target_chain.name}] at {target_event.address}"
-        )
+        self.logger.info(f"🔍 Listening for msgHash on [{tx_result.target_chain.name}] at {target_event.address}")
 
         relayed_task = asyncio.create_task(wait_for_event(target_w3, filter_params, logger=self.logger))
         failed_task = asyncio.create_task(wait_for_event(target_w3, failed_filter_params, logger=self.logger))
@@ -296,7 +300,8 @@ class StandardBridge:
         for task in pending:
             task.cancel()
         if failed_task in done:
-            event_log = done.pop().result()  # reraises Exceptions (i.e. TimeoutError), and in this scenario not raise StandardBridgeRelayFailed
+            # reraises Exceptions (i.e. BridgeEventTimeout), and in this scenario not raise StandardBridgeRelayFailed
+            event_log = done.pop().result()
             raise StandardBridgeRelayFailed(
                 "The relay was attempted but reverted on L2. "
                 "Likely causes are out-of-gas, non-standard token implementation, or target contract reversion.\n"
@@ -307,7 +312,7 @@ class StandardBridge:
                 "- If paused/reverted, retry after resolving the underlying contract state.",
                 event_log=event_log,
             )
-        
+
         event_log = done.pop().result()
 
         return event_log

@@ -604,7 +604,10 @@ class BridgeClient:
         return await wait_for_event(context.target_w3, filter_params, condition=matching_message_id, logger=self.logger)
 
     def _prepare_new_style_deposit(
-        self, token_data: NonMintableTokenData, amount: int, context: BridgeContext,
+        self,
+        token_data: NonMintableTokenData,
+        amount: int,
+        context: BridgeContext,
     ) -> tuple[AsyncContractFunction, int]:
 
         vault_contract = _load_vault_contract(w3=self.w3s[context.source_chain], token_data=token_data)
@@ -622,7 +625,10 @@ class BridgeClient:
         return func, fees_func
 
     def _prepare_old_style_deposit(
-        self, token_data: NonMintableTokenData, amount: int, context: BridgeContext,
+        self,
+        token_data: NonMintableTokenData,
+        amount: int,
+        context: BridgeContext,
     ) -> tuple[AsyncContractFunction, int]:
 
         vault_contract = _load_vault_contract(w3=self.w3s[context.source_chain], token_data=token_data)

@@ -14,7 +14,6 @@ from derive_action_signing.utils import sign_ws_login, utc_now_ms
 
 from derive_client._bridge import BridgeClient
 from derive_client._bridge.standard_bridge import StandardBridge
-
 from derive_client.constants import DEFAULT_REFERER, TEST_PRIVATE_KEY
 from derive_client.data_types import (
     Address,

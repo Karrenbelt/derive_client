@@ -15,7 +15,13 @@ from web3.contract import Contract
 from web3.contract.async_contract import AsyncContract, AsyncContractEvent, AsyncContractFunction
 from web3.datastructures import AttributeDict
 
-from derive_client.constants import ABI_DATA_DIR, ASSUMED_BRIDGE_GAS_LIMIT, DEFAULT_RPC_ENDPOINTS, GAS_FEE_BUFFER, MIN_PRIORITY_FEE
+from derive_client.constants import (
+    ABI_DATA_DIR,
+    ASSUMED_BRIDGE_GAS_LIMIT,
+    DEFAULT_RPC_ENDPOINTS,
+    GAS_FEE_BUFFER,
+    MIN_PRIORITY_FEE,
+)
 from derive_client.data_types import (
     Address,
     ChainID,
@@ -28,13 +34,13 @@ from derive_client.data_types import (
     Wei,
 )
 from derive_client.exceptions import (
+    BridgeEventTimeout,
     FinalityTimeout,
     InsufficientNativeBalance,
     InsufficientTokenBalance,
     NoAvailableRPC,
     TransactionDropped,
     TxPendingTimeout,
-    BridgeEventTimeout,
 )
 from derive_client.utils.logger import get_logger
 from derive_client.utils.retry import exp_backoff_retry
@@ -254,7 +260,10 @@ async def estimate_fees(w3, blocks: int = 20) -> FeeEstimates:
 
 
 async def preflight_native_balance_check(
-    w3: AsyncWeb3, fee_estimate: FeeEstimate, account: Account, value: Wei
+    w3: AsyncWeb3,
+    fee_estimate: FeeEstimate,
+    account: Account,
+    value: Wei,
 ) -> None:
     balance = await w3.eth.get_balance(account.address)
     max_fee_per_gas = fee_estimate.max_fee_per_gas
@@ -266,7 +275,8 @@ async def preflight_native_balance_check(
         chain_id = ChainID(await w3.eth.chain_id)
         ratio = balance / total_cost * 100
         raise InsufficientNativeBalance(
-            f"Insufficient funds on {chain_id.name} ({chain_id}): balance={balance}, required={total_cost} {ratio:.2f}% available "
+            f"Insufficient funds on {chain_id.name} ({chain_id}): "
+            f"balance={balance}, required={total_cost} {ratio:.2f}% available "
             f"(includes value={value} and assumed gas limit={ASSUMED_BRIDGE_GAS_LIMIT} at {max_fee_per_gas} wei/gas)",
             balance=balance,
             chain_id=chain_id,
