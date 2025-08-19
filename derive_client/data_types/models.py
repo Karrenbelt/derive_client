@@ -356,8 +356,8 @@ class RPCEndpoints(BaseModel, frozen=True):
 class FeeHistory(BaseModel):
     base_fee_per_gas: list[Wei] = Field(alias="baseFeePerGas")
     gas_used_ratio: list[float] = Field(alias="gasUsedRatio")
-    base_fee_per_blob_gas: list[Wei] = Field(alias="baseFeePerBlobGas")
-    blob_gas_used_ratio: list[float] = Field(alias="blobGasUsedRatio")
+    base_fee_per_blob_gas: list[Wei] | None = Field(default=None, alias="baseFeePerBlobGas")
+    blob_gas_used_ratio: list[float] | None = Field(default=None, alias="blobGasUsedRatio")
     oldest_block: int = Field(alias="oldestBlock")
     reward: list[list[Wei]]
 
