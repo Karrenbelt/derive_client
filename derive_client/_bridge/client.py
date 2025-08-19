@@ -27,6 +27,7 @@ from derive_client.constants import (
     DEPOSIT_HOOK_ABI_PATH,
     DERIVE_ABI_PATH,
     DERIVE_L2_ABI_PATH,
+    ETH_DEPOSIT_WRAPPER,
     ERC20_ABI_PATH,
     LIGHT_ACCOUNT_ABI_PATH,
     LYRA_OFT_WITHDRAW_WRAPPER_ABI_PATH,
@@ -78,7 +79,7 @@ from .w3 import (
     make_filter_params,
     send_tx,
     sign_tx,
-    wait_for_event,
+    wait_for_bridge_event,
     wait_for_tx_finality,
 )
 
@@ -172,8 +173,10 @@ class BridgeClient:
                 address = OPTIMISM_DEPOSIT_WRAPPER
             case ChainID.BASE:
                 address = BASE_DEPOSIT_WRAPPER
+            case ChainID.ETH:
+                address = ETH_DEPOSIT_WRAPPER
             case _:
-                raise ValueError(f"Deposit helper not supported on : {chain_id.name}")
+                raise ValueError(f"Deposit helper not supported on: {chain_id}")
 
         abi = json.loads(DEPOSIT_HELPER_ABI_PATH.read_text())
         return get_contract(w3=self.w3s[chain_id], address=address, abi=abi)
@@ -270,6 +273,7 @@ class BridgeClient:
 
     async def _prepare_tx(
         self,
+        amount: int,
         func: AsyncContractFunction,
         value: int,
         context: BridgeContext,
@@ -288,7 +292,8 @@ class BridgeClient:
         )
 
         prepared_tx = PreparedBridgeTx(
-            amount=value,
+            amount=amount,
+            value=value,
             currency=context.currency,
             source_chain=context.source_chain,
             target_chain=context.target_chain,
@@ -389,7 +394,7 @@ class BridgeClient:
             func, fees_func = self._prepare_old_style_deposit(token_data, amount, context)
 
         fees = await fees_func.call()
-        prepared_tx = await self._prepare_tx(func=func, value=fees + 1, context=context)
+        prepared_tx = await self._prepare_tx(amount=amount, func=func, value=fees + 1, context=context)
 
         return prepared_tx
 
@@ -418,7 +423,7 @@ class BridgeClient:
             dest=[context.source_token.address, self.withdraw_wrapper.address],
             func=[approve_data, bridge_data],
         )
-        prepared_tx = await self._prepare_tx(func=func, value=0, context=context)
+        prepared_tx = await self._prepare_tx(amount=amount, func=func, value=0, context=context)
 
         return prepared_tx
 
@@ -456,7 +461,7 @@ class BridgeClient:
         refund_address = self.owner
 
         func = context.source_token.functions.send(send_params, fees, refund_address)
-        prepared_tx = await self._prepare_tx(func=func, value=native_fee, context=context)
+        prepared_tx = await self._prepare_tx(amount=amount, func=func, value=native_fee, context=context)
 
         return prepared_tx
 
@@ -486,7 +491,7 @@ class BridgeClient:
             dest=[context.source_token.address, withdraw_wrapper.address],
             func=[approve_data, bridge_data],
         )
-        prepared_tx = await self._prepare_tx(func=func, value=0, context=context)
+        prepared_tx = await self._prepare_tx(amount=amount, func=func, value=0, context=context)
 
         return prepared_tx
 
@@ -577,7 +582,7 @@ class BridgeClient:
             f"🔍 Listening for OFTReceived on [{tx_result.target_chain.name}] at {context.target_event.address}"
         )
 
-        return await wait_for_event(context.target_w3, filter_params, logger=self.logger)
+        return await wait_for_bridge_event(context.target_w3, filter_params, logger=self.logger)
 
     async def _fetch_socket_event_log(self, tx_result: BridgeTxResult, context: BridgeContext) -> LogReceipt:
 
@@ -601,7 +606,7 @@ class BridgeClient:
             f"🔍 Listening for ExecutionSuccess on [{tx_result.target_chain.name}] at {context.target_event.address}"
         )
 
-        return await wait_for_event(context.target_w3, filter_params, condition=matching_message_id, logger=self.logger)
+        return await wait_for_bridge_event(context.target_w3, filter_params, condition=matching_message_id, logger=self.logger)
 
     def _prepare_new_style_deposit(
         self,

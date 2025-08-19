@@ -42,7 +42,7 @@ from .w3 import (
     make_filter_params,
     send_tx,
     sign_tx,
-    wait_for_event,
+    wait_for_bridge_event,
     wait_for_tx_finality,
 )
 
@@ -88,27 +88,25 @@ class StandardBridge:
         self.l2_messenger_proxy = _load_l2_cross_domain_messenger_proxy(self.w3s[ChainID.DERIVE])
 
     @future_safe
-    async def prepare_tx(
+    async def prepare_eth_tx(
         self,
-        token_amount: float,
-        currency: Currency,
+        eth_amount: float,
         to: Address,
         source_chain: ChainID,
         target_chain: ChainID,
     ) -> IOResult[PreparedBridgeTx, Exception]:
 
+        currency = Currency.ETH
+
         if (
-            currency is not Currency.ETH
-            or source_chain is not ChainID.ETH
+            source_chain is not ChainID.ETH
             or target_chain is not ChainID.DERIVE
             or to != self.account.address
         ):
             raise NotImplementedError("Only ETH transfers from Ethereum to Derive EOA are currently supported.")
 
-        amount: int = to_base_units(token_amount=token_amount, currency=currency)
-        prepared_tx = await self._prepare_tx(
-            amount=amount, currency=currency, to=to, source_chain=source_chain, target_chain=target_chain
-        )
+        value: int = to_base_units(token_amount=eth_amount, currency=currency)
+        prepared_tx = await self._prepare_eth_tx(value=value, to=to, source_chain=source_chain, target_chain=target_chain)
 
         return prepared_tx
 
@@ -136,10 +134,9 @@ class StandardBridge:
 
         return tx_result
 
-    async def _prepare_tx(
+    async def _prepare_eth_tx(
         self,
-        amount: int,
-        currency: Currency,
+        value: int,
         to: Address,
         source_chain: ChainID,
         target_chain: ChainID,
@@ -153,7 +150,6 @@ class StandardBridge:
             _minGasLimit=MSG_GAS_LIMIT,
             _extraData=b"",
         )
-        value = amount
 
         tx = await build_standard_transaction(func=func, account=self.account, w3=w3, value=value, logger=self.logger)
 
@@ -173,7 +169,8 @@ class StandardBridge:
         )
 
         prepared_tx = PreparedBridgeTx(
-            amount=amount,
+            amount=0,
+            value=value,
             currency=Currency.ETH,
             source_chain=source_chain,
             target_chain=target_chain,
@@ -293,8 +290,8 @@ class StandardBridge:
 
         self.logger.info(f"🔍 Listening for msgHash on [{tx_result.target_chain.name}] at {target_event.address}")
 
-        relayed_task = asyncio.create_task(wait_for_event(target_w3, filter_params, logger=self.logger))
-        failed_task = asyncio.create_task(wait_for_event(target_w3, failed_filter_params, logger=self.logger))
+        relayed_task = asyncio.create_task(wait_for_bridge_event(target_w3, filter_params, logger=self.logger))
+        failed_task = asyncio.create_task(wait_for_bridge_event(target_w3, failed_filter_params, logger=self.logger))
         done, pending = await asyncio.wait([relayed_task, failed_task], return_when=asyncio.FIRST_COMPLETED)
 
         for task in pending:
