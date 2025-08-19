@@ -149,10 +149,10 @@ def get_w3_connection(
     return w3
 
 
-def to_base_units(token_amount: float, currency: Currency) -> int:
+def to_base_units(human_amount: float, currency: Currency) -> int:
     """Convert a human-readable token amount to base units using the currency's decimals."""
 
-    return int(token_amount * 10 ** CURRENCY_DECIMALS[currency])
+    return int(human_amount * 10 ** CURRENCY_DECIMALS[currency])
 
 
 def from_base_units(amount: int, currency: Currency) -> float:

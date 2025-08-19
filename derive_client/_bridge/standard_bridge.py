@@ -90,7 +90,7 @@ class StandardBridge:
     @future_safe
     async def prepare_eth_tx(
         self,
-        eth_amount: float,
+        human_amount: float,
         to: Address,
         source_chain: ChainID,
         target_chain: ChainID,
@@ -105,7 +105,7 @@ class StandardBridge:
         ):
             raise NotImplementedError("Only ETH transfers from Ethereum to Derive EOA are currently supported.")
 
-        value: int = to_base_units(token_amount=eth_amount, currency=currency)
+        value: int = to_base_units(human_amount=human_amount, currency=currency)
         prepared_tx = await self._prepare_eth_tx(value=value, to=to, source_chain=source_chain, target_chain=target_chain)
 
         return prepared_tx

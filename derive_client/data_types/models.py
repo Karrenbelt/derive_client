@@ -11,8 +11,6 @@ from hexbytes import HexBytes
 from pydantic import BaseModel, ConfigDict, Field, GetCoreSchemaHandler, GetJsonSchemaHandler, HttpUrl, RootModel
 from pydantic.dataclasses import dataclass
 from pydantic_core import core_schema
-from rich.table import Table
-from rich.console import RenderableType
 from web3 import AsyncWeb3, Web3
 from web3.contract import AsyncContract
 from web3.contract.async_contract import AsyncContractEvent

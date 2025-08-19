@@ -74,7 +74,7 @@ class AsyncClient(BaseClient):
 
     async def prepare_standard_tx(
         self,
-        token_amount: float,
+        human_amount: float,
         currency: Currency,
         to: Address,
         source_chain: ChainID,
@@ -87,7 +87,7 @@ class AsyncClient(BaseClient):
         Review the returned PreparedBridgeTx before calling submit_bridge_tx().
 
         Args:
-            token_amount: Amount in token units (e.g., 1.5 USDC, 0.1 ETH)
+            human_amount: Amount in token units (e.g., 1.5 USDC, 0.1 ETH)
             currency: Currency enum value describing the token to bridge
             to: Destination address on the target chain
             source_chain: ChainID for the source chain
@@ -106,7 +106,7 @@ class AsyncClient(BaseClient):
         """
 
         result = await self._standard_bridge.prepare_tx(
-            token_amount=token_amount,
+            human_amount=human_amount,
             currency=currency,
             to=to,
             source_chain=source_chain,
@@ -117,7 +117,7 @@ class AsyncClient(BaseClient):
 
     async def prepare_deposit_to_derive(
         self,
-        token_amount: float,
+        human_amount: float,
         currency: Currency,
         chain_id: ChainID,
     ) -> PreparedBridgeTx:
@@ -128,7 +128,7 @@ class AsyncClient(BaseClient):
         Review the returned PreparedBridgeTx before calling submit_bridge_tx().
 
         Args:
-            amount: Amount in token units (e.g., 1.5 USDC, 0.1 ETH)
+            human_amount: Amount in token units (e.g., 1.5 USDC, 0.1 ETH)
             currency: Token to bridge
             chain_id: Source chain to bridge from
 
@@ -150,12 +150,12 @@ class AsyncClient(BaseClient):
                 "For gas funding of the owner (EOA) use `prepare_standard_tx`."
             )
 
-        result = await self._bridge.prepare_deposit(token_amount=token_amount, currency=currency, chain_id=chain_id)
+        result = await self._bridge.prepare_deposit(human_amount=human_amount, currency=currency, chain_id=chain_id)
         return unwrap_or_raise(result)
 
     async def prepare_withdrawal_from_derive(
         self,
-        token_amount: float,
+        human_amount: float,
         currency: Currency,
         chain_id: ChainID,
     ) -> PreparedBridgeTx:
@@ -166,7 +166,7 @@ class AsyncClient(BaseClient):
         Review the returned PreparedBridgeTx before calling submit_bridge_tx().
 
         Args:
-            amount: Amount in token units (e.g., 1.5 USDC, 0.1 ETH)
+            human_amount: Amount in token units (e.g., 1.5 USDC, 0.1 ETH)
             currency: Token to bridge
             chain_id: Target chain to bridge to
 
@@ -182,7 +182,7 @@ class AsyncClient(BaseClient):
             - Submit with submit_bridge_tx() when ready
         """
 
-        result = await self._bridge.prepare_withdrawal(token_amount=token_amount, currency=currency, chain_id=chain_id)
+        result = await self._bridge.prepare_withdrawal(human_amount=human_amount, currency=currency, chain_id=chain_id)
         return unwrap_or_raise(result)
 
     async def submit_bridge_tx(self, prepared_tx: PreparedBridgeTx) -> BridgeTxResult:

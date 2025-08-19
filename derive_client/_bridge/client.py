@@ -306,7 +306,7 @@ class BridgeClient:
     @future_safe
     async def prepare_deposit(
         self,
-        token_amount: float,
+        human_amount: float,
         currency: Currency,
         chain_id: ChainID,
     ) -> IOResult[PreparedBridgeTx, Exception]:
@@ -314,7 +314,7 @@ class BridgeClient:
         if currency is Currency.ETH:
             raise NotImplementedError("ETH deposits are not implemented.")
 
-        amount: int = to_base_units(token_amount=token_amount, currency=currency)
+        amount: int = to_base_units(human_amount=human_amount, currency=currency)
         await self.verify_owner()
 
         direction = Direction.DEPOSIT
@@ -331,7 +331,7 @@ class BridgeClient:
     @future_safe
     async def prepare_withdrawal(
         self,
-        token_amount: float,
+        human_amount: float,
         currency: Currency,
         chain_id: ChainID,
     ) -> IOResult[PreparedBridgeTx, Exception]:
@@ -339,7 +339,7 @@ class BridgeClient:
         if currency is Currency.ETH:
             raise NotImplementedError("ETH withdrawals are not implemented.")
 
-        amount: int = to_base_units(token_amount=token_amount, currency=currency)
+        amount: int = to_base_units(human_amount=human_amount, currency=currency)
         await self.verify_owner()
 
         direction = Direction.WITHDRAW

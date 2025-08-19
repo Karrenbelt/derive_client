@@ -46,7 +46,7 @@ class HttpClient(BaseClient):
 
     def prepare_standard_tx(
         self,
-        token_amount: float,
+        human_amount: float,
         currency: Currency,
         to: Address,
         source_chain: ChainID,
@@ -55,7 +55,7 @@ class HttpClient(BaseClient):
         """Thin sync wrapper around AsyncClient.prepare_standard_tx."""
 
         coroutine = self._async_client.prepare_standard_tx(
-            token_amount=token_amount,
+            human_amount=human_amount,
             currency=currency,
             to=to,
             source_chain=source_chain,
@@ -66,14 +66,14 @@ class HttpClient(BaseClient):
 
     def prepare_deposit_to_derive(
         self,
-        token_amount: float,
+        human_amount: float,
         currency: Currency,
         chain_id: ChainID,
     ) -> PreparedBridgeTx:
         """Thin sync wrapper around AsyncClient.prepare_deposit_to_derive."""
 
         coroutine = self._async_client.prepare_deposit_to_derive(
-            token_amount=token_amount,
+            human_amount=human_amount,
             currency=currency,
             chain_id=chain_id,
         )
@@ -81,14 +81,14 @@ class HttpClient(BaseClient):
 
     def prepare_withdrawal_from_derive(
         self,
-        token_amount: float,
+        human_amount: float,
         currency: Currency,
         chain_id: ChainID,
     ) -> PreparedBridgeTx:
         """Thin sync wrapper around AsyncClient.prepare_withdrawal_from_derive."""
 
         coroutine = self._async_client.prepare_withdrawal_from_derive(
-            token_amount=token_amount,
+            human_amount=human_amount,
             currency=currency,
             chain_id=chain_id,
         )
