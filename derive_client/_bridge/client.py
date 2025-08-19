@@ -23,6 +23,7 @@ from derive_client.constants import (
     CONFIGS,
     CONTROLLER_ABI_PATH,
     CONTROLLER_V0_ABI_PATH,
+    CURRENCY_DECIMALS,
     DEPOSIT_HELPER_ABI_PATH,
     DEPOSIT_HOOK_ABI_PATH,
     DERIVE_ABI_PATH,
@@ -278,6 +279,14 @@ class BridgeClient:
         value: int,
         context: BridgeContext,
     ) -> PreparedBridgeTx:
+
+        onchain_decimals: int = await context.source_token.functions.decimals().call()
+        if onchain_decimals != (expected_decimals := CURRENCY_DECIMALS[context.currency]):
+            raise RuntimeError(
+                f"Decimal mismatch for {context.currency.name} on {context.source_chain.name}: "
+                f"expected {expected_decimals}, got {onchain_decimals}"
+            )
+
 
         w3 = context.source_w3
         tx = await build_standard_transaction(func=func, account=self.account, w3=w3, value=value, logger=self.logger)
