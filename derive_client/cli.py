@@ -2,6 +2,7 @@
 Cli module in order to allow interaction.
 """
 
+import math
 import os
 from pathlib import Path
 from textwrap import dedent
@@ -10,6 +11,7 @@ import pandas as pd
 import rich_click as click
 from dotenv import load_dotenv
 from rich import print
+from rich.table import Table
 
 from derive_client.analyser import PortfolioAnalyser
 from derive_client.data_types import (
@@ -21,15 +23,46 @@ from derive_client.data_types import (
     OrderSide,
     OrderStatus,
     OrderType,
+    PreparedBridgeTx,
     SubaccountType,
     TxStatus,
     UnderlyingCurrency,
 )
 from derive_client.derive import DeriveClient
-from derive_client.utils import get_logger
+from derive_client.utils import from_base_units, get_logger
 
 click.rich_click.USE_RICH_MARKUP = True
 pd.set_option("display.precision", 2)
+
+
+def fmt_sig_up_to(x: float, sig: int = 4) -> str:
+    """Format x to up to `sig` significant digits, preserving all necessary decimals."""
+
+    if x == 0:
+        return "0"
+
+    order = math.floor(math.log10(abs(x)))
+    decimals = max(sig - order - 1, 0)
+    formatted = f"{x:.{decimals}f}"
+    return formatted.rstrip("0").rstrip(".")
+
+
+def rich_prepared_tx(prepared_tx: PreparedBridgeTx):
+
+    table = Table(title="Prepared Bridge Transaction", show_header=False, box=None)
+    if prepared_tx.amount > 0:
+        human_amount = from_base_units(amount=prepared_tx.amount, currency=prepared_tx.currency)
+        table.add_row("Amount", f"{human_amount} {prepared_tx.currency.name} (base units: {prepared_tx.amount})")
+    table.add_row("Value", f"{fmt_sig_up_to(prepared_tx.value / 1e18)} ETH (base units: {prepared_tx.value})")
+    table.add_row("Source chain", prepared_tx.source_chain.name)
+    table.add_row("Target chain", prepared_tx.target_chain.name)
+    table.add_row("Bridge type", prepared_tx.bridge_type.name)
+    table.add_row("Tx hash", prepared_tx.tx_hash)
+    table.add_row("Gas limit", str(prepared_tx.gas))
+    table.add_row("Max fee/gas", f"{fmt_sig_up_to(prepared_tx.max_fee_per_gas / 1e9)} gwei")
+    table.add_row("Max total fee", f"{fmt_sig_up_to(prepared_tx.max_total_fee / 1e9)} gwei")
+
+    return table
 
 
 def set_logger(ctx, level):
@@ -140,7 +173,7 @@ def bridge():
     "-a",
     type=float,
     required=True,
-    help="The amount to deposit in ETH (will be converted to Wei).",
+    help="The amount to deposit in human units of the selected token (converted to base units internally).",
 )
 @click.pass_context
 def deposit(ctx, chain_id, currency, amount):
@@ -156,7 +189,13 @@ def deposit(ctx, chain_id, currency, amount):
 
     client: DeriveClient = ctx.obj["client"]
 
-    prepared_tx = client.prepare_deposit_to_derive(chain_id=chain_id, currency=currency, token_amount=amount)
+    prepared_tx = client.prepare_deposit_to_derive(chain_id=chain_id, currency=currency, human_amount=amount)
+
+    print(rich_prepared_tx(prepared_tx))
+    if not click.confirm("Do you want to submit this transaction?", default=False):
+        print("[yellow]Aborted by user.[/yellow]")
+        return
+
     tx_result = client.submit_bridge_tx(prepared_tx=prepared_tx)
     bridge_tx_result = client.poll_bridge_progress(tx_result=tx_result)
 
@@ -191,7 +230,7 @@ def deposit(ctx, chain_id, currency, amount):
     "-a",
     type=float,
     required=True,
-    help="The amount to deposit in ETH (will be converted to Wei).",
+    help="The amount to withdraw in human units of the selected token (converted to base units internally).",
 )
 @click.pass_context
 def withdraw(ctx, chain_id, currency, amount):
@@ -207,7 +246,13 @@ def withdraw(ctx, chain_id, currency, amount):
 
     client: DeriveClient = ctx.obj["client"]
 
-    prepared_tx = client.prepare_withdrawal_from_derive(chain_id=chain_id, currency=currency, token_amount=amount)
+    prepared_tx = client.prepare_withdrawal_from_derive(chain_id=chain_id, currency=currency, human_amount=amount)
+
+    print(rich_prepared_tx(prepared_tx))
+    if not click.confirm("Do you want to submit this transaction?", default=False):
+        print("[yellow]Aborted by user.[/yellow]")
+        return
+
     tx_result = client.submit_bridge_tx(prepared_tx=prepared_tx)
     bridge_tx_result = client.poll_bridge_progress(tx_result=tx_result)
 
