@@ -11,6 +11,8 @@ from hexbytes import HexBytes
 from pydantic import BaseModel, ConfigDict, Field, GetCoreSchemaHandler, GetJsonSchemaHandler, HttpUrl, RootModel
 from pydantic.dataclasses import dataclass
 from pydantic_core import core_schema
+from rich.table import Table
+from rich.console import RenderableType
 from web3 import AsyncWeb3, Web3
 from web3.contract import AsyncContract
 from web3.contract.async_contract import AsyncContractEvent
@@ -259,17 +261,26 @@ class BridgeTxDetails:
     @property
     def tx_hash(self) -> str:
         """Pre-computed transaction hash."""
-        return self.signed_tx.hash.to_0x_hex
+        return self.signed_tx.hash.to_0x_hex()
 
     @property
-    def nonce(self) -> str:
+    def nonce(self) -> int:
         """Transaction nonce."""
         return self.tx["nonce"]
+
+    @property
+    def gas(self) -> int:
+        return self.tx["gas"]
+
+    @property
+    def max_fee_per_gas(self) -> Wei:
+        return self.tx["maxFeePerGas"]
 
 
 @dataclass
 class PreparedBridgeTx:
     amount: int
+    value: int
     currency: Currency
     source_chain: ChainID
     target_chain: ChainID
@@ -282,9 +293,21 @@ class PreparedBridgeTx:
         return self.tx_details.tx_hash
 
     @property
-    def nonce(self) -> str:
+    def nonce(self) -> int:
         """Transaction nonce."""
         return self.tx_details.nonce
+
+    @property
+    def gas(self) -> int:
+        return self.tx_details.gas
+
+    @property
+    def max_fee_per_gas(self) -> Wei:
+        return self.tx_details.max_fee_per_gas
+
+    @property
+    def max_total_fee(self) -> Wei:
+        return self.gas * self.max_fee_per_gas
 
 
 @dataclass(config=ConfigDict(validate_assignment=True))
