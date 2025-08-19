@@ -11,7 +11,7 @@ from requests import RequestException
 from web3 import Web3
 from web3.providers.rpc import HTTPProvider
 
-from derive_client.constants import DEFAULT_RPC_ENDPOINTS, CURRENCY_DECIMALS
+from derive_client.constants import CURRENCY_DECIMALS, DEFAULT_RPC_ENDPOINTS
 from derive_client.data_types import ChainID, Currency, RPCEndpoints
 from derive_client.exceptions import NoAvailableRPC
 from derive_client.utils.logger import get_logger

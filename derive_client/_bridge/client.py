@@ -28,8 +28,8 @@ from derive_client.constants import (
     DEPOSIT_HOOK_ABI_PATH,
     DERIVE_ABI_PATH,
     DERIVE_L2_ABI_PATH,
-    ETH_DEPOSIT_WRAPPER,
     ERC20_ABI_PATH,
+    ETH_DEPOSIT_WRAPPER,
     LIGHT_ACCOUNT_ABI_PATH,
     LYRA_OFT_WITHDRAW_WRAPPER_ABI_PATH,
     LYRA_OFT_WITHDRAW_WRAPPER_ADDRESS,
@@ -286,7 +286,6 @@ class BridgeClient:
                 f"Decimal mismatch for {context.currency.name} on {context.source_chain.name}: "
                 f"expected {expected_decimals}, got {onchain_decimals}"
             )
-
 
         w3 = context.source_w3
         tx = await build_standard_transaction(func=func, account=self.account, w3=w3, value=value, logger=self.logger)
@@ -591,7 +590,11 @@ class BridgeClient:
             f"🔍 Listening for OFTReceived on [{tx_result.target_chain.name}] at {context.target_event.address}"
         )
 
-        return await wait_for_bridge_event(context.target_w3, filter_params, logger=self.logger)
+        return await wait_for_bridge_event(
+            w3=context.target_w3,
+            filter_params=filter_params,
+            logger=self.logger,
+        )
 
     async def _fetch_socket_event_log(self, tx_result: BridgeTxResult, context: BridgeContext) -> LogReceipt:
 
@@ -615,7 +618,12 @@ class BridgeClient:
             f"🔍 Listening for ExecutionSuccess on [{tx_result.target_chain.name}] at {context.target_event.address}"
         )
 
-        return await wait_for_bridge_event(context.target_w3, filter_params, condition=matching_message_id, logger=self.logger)
+        return await wait_for_bridge_event(
+            w3=context.target_w3,
+            filter_params=filter_params,
+            condition=matching_message_id,
+            logger=self.logger,
+        )
 
     def _prepare_new_style_deposit(
         self,

@@ -98,15 +98,16 @@ class StandardBridge:
 
         currency = Currency.ETH
 
-        if (
-            source_chain is not ChainID.ETH
-            or target_chain is not ChainID.DERIVE
-            or to != self.account.address
-        ):
+        if source_chain is not ChainID.ETH or target_chain is not ChainID.DERIVE or to != self.account.address:
             raise NotImplementedError("Only ETH transfers from Ethereum to Derive EOA are currently supported.")
 
         value: int = to_base_units(human_amount=human_amount, currency=currency)
-        prepared_tx = await self._prepare_eth_tx(value=value, to=to, source_chain=source_chain, target_chain=target_chain)
+        prepared_tx = await self._prepare_eth_tx(
+            value=value,
+            to=to,
+            source_chain=source_chain,
+            target_chain=target_chain,
+        )
 
         return prepared_tx
 

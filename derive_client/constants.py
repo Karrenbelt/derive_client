@@ -6,7 +6,7 @@ from pathlib import Path
 
 from pydantic import BaseModel
 
-from derive_client.data_types import Environment, UnderlyingCurrency, Currency
+from derive_client.data_types import Currency, Environment, UnderlyingCurrency
 
 
 class ContractAddresses(BaseModel, frozen=True):
