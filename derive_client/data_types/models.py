@@ -273,6 +273,7 @@ class PreparedBridgeTx:
     currency: Currency
     source_chain: ChainID
     target_chain: ChainID
+    bridge_type: BridgeType
     tx_details: BridgeTxDetails
 
     @property
@@ -302,7 +303,7 @@ class TxResult:
 class BridgeTxResult:
     amount: int
     currency: Currency
-    bridge: BridgeType
+    bridge_type: BridgeType
     source_chain: ChainID
     target_chain: ChainID
     source_tx: TxResult
