@@ -121,7 +121,7 @@ class BaseClient:
         if subaccount_id is not None and subaccount_id not in subaccount_ids:
             raise ValueError(f"Provided subaccount {subaccount_id} not among retrieved aubaccounts: {subaccounts!r}")
         subaccount_id = subaccount_id or subaccount_ids[0]
-        self.logger.info(f"Selected subaccount_id: {subaccount_id}")
+        self.logger.debug(f"Selected subaccount_id: {subaccount_id}")
         return subaccount_id
 
     def create_account(self, wallet):

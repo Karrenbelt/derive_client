@@ -99,6 +99,10 @@ class DrvWithdrawAmountBelowFee(Exception):
     """Raised when the DRV withdrawal amount is less than the fee required to withdraw."""
 
 
+class TxReceiptMissing(Exception):
+    """Raised when a transaction receipt is required but not available."""
+
+
 class FinalityTimeout(Exception):
     """Raised when the transaction was mined but did not reach the required finality within the timeout."""
 

@@ -172,6 +172,8 @@ class StandardBridge:
         prepared_tx = PreparedBridgeTx(
             amount=0,
             value=value,
+            fee_value=0,
+            fee_in_token=0,
             currency=Currency.ETH,
             source_chain=source_chain,
             target_chain=target_chain,
