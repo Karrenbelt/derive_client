@@ -182,11 +182,13 @@ def get_erc20_contract(w3: AsyncWeb3, token_address: str) -> AsyncContract:
     return get_contract(w3=w3, address=token_address, abi=abi)
 
 
-async def ensure_token_balance(token_contract: Contract, owner: Address, amount: int):
+async def ensure_token_balance(token_contract: Contract, owner: Address, amount: int, fee_in_token: int = 0):
     balance = await token_contract.functions.balanceOf(owner).call()
+    required = amount + fee_in_token
     if amount > balance:
         raise InsufficientTokenBalance(
-            f"Not enough tokens to withdraw: {amount} < {balance} ({(balance / amount * 100):.2f}%)"
+            f"Not enough tokens for withdraw: required={required} (amount={amount} + fee={fee_in_token}), "
+            f"balance={balance} ({(balance / required * 100):.2f}% of required)"
         )
 
 

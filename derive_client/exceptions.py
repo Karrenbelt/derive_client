@@ -95,10 +95,6 @@ class DeriveFundingFailed(Exception):
     """Raised when funding the Derive wallet with gas fails."""
 
 
-class DrvWithdrawAmountBelowFee(Exception):
-    """Raised when the DRV withdrawal amount is less than the fee required to withdraw."""
-
-
 class TxReceiptMissing(Exception):
     """Raised when a transaction receipt is required but not available."""
 

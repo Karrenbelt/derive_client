@@ -17,6 +17,7 @@ from web3.contract.async_contract import AsyncContractEvent
 from web3.datastructures import AttributeDict
 
 from derive_client.exceptions import TxReceiptMissing
+
 from .enums import (
     BridgeType,
     ChainID,
@@ -28,7 +29,6 @@ from .enums import (
     SessionKeyScope,
     TxStatus,
 )
-
 
 
 class PAttributeDict(AttributeDict):
@@ -296,14 +296,14 @@ class PreparedBridgeTx:
         # rule 1: don't allow both amount (erc20) and value (native) to be non-zero
         if self.amount and self.value:
             raise ValueError(
-                f"PreparedBridgeTx: both amount ({self.amount}) and value ({self.value}) are non-zero; "
+                f"Both amount ({self.amount}) and value ({self.value}) are non-zero; "
                 "use `prepare_erc20_tx` or `prepare_eth_tx` instead."
             )
 
         # rule 2: don't allow both fee types to be non-zero simultaneously
         if self.fee_value and self.fee_in_token:
             raise ValueError(
-                f"PreparedBridgeTx: both fee_value ({self.fee_value}) and fee_in_token ({self.fee_in_token}) are non-zero; "
+                f"Both fee_value ({self.fee_value}) and fee_in_token ({self.fee_in_token}) are non-zero; "
                 "fees must be expressed in only one currency."
             )
 

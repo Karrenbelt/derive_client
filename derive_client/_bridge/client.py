@@ -65,7 +65,6 @@ from derive_client.exceptions import (
     BridgeEventParseError,
     BridgePrimarySignerRequiredError,
     BridgeRouteError,
-    DrvWithdrawAmountBelowFee,
     PartialBridgeResult,
 )
 from derive_client.utils import get_prod_derive_addresses
@@ -388,7 +387,7 @@ class BridgeClient:
         token_data, _connector = self._resolve_socket_route(context=context)
 
         spender = token_data.Vault if token_data.isNewBridge else self.get_deposit_helper(context.source_chain).address
-        await ensure_token_balance(context.source_token, self.owner, amount)
+        await ensure_token_balance(context.source_token, self.owner, amount=amount)
         await ensure_token_allowance(
             w3=context.source_w3,
             token_contract=context.source_token,
@@ -413,9 +412,6 @@ class BridgeClient:
 
         token_data, connector = self._resolve_socket_route(context=context)
 
-        await ensure_token_balance(context.source_token, self.wallet, amount)
-        await self._check_bridge_funds(token_data, connector, amount)
-
         # Get estimated fee in token for a withdrawal
         fee_in_token = await self.withdraw_wrapper.functions.getFeeInToken(
             token=token_data.MintableToken,
@@ -423,8 +419,8 @@ class BridgeClient:
             connector=token_data.connectors[context.target_chain][TARGET_SPEED],
             gasLimit=MSG_GAS_LIMIT,
         ).call()
-        if amount < fee_in_token:
-            raise DrvWithdrawAmountBelowFee(f"Withdraw amount < fee: {amount} < {fee_in_token} ({(fee_in_token / amount * 100):.2f}%)")
+        await ensure_token_balance(context.source_token, self.wallet, amount=amount, fee_in_token=fee_in_token)
+        await self._check_bridge_funds(token_data, connector, amount)
 
         kwargs = {
             "token": context.source_token.address,
@@ -444,14 +440,20 @@ class BridgeClient:
             dest=[context.source_token.address, self.withdraw_wrapper.address],
             func=[approve_data, bridge_data],
         )
-        prepared_tx = await self._prepare_tx(amount=amount, func=func, value=0, fee_in_token=fee_in_token, context=context)
+        prepared_tx = await self._prepare_tx(
+            amount=amount,
+            func=func,
+            value=0,
+            fee_in_token=fee_in_token,
+            context=context,
+        )
 
         return prepared_tx
 
     async def _prepare_layerzero_deposit(self, amount: int, context: BridgeContext) -> PreparedBridgeTx:
 
         # check allowance, if needed approve
-        await ensure_token_balance(context.source_token, self.owner, amount)
+        await ensure_token_balance(context.source_token, self.owner, amount=amount)
         await ensure_token_allowance(
             w3=context.source_w3,
             token_contract=context.source_token,
@@ -482,7 +484,13 @@ class BridgeClient:
         refund_address = self.owner
 
         func = context.source_token.functions.send(send_params, fees, refund_address)
-        prepared_tx = await self._prepare_tx(amount=amount, func=func, value=native_fee, fee_in_token=0, context=context)
+        prepared_tx = await self._prepare_tx(
+            amount=amount,
+            func=func,
+            value=native_fee,
+            fee_in_token=0,
+            context=context,
+        )
 
         return prepared_tx
 
@@ -490,13 +498,14 @@ class BridgeClient:
 
         abi = json.loads(LYRA_OFT_WITHDRAW_WRAPPER_ABI_PATH.read_text())
         withdraw_wrapper = get_contract(context.source_w3, LYRA_OFT_WITHDRAW_WRAPPER_ADDRESS, abi=abi)
-
-        await ensure_token_balance(context.source_token, self.wallet, amount)
-
         destEID = LayerZeroChainIDv2[context.target_chain.name]
-        fee_in_token = await withdraw_wrapper.functions.getFeeInToken(context.source_token.address, amount, destEID).call()
-        if amount < fee_in_token:
-            raise DrvWithdrawAmountBelowFee(f"Withdraw amount < fee: {amount} < {fee_in_token} ({(fee_in_token / amount * 100):.2f}%)")
+
+        fee_in_token = await withdraw_wrapper.functions.getFeeInToken(
+            token=context.source_token.address,
+            amount=amount,
+            destEID=destEID,
+        ).call()
+        await ensure_token_balance(context.source_token, self.wallet, amount=amount, fee_in_token=fee_in_token)
 
         kwargs = {
             "token": context.source_token.address,
@@ -512,7 +521,13 @@ class BridgeClient:
             dest=[context.source_token.address, withdraw_wrapper.address],
             func=[approve_data, bridge_data],
         )
-        prepared_tx = await self._prepare_tx(amount=amount, func=func, value=0, fee_in_token=fee_in_token, context=context)
+        prepared_tx = await self._prepare_tx(
+            amount=amount,
+            func=func,
+            value=0,
+            fee_in_token=fee_in_token,
+            context=context,
+        )
 
         return prepared_tx
 
