@@ -322,13 +322,8 @@ class TxResult:
 
 @dataclass(config=ConfigDict(validate_assignment=True))
 class BridgeTxResult:
-    amount: int
-    currency: Currency
-    bridge_type: BridgeType
-    source_chain: ChainID
-    target_chain: ChainID
+    prepared_tx: PreparedBridgeTx
     source_tx: TxResult
-    tx_details: BridgeTxDetails
     target_from_block: int
     event_id: str | None = None
     target_tx: TxResult | None = None
@@ -338,6 +333,22 @@ class BridgeTxResult:
         if self.source_tx.status is not TxStatus.SUCCESS:
             return self.source_tx.status
         return self.target_tx.status if self.target_tx is not None else TxStatus.PENDING
+
+    @property
+    def currency(self) -> Currency:
+        return self.prepared_tx.currency
+
+    @property
+    def source_chain(self) -> ChainID:
+        return self.prepared_tx.source_chain
+
+    @property
+    def target_chain(self) -> ChainID:
+        return self.prepared_tx.target_chain
+
+    @property
+    def bridge_type(self) -> BridgeType:
+        return self.prepared_tx.bridge_type
 
 
 class DepositResult(BaseModel):

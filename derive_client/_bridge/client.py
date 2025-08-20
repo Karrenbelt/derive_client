@@ -515,14 +515,9 @@ class BridgeClient:
         source_tx = TxResult(tx_hash=tx_hash)
 
         tx_result = BridgeTxResult(
-            amount=prepared_tx.amount,
-            currency=prepared_tx.currency,
-            bridge_type=prepared_tx.bridge_type,
-            source_chain=prepared_tx.source_chain,
-            target_chain=prepared_tx.target_chain,
+            prepared_tx=prepared_tx,
             source_tx=source_tx,
             target_from_block=target_from_block,
-            tx_details=prepared_tx.tx_details,
         )
 
         return tx_result
