@@ -40,16 +40,8 @@ class DeriveJSONRPCException(ApiException):
         return f"{base}  [data={self.data!r}]" if self.data is not None else base
 
 
-class TxSubmissionError(Exception):
-    """Raised when a transaction could not be signed or submitted."""
-
-
 class BridgeEventParseError(Exception):
     """Raised when an expected cross-chain bridge event could not be parsed."""
-
-
-class AlreadyFinalizedError(Exception):
-    """Raised when attempting to poll a BridgeTxResult who'se status is not TxStatus.PENDING."""
 
 
 class BridgeRouteError(Exception):
@@ -85,14 +77,6 @@ class InsufficientTokenBalance(Exception):
 
 class BridgePrimarySignerRequiredError(Exception):
     """Raised when bridging is attempted with a secondary session-key signer."""
-
-
-class EthGasFundingPending(Exception):
-    """Raised after we detect lack of ETH on Derive to pay for gas."""
-
-
-class DeriveFundingFailed(Exception):
-    """Raised when funding the Derive wallet with gas fails."""
 
 
 class TxReceiptMissing(Exception):
