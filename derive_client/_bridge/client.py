@@ -413,6 +413,16 @@ class BridgeClient:
         await ensure_token_balance(context.source_token, self.wallet, amount)
         await self._check_bridge_funds(token_data, connector, amount)
 
+        # Get estimated fee in token for a withdrawal
+        fee = await self.withdraw_wrapper.functions.getFeeInToken(
+            token=token_data.MintableToken,
+            controller=token_data.Controller,
+            connector=token_data.connectors[context.target_chain][TARGET_SPEED],
+            gasLimit=MSG_GAS_LIMIT,
+        ).call()
+        if amount < fee:
+            raise DrvWithdrawAmountBelowFee(f"Withdraw amount < fee: {amount} < {fee} ({(fee / amount * 100):.2f}%)")
+
         kwargs = {
             "token": context.source_token.address,
             "amount": amount,
