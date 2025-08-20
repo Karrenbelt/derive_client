@@ -53,7 +53,20 @@ def rich_prepared_tx(prepared_tx: PreparedBridgeTx):
     if prepared_tx.amount > 0:
         human_amount = from_base_units(amount=prepared_tx.amount, currency=prepared_tx.currency)
         table.add_row("Amount", f"{human_amount} {prepared_tx.currency.name} (base units: {prepared_tx.amount})")
-    table.add_row("Value", f"{fmt_sig_up_to(prepared_tx.value / 1e18)} ETH (base units: {prepared_tx.value})")
+    if prepared_tx.fee_in_token > 0:
+        fee_human = from_base_units(prepared_tx.fee_in_token, prepared_tx.currency)
+        table.add_row(
+            "Estimated fee (token)",
+            f"{fmt_sig_up_to(fee_human)} {prepared_tx.currency.name} (base units: {prepared_tx.fee_in_token})",
+        )
+    if prepared_tx.value and prepared_tx.value > 0:
+        human_value = prepared_tx.value / 1e18
+        table.add_row("Value", f"{human_value} ETH (base units: {prepared_tx.value})")
+    if prepared_tx.fee_value > 0:
+        human_fee_value = fmt_sig_up_to(prepared_tx.fee_value / 1e9)
+        table.add_row("Estimated fee (native)", f"{human_fee_value} gwei (base units: {prepared_tx.fee_value})")
+
+    # table.add_row("Value", f"{fmt_sig_up_to(prepared_tx.value / 1e18)} ETH (base units: {prepared_tx.value})")
     table.add_row("Source chain", prepared_tx.source_chain.name)
     table.add_row("Target chain", prepared_tx.target_chain.name)
     table.add_row("Bridge type", prepared_tx.bridge_type.name)
