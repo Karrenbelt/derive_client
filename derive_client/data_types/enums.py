@@ -23,6 +23,7 @@ class DeriveTxStatus(Enum):
 class BridgeType(Enum):
     SOCKET = "socket"
     LAYERZERO = "layerzero"
+    STANDARD = "standard"
 
 
 class Direction(Enum):
@@ -55,6 +56,12 @@ class LayerZeroChainIDv2(IntEnum):
     OPTIMISM = 30111
     BASE = 30184
     DERIVE = 30311
+
+
+class GasPriority(IntEnum):
+    SLOW = 25
+    MEDIUM = 50
+    FAST = 75
 
 
 class SocketAddress(Enum):
@@ -122,6 +129,8 @@ class UnderlyingCurrency(Enum):
 
 class Currency(Enum):
     """Depositable currencies"""
+
+    ETH = "ETH"
 
     weETH = "weETH"
     rswETH = "rswETH"
