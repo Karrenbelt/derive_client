@@ -20,19 +20,16 @@ from derive_action_signing.module_data import (
 )
 from derive_action_signing.signed_action import SignedAction
 from derive_action_signing.utils import MAX_INT_32, get_action_nonce, sign_rest_auth_header, utc_now_ms
+from hexbytes import HexBytes
 from pydantic import validate_call
 from web3 import Web3
 
-from derive_client._bridge import BridgeClient
 from derive_client.constants import CONFIGS, DEFAULT_REFERER, PUBLIC_HEADERS, TOKEN_DECIMALS
 from derive_client.data_types import (
     Address,
-    BridgeTxResult,
-    ChainID,
     CollateralAsset,
     CreateSubAccountData,
     CreateSubAccountDetails,
-    Currency,
     DepositResult,
     DeriveTxResult,
     DeriveTxStatus,
@@ -63,8 +60,6 @@ def _is_final_tx(res: DeriveTxResult) -> bool:
 class BaseClient:
     """Client for the Derive dex."""
 
-    referral_code: str = None
-
     def _create_signature_headers(self):
         """
         Create the signature headers.
@@ -79,12 +74,11 @@ class BaseClient:
     def __init__(
         self,
         wallet: Address,
-        private_key: str,
+        private_key: str | HexBytes,
         env: Environment,
         logger: Logger | LoggerAdapter | None = None,
         verbose: bool = False,
         subaccount_id: int | None = None,
-        referral_code: Address | None = None,
     ):
         self.verbose = verbose
         self.env = env
@@ -95,7 +89,14 @@ class BaseClient:
         self.wallet = wallet
         self._verify_wallet(wallet)
         self.subaccount_id = self._determine_subaccount_id(subaccount_id)
-        self.referral_code = referral_code
+
+    @property
+    def account(self):
+        return self.signer
+
+    @property
+    def private_key(self) -> HexBytes:
+        return self.account._private_key
 
     @property
     def endpoints(self) -> RestAPI:
@@ -120,7 +121,7 @@ class BaseClient:
         if subaccount_id is not None and subaccount_id not in subaccount_ids:
             raise ValueError(f"Provided subaccount {subaccount_id} not among retrieved aubaccounts: {subaccounts!r}")
         subaccount_id = subaccount_id or subaccount_ids[0]
-        self.logger.info(f"Selected subaccount_id: {subaccount_id}")
+        self.logger.debug(f"Selected subaccount_id: {subaccount_id}")
         return subaccount_id
 
     def create_account(self, wallet):
@@ -137,59 +138,6 @@ class BaseClient:
         if "error" in result_code:
             raise Exception(result_code["error"])
         return True
-
-    @validate_call
-    def deposit_to_derive(self, chain_id: ChainID, currency: Currency, amount: float) -> BridgeTxResult:
-        """
-        Submit a deposit into the Derive chain funding contract and return its initial BridgeTxResult
-        without waiting for completion.
-
-        Parameters:
-            chain_id (ChainID): The chain you are bridging FROM.
-            currency (Currency): The asset being bridged.
-            amount (float): amount to deposit, in human units (will be scaled to Wei).
-        """
-
-        amount = int(amount * 10 ** TOKEN_DECIMALS[UnderlyingCurrency[currency.name.upper()]])
-        client = BridgeClient(self.env, chain_id, account=self.signer, wallet=self.wallet, logger=self.logger)
-
-        if currency == Currency.DRV:
-            return client.deposit_drv(amount=amount, currency=currency)
-
-        return client.deposit(amount=amount, currency=currency)
-
-    @validate_call
-    def withdraw_from_derive(self, chain_id: ChainID, currency: Currency, amount: float) -> BridgeTxResult:
-        """
-        Submit a withdrawal from the Derive chain funding contract and return its initial BridgeTxResult
-        without waiting for completion.
-
-        Parameters:
-            chain_id (ChainID): The chain you are bridging TO.
-            currency (Currency): The asset being bridged.
-            amount (float): amount to withdraw, in human units (will be scaled to Wei).
-        """
-
-        amount = int(amount * 10 ** TOKEN_DECIMALS[UnderlyingCurrency[currency.name.upper()]])
-        client = BridgeClient(self.env, chain_id, account=self.signer, wallet=self.wallet, logger=self.logger)
-
-        if currency == Currency.DRV:
-            return client.withdraw_drv(amount=amount, currency=currency)
-
-        return client.withdraw_with_wrapper(amount=amount, currency=currency)
-
-    def poll_bridge_progress(self, tx_result: BridgeTxResult) -> BridgeTxResult:
-        """
-        Given a pending BridgeTxResult, return a new BridgeTxResult with updated status.
-        Raises AlreadyFinalizedError if tx_result is not in PENDING status.
-
-        Parameters:
-            tx_result (BridgeTxResult): the result to refresh.
-        """
-
-        chain_id = tx_result.source_chain if tx_result.source_chain != ChainID.DERIVE else tx_result.target_chain
-        client = BridgeClient(self.env, chain_id, account=self.signer, wallet=self.wallet, logger=self.logger)
-        return client.poll_bridge_progress(tx_result=tx_result)
 
     def fetch_instruments(
         self,
@@ -298,7 +246,7 @@ class BaseClient:
             "order_type": order_type.name.lower(),
             "mmp": False,
             "time_in_force": time_in_force.value,
-            "referral_code": DEFAULT_REFERER if not self.referral_code else self.referral_code,
+            "referral_code": DEFAULT_REFERER,
             **signed_action.to_json(),
         }
 

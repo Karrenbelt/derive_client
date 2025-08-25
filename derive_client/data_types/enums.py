@@ -7,7 +7,6 @@ class TxStatus(IntEnum):
     FAILED = 0  # confirmed and status == 0 (on-chain revert)
     SUCCESS = 1  # confirmed and status == 1
     PENDING = 2  # not yet confirmed, no receipt
-    ERROR = 3  # local error, e.g. connection, invalid tx
 
 
 class DeriveTxStatus(Enum):
@@ -24,6 +23,12 @@ class DeriveTxStatus(Enum):
 class BridgeType(Enum):
     SOCKET = "socket"
     LAYERZERO = "layerzero"
+    STANDARD = "standard"
+
+
+class Direction(Enum):
+    DEPOSIT = "deposit"
+    WITHDRAW = "withdraw"
 
 
 class ChainID(IntEnum):
@@ -51,6 +56,12 @@ class LayerZeroChainIDv2(IntEnum):
     OPTIMISM = 30111
     BASE = 30184
     DERIVE = 30311
+
+
+class GasPriority(IntEnum):
+    SLOW = 25
+    MEDIUM = 50
+    FAST = 75
 
 
 class SocketAddress(Enum):
@@ -118,6 +129,8 @@ class UnderlyingCurrency(Enum):
 
 class Currency(Enum):
     """Depositable currencies"""
+
+    ETH = "ETH"
 
     weETH = "weETH"
     rswETH = "rswETH"
