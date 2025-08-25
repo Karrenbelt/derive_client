@@ -11,8 +11,8 @@ from requests import RequestException
 from web3 import Web3
 from web3.providers.rpc import HTTPProvider
 
-from derive_client.constants import DEFAULT_RPC_ENDPOINTS
-from derive_client.data_types import ChainID, RPCEndpoints
+from derive_client.constants import CURRENCY_DECIMALS, DEFAULT_RPC_ENDPOINTS
+from derive_client.data_types import ChainID, Currency, RPCEndpoints
 from derive_client.exceptions import NoAvailableRPC
 from derive_client.utils.logger import get_logger
 
@@ -147,3 +147,15 @@ def get_w3_connection(
     )
     w3.middleware_onion.add(rotator)
     return w3
+
+
+def to_base_units(human_amount: float, currency: Currency) -> int:
+    """Convert a human-readable token amount to base units using the currency's decimals."""
+
+    return int(human_amount * 10 ** CURRENCY_DECIMALS[currency])
+
+
+def from_base_units(amount: int, currency: Currency) -> float:
+    """Convert base units to human-readable amount using the currency's decimals."""
+
+    return amount / 10 ** CURRENCY_DECIMALS[currency]
