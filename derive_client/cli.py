@@ -487,7 +487,7 @@ def fetch_tickers(ctx, instrument_name):
 )
 def transfer_collateral(ctx, amount, to, asset):
     """Transfer collateral."""
-    client = ctx.obj["client"]
+    client: DeriveClient = ctx.obj["client"]
     result = client.transfer_collateral(amount=amount, to=to, asset=CollateralAsset(asset))
 
     print(result)
@@ -498,7 +498,7 @@ def transfer_collateral(ctx, amount, to, asset):
 def fetch_subaccounts(ctx):
     """Fetch subaccounts."""
     print("Fetching subaccounts")
-    client = ctx.obj["client"]
+    client: DeriveClient = ctx.obj["client"]
     subaccounts = client.fetch_subaccounts()
     print(subaccounts)
 
@@ -526,7 +526,7 @@ def fetch_subaccount(ctx, subaccount_id, underlying_currency, columns):
     print("Fetching subaccount")
     print(f"Subaccount ID: {subaccount_id}")
     print(f"Underlying currency: {underlying_currency}")
-    client = ctx.obj["client"]
+    client: DeriveClient = ctx.obj["client"]
     subaccount = client.fetch_subaccount(subaccount_id=subaccount_id)
     analyser = PortfolioAnalyser(subaccount)
     print("Positions")
@@ -569,7 +569,7 @@ def create_subaccount(ctx, collateral_asset, underlying_currency, subaccount_typ
     subaccount_type = SubaccountType(subaccount_type)
     collateral_asset = CollateralAsset(collateral_asset)
     print(f"Creating subaccount with collateral asset {collateral_asset} and underlying currency {underlying_currency}")
-    client = ctx.obj["client"]
+    client: DeriveClient = ctx.obj["client"]
     subaccount_id = client.create_subaccount(
         amount=int(amount * 1e6),
         subaccount_type=subaccount_type,
@@ -620,7 +620,7 @@ def create_subaccount(ctx, collateral_asset, underlying_currency, subaccount_typ
 def fetch_orders(ctx, instrument_name, label, page, page_size, status, regex):
     """Fetch orders."""
     print("Fetching orders")
-    client = ctx.obj["client"]
+    client: DeriveClient = ctx.obj["client"]
     orders = client.fetch_orders(
         instrument_name=instrument_name,
         label=label,
@@ -684,7 +684,7 @@ def fetch_orders(ctx, instrument_name, label, page, page_size, status, regex):
 def cancel_order(ctx, order_id, instrument_name):
     """Cancel order."""
     print("Cancelling order")
-    client = ctx.obj["client"]
+    client: DeriveClient = ctx.obj["client"]
     result = client.cancel(order_id=order_id, instrument_name=instrument_name)
     print(result)
 
@@ -694,7 +694,7 @@ def cancel_order(ctx, order_id, instrument_name):
 def cancel_all_orders(ctx):
     """Cancel all orders."""
     print("Cancelling all orders")
-    client = ctx.obj["client"]
+    client: DeriveClient = ctx.obj["client"]
     result = client.cancel_all()
     print(result)
 
