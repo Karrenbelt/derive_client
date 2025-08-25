@@ -44,6 +44,7 @@ from .models import (
     MintableTokenData,
     NonMintableTokenData,
     PreparedBridgeTx,
+    PSignedTransaction,
     RPCEndpoints,
     SessionKey,
     TxResult,
@@ -97,5 +98,6 @@ __all__ = [
     "RPCEndpoints",
     "BridgeTxDetails",
     "PreparedBridgeTx",
+    "PSignedTransaction",
     "Wei",
 ]
