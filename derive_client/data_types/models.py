@@ -9,6 +9,7 @@ from eth_account.datastructures import SignedTransaction
 from eth_utils import is_0x_prefixed, is_address, is_hex, to_checksum_address
 from hexbytes import HexBytes
 from pydantic import BaseModel, ConfigDict, Field, GetCoreSchemaHandler, GetJsonSchemaHandler, HttpUrl, RootModel
+from pydantic import BaseModel, ConfigDict, Field, GetCoreSchemaHandler, GetJsonSchemaHandler, HttpUrl, validator
 from pydantic.dataclasses import dataclass
 from pydantic_core import core_schema
 from web3 import AsyncWeb3, Web3
@@ -397,6 +398,26 @@ class DepositResult(BaseModel):
 class WithdrawResult(BaseModel):
     status: DeriveTxStatus  # should be "REQUESTED"
     transaction_id: str
+
+
+class TransferPosition(BaseModel):
+    """Model for position transfer data."""
+
+    instrument_name: str
+    amount: float
+    limit_price: float
+
+    @validator('amount')
+    def validate_amount(cls, v):
+        if v <= 0:
+            raise ValueError('Transfer amount must be positive')
+        return v
+
+    @validator('limit_price')
+    def validate_limit_price(cls, v):
+        if v <= 0:
+            raise ValueError('Limit price must be positive')
+        return v
 
 
 class DeriveTxResult(BaseModel):

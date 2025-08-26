@@ -50,6 +50,7 @@ from derive_client.data_types import (
     SessionKey,
     SubaccountType,
     TimeInForce,
+    TransferPosition,
     UnderlyingCurrency,
     WithdrawResult,
 )
@@ -787,6 +788,25 @@ class BaseClient:
             transaction_id=withdraw_result.transaction_id,
         )
 
+    def _extract_transaction_id(self, response_data: dict) -> str:
+        """
+        Extract transaction ID from response data.
+
+        Args:
+            response_data (dict): The response data from an API call
+
+        Returns:
+            str: The transaction ID
+
+        Raises:
+            ValueError: If no valid transaction ID is found in the response
+        """
+        if "result" in response_data and "transaction_id" in response_data["result"]:
+            transaction_id = response_data["result"]["transaction_id"]
+            if transaction_id:
+                return transaction_id
+        raise ValueError("No valid transaction ID found in response")
+
     def transfer_position(
         self,
         instrument_name: str,
@@ -794,42 +814,51 @@ class BaseClient:
         limit_price: float,
         from_subaccount_id: int,
         to_subaccount_id: int,
-        position_amount: float = None,
+        position_amount: float,
     ) -> DeriveTxResult:
         """
         Transfer a single position between subaccounts.
 
         Parameters:
             instrument_name (str): The name of the instrument to transfer.
-            amount (float): The amount to transfer (absolute value).
-            limit_price (float): The limit price for the transfer.
+            amount (float): The amount to transfer (absolute value). Must be positive.
+            limit_price (float): The limit price for the transfer. Must be positive.
             from_subaccount_id (int): The subaccount ID to transfer from.
             to_subaccount_id (int): The subaccount ID to transfer to.
-            position_amount (float, optional): The original position amount to determine direction.
-                                             If not provided, will fetch from positions.
+            position_amount (float): The original position amount to determine direction.
 
         Returns:
             DeriveTxResult: The result of the transfer transaction.
+
+        Raises:
+            ValueError: If amount or limit_price are not positive, or if instrument not found.
         """
+        # Validate inputs
+        if amount <= 0:
+            raise ValueError("Transfer amount must be positive")
+        if limit_price <= 0:
+            raise ValueError("Limit price must be positive")
+
         url = self.endpoints.private.transfer_position
 
-        # Get instrument details
+        # Get instrument details - use filter
         instruments = self.fetch_instruments()
-        instrument = next((inst for inst in instruments if inst["instrument_name"] == instrument_name), None)
-        if not instrument:
+        matching_instruments = list(filter(lambda inst: inst["instrument_name"] == instrument_name, instruments))
+        if not matching_instruments:
             raise ValueError(f"Instrument {instrument_name} not found")
+        instrument = matching_instruments[0]
 
         # Get position amount if not provided
         if position_amount is None:
             positions = self.get_positions()
-            position = next(
-                (
-                    pos
-                    for pos in positions.get("positions", [])
-                    if pos["instrument_name"] == instrument_name and pos["subaccount_id"] == from_subaccount_id
-                ),
-                None,
+            matching_positions = list(
+                filter(
+                    lambda pos: pos["instrument_name"] == instrument_name
+                    and pos["subaccount_id"] == from_subaccount_id,
+                    positions.get("positions", []),
+                )
             )
+            position = matching_positions[0] if matching_positions else None
             if not position:
                 raise ValueError(f"No position found for {instrument_name} in subaccount {from_subaccount_id}")
             position_amount = float(position["amount"])
@@ -839,18 +868,13 @@ class BaseClient:
         transfer_price = Decimal(str(limit_price))
         original_position_amount = Decimal(str(position_amount))
 
-        # Generate nonces
-        base_nonce = get_action_nonce()
-        maker_nonce = base_nonce
-        taker_nonce = base_nonce + 1
-
         # Create maker action (sender)
         maker_action = SignedAction(
             subaccount_id=from_subaccount_id,
             owner=self.wallet,
             signer=self.signer.address,
             signature_expiry_sec=MAX_INT_32,
-            nonce=maker_nonce,
+            nonce=get_action_nonce(),  # maker_nonce
             module_address=self.config.contracts.TRADE_MODULE,
             module_data=MakerTransferPositionModuleData(
                 asset_address=instrument["base_asset_address"],
@@ -870,7 +894,7 @@ class BaseClient:
             owner=self.wallet,
             signer=self.signer.address,
             signature_expiry_sec=MAX_INT_32,
-            nonce=taker_nonce,
+            nonce=get_action_nonce(),  # taker_nonce
             module_address=self.config.contracts.TRADE_MODULE,
             module_data=TakerTransferPositionModuleData(
                 asset_address=instrument["base_asset_address"],
@@ -910,26 +934,16 @@ class BaseClient:
         response_data = self._send_request(url, json=payload)
 
         # Extract transaction_id from response for polling
-        if "result" in response_data and "transaction_id" in response_data["result"]:
-            transaction_id = response_data["result"]["transaction_id"]
-            return wait_until(
-                self.get_transaction,
-                condition=_is_final_tx,
-                transaction_id=transaction_id,
-            )
-
-        # If no transaction_id, return a basic result
-        return DeriveTxResult(
-            data=payload,
-            status=DeriveTxStatus.SUCCESS,
-            error_log={},
-            transaction_id="",
-            tx_hash=None,
+        transaction_id = self._extract_transaction_id(response_data)
+        return wait_until(
+            self.get_transaction,
+            condition=_is_final_tx,
+            transaction_id=transaction_id,
         )
 
     def transfer_positions(
         self,
-        positions: list[dict],
+        positions: list[TransferPosition],
         from_subaccount_id: int,
         to_subaccount_id: int,
         global_direction: str = "buy",
@@ -938,17 +952,27 @@ class BaseClient:
         Transfer multiple positions between subaccounts using RFQ system.
 
         Parameters:
-            positions (list[dict]): List of position dictionaries with keys:
+            positions (list[TransferPosition]): list of TransferPosition objects containing:
                 - instrument_name (str): Name of the instrument
-                - amount (float): Amount to transfer
-                - limit_price (float): Limit price for the transfer
+                - amount (float): Amount to transfer (must be positive)
+                - limit_price (float): Limit price for the transfer (must be positive)
             from_subaccount_id (int): The subaccount ID to transfer from.
             to_subaccount_id (int): The subaccount ID to transfer to.
             global_direction (str): Global direction for the transfer ("buy" or "sell").
 
         Returns:
             DeriveTxResult: The result of the transfer transaction.
+
+        Raises:
+            ValueError: If positions list is empty, invalid global_direction, or if any instrument not found.
         """
+        # Validate inputs
+        if not positions:
+            raise ValueError("Positions list cannot be empty")
+
+        if global_direction not in ("buy", "sell"):
+            raise ValueError("Global direction must be either 'buy' or 'sell'")
+
         url = self.endpoints.private.transfer_positions
 
         # Get all instruments for lookup
@@ -958,24 +982,20 @@ class BaseClient:
         # Convert positions to TransferPositionsDetails
         transfer_details = []
         for pos in positions:
-            instrument = instruments_map.get(pos["instrument_name"])
+            # Positions are now TransferPosition objects with built-in validation
+            instrument = instruments_map.get(pos.instrument_name)
             if not instrument:
-                raise ValueError(f"Instrument {pos['instrument_name']} not found")
+                raise ValueError(f"Instrument {pos.instrument_name} not found")
 
             transfer_details.append(
                 TransferPositionsDetails(
-                    instrument_name=pos["instrument_name"],
+                    instrument_name=pos.instrument_name,
                     asset_address=instrument["base_asset_address"],
                     sub_id=int(instrument["base_asset_sub_id"]),
-                    limit_price=Decimal(str(pos["limit_price"])),
-                    amount=Decimal(str(abs(pos["amount"]))),
+                    limit_price=Decimal(str(pos.limit_price)),
+                    amount=Decimal(str(abs(pos.amount))),
                 )
             )
-
-        # Generate nonces
-        base_nonce = get_action_nonce()
-        maker_nonce = base_nonce
-        taker_nonce = base_nonce + 1
 
         # Determine opposite direction for taker
         opposite_direction = "sell" if global_direction == "buy" else "buy"
@@ -986,7 +1006,7 @@ class BaseClient:
             owner=self.wallet,
             signer=self.signer.address,
             signature_expiry_sec=MAX_INT_32,
-            nonce=maker_nonce,
+            nonce=get_action_nonce(),  # maker_nonce
             module_address=self.config.contracts.RFQ_MODULE,
             module_data=MakerTransferPositionsModuleData(
                 global_direction=global_direction,
@@ -1002,7 +1022,7 @@ class BaseClient:
             owner=self.wallet,
             signer=self.signer.address,
             signature_expiry_sec=MAX_INT_32,
-            nonce=taker_nonce,
+            nonce=get_action_nonce(),  # taker_nonce
             module_address=self.config.contracts.RFQ_MODULE,
             module_data=TakerTransferPositionsModuleData(
                 global_direction=opposite_direction,
@@ -1025,19 +1045,9 @@ class BaseClient:
         response_data = self._send_request(url, json=payload)
 
         # Extract transaction_id from response for polling
-        if "result" in response_data and "transaction_id" in response_data["result"]:
-            transaction_id = response_data["result"]["transaction_id"]
-            return wait_until(
-                self.get_transaction,
-                condition=_is_final_tx,
-                transaction_id=transaction_id,
-            )
-
-        # If no transaction_id, return a basic result
-        return DeriveTxResult(
-            data=payload,
-            status=DeriveTxStatus.SUCCESS,
-            error_log={},
-            transaction_id="",
-            tx_hash=None,
+        transaction_id = self._extract_transaction_id(response_data)
+        return wait_until(
+            self.get_transaction,
+            condition=_is_final_tx,
+            transaction_id=transaction_id,
         )
