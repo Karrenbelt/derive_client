@@ -848,20 +848,9 @@ class BaseClient:
             raise ValueError(f"Instrument {instrument_name} not found")
         instrument = matching_instruments[0]
 
-        # Get position amount if not provided
-        if position_amount is None:
-            positions = self.get_positions()
-            matching_positions = list(
-                filter(
-                    lambda pos: pos["instrument_name"] == instrument_name
-                    and pos["subaccount_id"] == from_subaccount_id,
-                    positions.get("positions", []),
-                )
-            )
-            position = matching_positions[0] if matching_positions else None
-            if not position:
-                raise ValueError(f"No position found for {instrument_name} in subaccount {from_subaccount_id}")
-            position_amount = float(position["amount"])
+        # Validate position_amount
+        if position_amount == 0:
+            raise ValueError("Position amount cannot be zero")
 
         # Convert to Decimal for precise calculations
         transfer_amount = Decimal(str(abs(amount)))
