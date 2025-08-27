@@ -45,6 +45,7 @@ from .models import (
     NonMintableTokenData,
     PreparedBridgeTx,
     PSignedTransaction,
+    PreparedBridgeTx,
     RPCEndpoints,
     SessionKey,
     TransferPosition,

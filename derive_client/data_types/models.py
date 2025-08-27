@@ -8,8 +8,17 @@ from eth_abi.abi import encode
 from eth_account.datastructures import SignedTransaction
 from eth_utils import is_0x_prefixed, is_address, is_hex, to_checksum_address
 from hexbytes import HexBytes
-from pydantic import BaseModel, ConfigDict, Field, GetCoreSchemaHandler, GetJsonSchemaHandler, HttpUrl, RootModel
-from pydantic import BaseModel, ConfigDict, Field, GetCoreSchemaHandler, GetJsonSchemaHandler, HttpUrl, validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    GetCoreSchemaHandler,
+    GetJsonSchemaHandler,
+    HttpUrl,
+    RootModel,
+    validator,
+)
+from pydantic import BaseModel, ConfigDict, Field, GetCoreSchemaHandler, GetJsonSchemaHandler, HttpUrl, RootModel, validator
 from pydantic.dataclasses import dataclass
 from pydantic_core import core_schema
 from web3 import AsyncWeb3, Web3
