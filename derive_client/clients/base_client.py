@@ -826,12 +826,13 @@ class BaseClient:
             from_subaccount_id (int): The subaccount ID to transfer from.
             to_subaccount_id (int): The subaccount ID to transfer to.
             position_amount (float): The original position amount to determine direction.
+                                   Must be provided explicitly (use get_positions() to fetch current amounts).
 
         Returns:
             DeriveTxResult: The result of the transfer transaction.
 
         Raises:
-            ValueError: If amount or limit_price are not positive, or if instrument not found.
+            ValueError: If amount, limit_price are not positive, position_amount is zero, or if instrument not found.
         """
         # Validate inputs
         if amount <= 0:
@@ -929,6 +930,29 @@ class BaseClient:
             condition=_is_final_tx,
             transaction_id=transaction_id,
         )
+
+    def get_position_amount(self, instrument_name: str, subaccount_id: int) -> float:
+        """
+        Get the current position amount for a specific instrument in a subaccount.
+
+        This is a helper method for getting position amounts to use with transfer_position().
+
+        Parameters:
+            instrument_name (str): The name of the instrument.
+            subaccount_id (int): The subaccount ID to check.
+
+        Returns:
+            float: The current position amount.
+
+        Raises:
+            ValueError: If no position found for the instrument in the subaccount.
+        """
+        positions = self.get_positions()
+        for pos in positions.get("positions", []):
+            if pos["instrument_name"] == instrument_name and pos["subaccount_id"] == subaccount_id:
+                return float(pos["amount"])
+
+        raise ValueError(f"No position found for {instrument_name} in subaccount {subaccount_id}")
 
     def transfer_positions(
         self,

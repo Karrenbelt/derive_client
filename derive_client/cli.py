@@ -816,7 +816,7 @@ def transfer_position(ctx, instrument_name, amount, limit_price, from_subaccount
     "-p",
     type=str,
     required=True,
-    help='JSON string of positions to transfer, e.g. \'[{"instrument_name": "ETH-PERP", "amount": 0.1, "limit_price": 2000}]\'',
+    help='JSON string of positions to transfer, e.g. \'[{"instrument_name": "ETH-PERP", "amount": 0.1, "limit_price": 2000}]\'',  # noqa: E501
 )
 @click.option(
     "--from-subaccount",
