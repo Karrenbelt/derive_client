@@ -14,6 +14,7 @@ from rich import print
 from rich.table import Table
 
 from derive_client.analyser import PortfolioAnalyser
+from derive_client import BaseClient
 from derive_client.data_types import (
     ChainID,
     CollateralAsset,

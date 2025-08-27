@@ -18,7 +18,6 @@ from pydantic import (
     RootModel,
     validator,
 )
-from pydantic import BaseModel, ConfigDict, Field, GetCoreSchemaHandler, GetJsonSchemaHandler, HttpUrl, RootModel, validator
 from pydantic.dataclasses import dataclass
 from pydantic_core import core_schema
 from web3 import AsyncWeb3, Web3
