@@ -2,6 +2,7 @@
 Cli module in order to allow interaction.
 """
 
+import json
 import math
 import os
 from pathlib import Path
@@ -842,7 +843,6 @@ def transfer_position(ctx, instrument_name, amount, limit_price, from_subaccount
 )
 def transfer_positions(ctx, positions_json, from_subaccount, to_subaccount, global_direction):
     """Transfer multiple positions between subaccounts."""
-    import json
 
     try:
         positions = json.loads(positions_json)
@@ -850,7 +850,7 @@ def transfer_positions(ctx, positions_json, from_subaccount, to_subaccount, glob
         click.echo(f"Error parsing positions JSON: {e}")
         return
 
-    client: BaseClient = ctx.obj["client"]
+    client: DeriveClient = ctx.obj["client"]
     result = client.transfer_positions(
         positions=positions,
         from_subaccount_id=from_subaccount,

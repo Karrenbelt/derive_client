@@ -1158,8 +1158,6 @@ class BaseClient:
 
         response_data = self._send_request(url, json=payload)
 
-        print(f"{response_data=}")
-
         # Extract transaction_id from response for polling
         transaction_id = self._extract_transaction_id(response_data)
 

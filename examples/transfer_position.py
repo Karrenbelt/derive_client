@@ -5,62 +5,144 @@ This example shows how to use the derive_client to transfer a single position
 between subaccounts using the transfer_position method.
 """
 
-from derive_client import DeriveClient
-from derive_client.data_types import Environment
+import time
+
+from rich import print
+
+from derive_client.data_types import Environment, InstrumentType, OrderSide, OrderType, UnderlyingCurrency
+from derive_client.derive import DeriveClient
+
+# Configuration - update these values for your setup
+WALLET = "0xA419f70C696a4b449a4A24F92e955D91482d44e9"
+PRIVATE_KEY = "0x2ae8be44db8a590d20bffbe3b6872df9b569147d3bf6801a35a28281a4816bbd"
+ENVIRONMENT = Environment.TEST
 
 
 def main():
-    # Initialize the client
-    WALLET_ADDRESS = "0xeda0656dab4094C7Dc12F8F12AF75B5B3Af4e776"
-    PRIVATE_KEY = "0x83ee63dc6655509aabce0f7e501a31c511195e61e9d0e9917f0a55fd06041a66"
+    """Example of transferring a single position between subaccounts."""
+    print("[blue]=== Single Position Transfer Example ===[/blue]\n")
 
+    # Initialize client
     client = DeriveClient(
-        wallet=WALLET_ADDRESS,
+        wallet=WALLET,
         private_key=PRIVATE_KEY,
-        env=Environment.TEST,  # Use TEST for testnet, PROD for mainnet
-        subaccount_id=137402,  # default subaccount ID
+        env=ENVIRONMENT,
     )
 
-    # Define transfer parameters
-    FROM_SUBACCOUNT_ID = 137402
-    TO_SUBACCOUNT_ID = 137404
-    INSTRUMENT_NAME = "ETH-PERP"
-    TRANSFER_AMOUNT = 0.1  # Amount to transfer (absolute value)
-    LIMIT_PRICE = 2500.0  # Price for the transfer
+    # Get subaccounts
+    subaccounts = client.fetch_subaccounts()
+    subaccount_ids = subaccounts.get("subaccount_ids", [])
 
+    if len(subaccount_ids) < 2:
+        print("Error: Need at least 2 subaccounts for transfer")
+        return
+
+    from_subaccount_id = subaccount_ids[0]
+    to_subaccount_id = subaccount_ids[1]
+
+    print(f"Using subaccounts: {from_subaccount_id} -> {to_subaccount_id}")
+
+    # Find an active instrument
+    instruments = client.fetch_instruments(
+        instrument_type=InstrumentType.PERP, currency=UnderlyingCurrency.ETH, expired=False
+    )
+
+    active_instruments = [inst for inst in instruments if inst.get("is_active", True)]
+    if not active_instruments:
+        print("No active instruments found")
+        return
+
+    instrument_name = active_instruments[0]["instrument_name"]
+    print(f"Using instrument: {instrument_name}")
+
+    # Check if we have a position to transfer
+    client.subaccount_id = from_subaccount_id
     try:
-        print(f"Transferring {TRANSFER_AMOUNT} of {INSTRUMENT_NAME}")
-        print(f"From subaccount: {FROM_SUBACCOUNT_ID}")
-        print(f"To subaccount: {TO_SUBACCOUNT_ID}")
-        print(f"At limit price: {LIMIT_PRICE}")
+        position_amount = client.get_position_amount(instrument_name, from_subaccount_id)
+        print(f"Found existing position: {position_amount}")
+    except ValueError:
+        # Create a small position for demonstration
+        print("No existing position - creating one for demo...")
 
-        # First, get the current position amount to determine direction
+        ticker = client.fetch_ticker(instrument_name)
+        mark_price = float(ticker["mark_price"])
+        trade_price = round(mark_price, 2)
+
+        # Create a small short position
+        order_result = client.create_order(
+            price=trade_price,
+            amount=1.0,
+            instrument_name=instrument_name,
+            side=OrderSide.SELL,
+            order_type=OrderType.LIMIT,
+            instrument_type=InstrumentType.PERP,
+        )
+        print(f"Created order: {order_result['order_id']}")
+
+        time.sleep(3)  # Wait for fill
+
         try:
-            position_amount = client.get_position_amount(INSTRUMENT_NAME, FROM_SUBACCOUNT_ID)
-            print(f"Current position amount: {position_amount}")
-        except ValueError as e:
-            print(f"Error: {e}")
+            position_amount = client.get_position_amount(instrument_name, from_subaccount_id)
+            print(f"Position after trade: {position_amount}")
+        except ValueError:
+            print("Failed to create position")
             return
 
-        # Transfer the position
-        result = client.transfer_position(
-            instrument_name=INSTRUMENT_NAME,
-            amount=TRANSFER_AMOUNT,
-            limit_price=LIMIT_PRICE,
-            from_subaccount_id=FROM_SUBACCOUNT_ID,
-            to_subaccount_id=TO_SUBACCOUNT_ID,
-            position_amount=position_amount,  # Now required parameter
-        )
+    if abs(position_amount) < 0.01:
+        print("No meaningful position to transfer")
+        return
 
-        print("Transfer successful!")
-        print(f"Transaction ID: {result.transaction_id}")
-        print(f"Status: {result.status}")
-        print(f"Transaction Hash: {result.tx_hash}")
+    # Get current market price for transfer
+    ticker = client.fetch_ticker(instrument_name)
+    transfer_price = float(ticker["mark_price"])
+    # beacuse of `must not have more than 2 decimal places` error from the derive API
+    transfer_price = round(transfer_price, 2)
 
-    except ValueError as e:
-        print(f"Error: {e}")
-    except Exception as e:
-        print(f"Unexpected error: {e}")
+    print(f"\nTransferring position...")
+    print(f"  Amount: {abs(position_amount)}")
+    print(f"  Price: {transfer_price}")
+    print(f"  From: {from_subaccount_id}")
+    print(f"  To: {to_subaccount_id}")
+
+    # Execute the transfer
+    transfer_result = client.transfer_position(
+        instrument_name=instrument_name,
+        amount=abs(position_amount),
+        limit_price=transfer_price,
+        from_subaccount_id=from_subaccount_id,
+        to_subaccount_id=to_subaccount_id,
+        position_amount=position_amount,
+        instrument_type=InstrumentType.PERP,
+        currency=UnderlyingCurrency.ETH,
+    )
+
+    print(f"\nTransfer completed!")
+    print(f"Transaction ID: {transfer_result.transaction_id}")
+    print(f"Status: {transfer_result.status.value}")
+
+    # Wait for settlement
+    time.sleep(3)
+
+    # Verify the transfer
+    print("\nVerifying transfer...")
+
+    # Check source position
+    client.subaccount_id = from_subaccount_id
+    try:
+        source_position = client.get_position_amount(instrument_name, from_subaccount_id)
+        print(f"Source position: {source_position}")
+    except ValueError:
+        print("Source position: 0")
+
+    # Check target position
+    client.subaccount_id = to_subaccount_id
+    try:
+        target_position = client.get_position_amount(instrument_name, to_subaccount_id)
+        print(f"Target position: {target_position}")
+    except ValueError:
+        print("Target position: 0")
+
+    print("\nTransfer example completed!")
 
 
 if __name__ == "__main__":

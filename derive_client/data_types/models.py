@@ -15,6 +15,7 @@ from pydantic import (
     GetCoreSchemaHandler,
     GetJsonSchemaHandler,
     HttpUrl,
+    PositiveFloat,
     RootModel,
     validator,
 )
@@ -411,21 +412,10 @@ class WithdrawResult(BaseModel):
 class TransferPosition(BaseModel):
     """Model for position transfer data."""
 
+    # Ref: https://docs.pydantic.dev/2.3/usage/types/number_types/#constrained-types
     instrument_name: str
-    amount: float
-    limit_price: float
-
-    @validator('amount')
-    def validate_amount(cls, v):
-        if v <= 0:
-            raise ValueError('Transfer amount must be positive')
-        return v
-
-    @validator('limit_price')
-    def validate_limit_price(cls, v):
-        if v <= 0:
-            raise ValueError('Limit price must be positive')
-        return v
+    amount: PositiveFloat
+    limit_price: PositiveFloat
 
 
 class DeriveTxResult(BaseModel):
