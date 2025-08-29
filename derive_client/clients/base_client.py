@@ -1111,9 +1111,6 @@ class BaseClient:
         # Determine opposite direction for taker
         opposite_direction = "sell" if global_direction == "buy" else "buy"
 
-        # TODO: Add this to the contracts class
-        RFQ_MODULE = "0x4E4DD8Be1e461913D9A5DBC4B830e67a8694ebCa"
-
         # Create maker action (sender) - USING RFQ_MODULE, not TRADE_MODULE
         maker_action = SignedAction(
             subaccount_id=from_subaccount_id,
@@ -1121,7 +1118,7 @@ class BaseClient:
             signer=self.signer.address,
             signature_expiry_sec=MAX_INT_32,
             nonce=get_action_nonce(),  # maker_nonce
-            module_address=RFQ_MODULE,
+            module_address=self.config.contracts.RFQ_MODULE,
             module_data=MakerTransferPositionsModuleData(
                 global_direction=global_direction,
                 positions=transfer_details,
@@ -1140,7 +1137,7 @@ class BaseClient:
             signer=self.signer.address,
             signature_expiry_sec=MAX_INT_32,
             nonce=get_action_nonce(),
-            module_address=RFQ_MODULE,  # self.config.contracts.RFQ_MODULE,
+            module_address=self.config.contracts.RFQ_MODULE,
             module_data=TakerTransferPositionsModuleData(
                 global_direction=opposite_direction,
                 positions=transfer_details,
