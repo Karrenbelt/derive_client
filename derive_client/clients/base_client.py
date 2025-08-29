@@ -8,6 +8,7 @@ import time
 from decimal import Decimal
 from logging import Logger, LoggerAdapter
 from time import sleep
+from typing import Optional
 
 import eth_abi
 import requests
@@ -830,22 +831,25 @@ class BaseClient:
         from_subaccount_id: int,
         to_subaccount_id: int,
         position_amount: float,
+        instrument_type: Optional[InstrumentType] = None,
+        currency: Optional[UnderlyingCurrency] = None,
     ) -> DeriveTxResult:
         """
         Transfer a single position between subaccounts.
-
         Parameters:
             instrument_name (str): The name of the instrument to transfer.
             amount (float): The amount to transfer (absolute value). Must be positive.
             limit_price (float): The limit price for the transfer. Must be positive.
             from_subaccount_id (int): The subaccount ID to transfer from.
-            to_subaccount_id (int): The subaccount ID to transfer to.
+            to_subaccount_id (int): The subaccount_id to transfer to.
             position_amount (float): The original position amount to determine direction.
-                                   Must be provided explicitly (use get_positions() to fetch current amounts).
-
+                                Must be provided explicitly (use get_positions() to fetch current amounts).
+            instrument_type (Optional[InstrumentType]): The type of instrument (PERP, OPTION, etc.).
+                                                    If not provided, it will be inferred from the instrument name.
+            currency (Optional[UnderlyingCurrency]): The underlying currency of the instrument.
+                                                If not provided, it will be inferred from the instrument name.
         Returns:
             DeriveTxResult: The result of the transfer transaction.
-
         Raises:
             ValueError: If amount, limit_price are not positive, position_amount is zero, or if instrument not found.
         """
@@ -854,22 +858,38 @@ class BaseClient:
             raise ValueError("Transfer amount must be positive")
         if limit_price <= 0:
             raise ValueError("Limit price must be positive")
-
         url = self.endpoints.private.transfer_position
 
-        # Get instrument details - use ETH currency only
+        # Infer instrument type and currency if not provided
+        if instrument_type is None or currency is None:
+            parts = instrument_name.split("-")
+            if len(parts) > 0 and parts[0] in UnderlyingCurrency.__members__:
+                currency = UnderlyingCurrency[parts[0]]
+
+            # Determine instrument type
+            if instrument_type is None:
+                if len(parts) > 1 and parts[1] == "PERP":
+                    instrument_type = InstrumentType.PERP
+                elif len(parts) >= 4:  # Option format: BTC-20240329-1600-C
+                    instrument_type = InstrumentType.OPTION
+                else:
+                    # Default to PERP if we can't determine
+                    instrument_type = InstrumentType.PERP
+
+        # If we still don't have currency, default to ETH
+        if currency is None:
+            currency = UnderlyingCurrency.ETH
+
+        # Get instrument details
         try:
-            instruments = self.fetch_instruments(instrument_type=InstrumentType.PERP, currency=UnderlyingCurrency.ETH)
-            matching_instruments = list(filter(lambda inst: inst["instrument_name"] == instrument_name, instruments))
+            instruments = self.fetch_instruments(instrument_type=instrument_type, currency=currency, expired=False)
+            matching_instruments = [inst for inst in instruments if inst["instrument_name"] == instrument_name]
             if matching_instruments:
                 instrument = matching_instruments[0]
             else:
-                instrument = None
-        except Exception:
-            instrument = None
-
-        if not instrument:
-            raise ValueError(f"Instrument {instrument_name} not found")
+                raise ValueError(f"Instrument {instrument_name} not found for {currency.name} {instrument_type.value}")
+        except Exception as e:
+            raise ValueError(f"Failed to fetch instruments: {str(e)}")
 
         # Validate position_amount
         if position_amount == 0:
@@ -901,8 +921,6 @@ class BaseClient:
         )
 
         # Small delay to ensure different nonces
-        import time
-
         time.sleep(0.001)
 
         # Create taker action (recipient)
@@ -911,7 +929,7 @@ class BaseClient:
             owner=self.wallet,
             signer=self.signer.address,
             signature_expiry_sec=MAX_INT_32,
-            nonce=get_action_nonce(),  # taker_nonce
+            nonce=get_action_nonce(),
             module_address=self.config.contracts.TRADE_MODULE,
             module_data=TakerTransferPositionModuleData(
                 asset_address=instrument["base_asset_address"],
@@ -935,7 +953,6 @@ class BaseClient:
             "instrument_name": instrument_name,
             **maker_action.to_json(),
         }
-
         taker_params = {
             "direction": taker_action.module_data.get_direction(),
             "instrument_name": instrument_name,
@@ -953,7 +970,6 @@ class BaseClient:
         # Extract transaction_id from response for polling
         transaction_id = self._extract_transaction_id(response_data)
 
-        # Return successful result for position transfers (they execute immediately)
         return DeriveTxResult(
             data=response_data,
             status=DeriveTxStatus.SETTLED,
@@ -996,7 +1012,6 @@ class BaseClient:
     ) -> DeriveTxResult:
         """
         Transfer multiple positions between subaccounts using RFQ system.
-
         Parameters:
             positions (list[TransferPosition]): list of TransferPosition objects containing:
                 - instrument_name (str): Name of the instrument
@@ -1005,35 +1020,67 @@ class BaseClient:
             from_subaccount_id (int): The subaccount ID to transfer from.
             to_subaccount_id (int): The subaccount ID to transfer to.
             global_direction (str): Global direction for the transfer ("buy" or "sell").
-
         Returns:
             DeriveTxResult: The result of the transfer transaction.
-
         Raises:
             ValueError: If positions list is empty, invalid global_direction, or if any instrument not found.
         """
         # Validate inputs
         if not positions:
             raise ValueError("Positions list cannot be empty")
-
         if global_direction not in ("buy", "sell"):
             raise ValueError("Global direction must be either 'buy' or 'sell'")
-
         url = self.endpoints.private.transfer_positions
 
-        # Get all instruments for lookup - use ETH currency only
+        # Collect unique instrument types and currencies
+        instrument_types = set()
+        currencies = set()
+
+        # Analyze all positions to determine what instruments we need
+        for pos in positions:
+            parts = pos.instrument_name.split("-")
+            if len(parts) > 0 and parts[0] in UnderlyingCurrency.__members__:
+                currencies.add(UnderlyingCurrency[parts[0]])
+
+            # Determine instrument type
+            if len(parts) > 1 and parts[1] == "PERP":
+                instrument_types.add(InstrumentType.PERP)
+            elif len(parts) >= 4:  # Option format: BTC-20240329-1600-C
+                instrument_types.add(InstrumentType.OPTION)
+            else:
+                instrument_types.add(InstrumentType.PERP)  # Default to PERP
+
+        # Ensure we have at least one currency and instrument type
+        if not currencies:
+            currencies.add(UnderlyingCurrency.ETH)
+        if not instrument_types:
+            instrument_types.add(InstrumentType.PERP)
+
+        # Fetch all required instruments
         instruments_map = {}
-        try:
-            instruments = self.fetch_instruments(instrument_type=InstrumentType.PERP, currency=UnderlyingCurrency.ETH)
-            for inst in instruments:
-                instruments_map[inst["instrument_name"]] = inst
-        except Exception:
-            pass
+        for currency in currencies:
+            for instrument_type in instrument_types:
+                try:
+                    instruments = self.fetch_instruments(
+                        instrument_type=instrument_type, currency=currency, expired=False
+                    )
+                    for inst in instruments:
+                        instruments_map[inst["instrument_name"]] = inst
+                except Exception as e:
+                    self.logger.warning(
+                        f"Failed to fetch {currency.name} {instrument_type.value} instruments: {str(e)}"
+                    )
 
         # Convert positions to TransferPositionsDetails
         transfer_details = []
         for pos in positions:
-            # Positions are now TransferPosition objects with built-in validation
+            # Validate position data
+            if pos.amount <= 0:
+                raise ValueError(f"Transfer amount for {pos.instrument_name} must be positive")
+            if pos.limit_price <= 0:
+                raise ValueError(f"Limit price for {pos.instrument_name} must be positive")
+
+            # Get instrument details
             instrument = instruments_map.get(pos.instrument_name)
             if not instrument:
                 raise ValueError(f"Instrument {pos.instrument_name} not found")
@@ -1041,7 +1088,7 @@ class BaseClient:
             transfer_details.append(
                 TransferPositionsDetails(
                     instrument_name=pos.instrument_name,
-                    direction=global_direction,  # Use the global direction
+                    direction=global_direction,
                     asset_address=instrument["base_asset_address"],
                     sub_id=int(instrument["base_asset_sub_id"]),
                     price=Decimal(str(pos.limit_price)),
@@ -1052,14 +1099,17 @@ class BaseClient:
         # Determine opposite direction for taker
         opposite_direction = "sell" if global_direction == "buy" else "buy"
 
-        # Create maker action (sender)
+        # TODO: Add this to the contracts class
+        RFQ_MODULE = "0x4E4DD8Be1e461913D9A5DBC4B830e67a8694ebCa"
+
+        # Create maker action (sender) - USING RFQ_MODULE, not TRADE_MODULE
         maker_action = SignedAction(
             subaccount_id=from_subaccount_id,
             owner=self.wallet,
             signer=self.signer.address,
             signature_expiry_sec=MAX_INT_32,
             nonce=get_action_nonce(),  # maker_nonce
-            module_address=self.config.contracts.TRADE_MODULE,
+            module_address=RFQ_MODULE,
             module_data=MakerTransferPositionsModuleData(
                 global_direction=global_direction,
                 positions=transfer_details,
@@ -1071,14 +1121,14 @@ class BaseClient:
         # Small delay to ensure different nonces
         time.sleep(0.001)
 
-        # Create taker action (recipient)
+        # Create taker action (recipient) - USING RFQ_MODULE, not TRADE_MODULE
         taker_action = SignedAction(
             subaccount_id=to_subaccount_id,
             owner=self.wallet,
             signer=self.signer.address,
             signature_expiry_sec=MAX_INT_32,
-            nonce=get_action_nonce(),  # taker_nonce
-            module_address=self.config.contracts.TRADE_MODULE,
+            nonce=get_action_nonce(),
+            module_address=RFQ_MODULE,  # self.config.contracts.RFQ_MODULE,
             module_data=TakerTransferPositionsModuleData(
                 global_direction=opposite_direction,
                 positions=transfer_details,
@@ -1102,7 +1152,6 @@ class BaseClient:
         # Extract transaction_id from response for polling
         transaction_id = self._extract_transaction_id(response_data)
 
-        # Return successful result for position transfers (they execute immediately)
         return DeriveTxResult(
             data=response_data,
             status=DeriveTxStatus.SETTLED,
