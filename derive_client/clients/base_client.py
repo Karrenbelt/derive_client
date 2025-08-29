@@ -809,17 +809,29 @@ class BaseClient:
             if transaction_id:
                 return transaction_id
 
-        # Transfer response format - check maker_order for transaction_id
+        # Transfer response format - check maker_order for transaction_id (old format)
         if "maker_order" in response_data:
             maker_order = response_data["maker_order"]
             if isinstance(maker_order, dict) and "order_id" in maker_order:
                 return maker_order["order_id"]
 
-        # Alternative: use taker_order transaction_id
+        # Alternative: use taker_order transaction_id (old format)
         if "taker_order" in response_data:
             taker_order = response_data["taker_order"]
             if isinstance(taker_order, dict) and "order_id" in taker_order:
                 return taker_order["order_id"]
+
+        # Transfer response format - check maker_quote for quote_id (new format)
+        if "maker_quote" in response_data:
+            maker_quote = response_data["maker_quote"]
+            if isinstance(maker_quote, dict) and "quote_id" in maker_quote:
+                return maker_quote["quote_id"]
+
+        # use taker_quote quote_id (new format) if all of the above failed
+        if "taker_quote" in response_data:
+            taker_quote = response_data["taker_quote"]
+            if isinstance(taker_quote, dict) and "quote_id" in taker_quote:
+                return taker_quote["quote_id"]
 
         raise ValueError("No valid transaction ID found in response")
 
@@ -1148,6 +1160,8 @@ class BaseClient:
         }
 
         response_data = self._send_request(url, json=payload)
+
+        print(f"{response_data=}")
 
         # Extract transaction_id from response for polling
         transaction_id = self._extract_transaction_id(response_data)

@@ -10,7 +10,6 @@ import pytest
 from derive_client.clients import AsyncClient
 from derive_client.data_types import Environment, InstrumentType, OrderSide, OrderType, UnderlyingCurrency
 from derive_client.derive import DeriveClient
-from derive_client.exceptions import DeriveJSONRPCException
 from derive_client.utils import get_logger
 
 TEST_WALLET = "0x8772185a1516f0d61fC1c2524926BfC69F95d698"
@@ -49,7 +48,8 @@ async def derive_async_client():
 @pytest.fixture
 def derive_client_2():
     # Exacted derive wallet address from the derive dashboard
-    # NOTE: Because of importing the account through metamask mostlikely derive created a new wallet with the fowllowing address
+    # NOTE: Because of importing the account through metamask mostlikely derive created a
+    # new wallet with the fowllowing address
     test_wallet = "0xA419f70C696a4b449a4A24F92e955D91482d44e9"
     test_private_key = TEST_PRIVATE_KEY
 
