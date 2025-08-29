@@ -2,6 +2,7 @@
 Conftest for derive tests
 """
 
+import time
 from unittest.mock import MagicMock
 
 import pytest
@@ -66,158 +67,94 @@ def derive_client_2():
 def position_setup(derive_client_2):
     """
     Create a position for transfer testing and return position details.
-    Yields: dict with position info including subaccount_id, instrument_name, amount
+    Returns: dict with position info including subaccount_ids, instrument_name, position_amount, etc.
     """
     # Get available subaccounts
     subaccounts = derive_client_2.fetch_subaccounts()
-    print(f"Subaccounts: {subaccounts}")
-    subaccount_ids = subaccounts['subaccount_ids']
-    print(f"Subaccount IDs: {subaccount_ids}")
+    subaccount_ids = subaccounts.get("subaccount_ids", [])
 
-    if len(subaccount_ids) < 2:
-        print("ERROR: Need at least 2 subaccounts for position transfer tests")
-        return None
+    assert len(subaccount_ids) >= 2, "Need at least 2 subaccounts for position transfer tests"
 
     from_subaccount_id = subaccount_ids[0]
     to_subaccount_id = subaccount_ids[1]
-    print(f"From subaccount: {from_subaccount_id}")
-    print(f"To subaccount: {to_subaccount_id}")
 
-    # Fetch available instruments dynamically instead of hardcoding
+    # Find active instrument
     instrument_name = None
-    instruments = []
+    instrument_type = None
+    currency = None
 
-    # Try to fetch instruments for different currency types
-    # currencies_to_try = [UnderlyingCurrency.BTC, UnderlyingCurrency.ETH, UnderlyingCurrency.USDC, UnderlyingCurrency.LBTC]
-    currencies_to_try = [UnderlyingCurrency.ETH]
+    instrument_combinations = [
+        (InstrumentType.PERP, UnderlyingCurrency.ETH),
+        (InstrumentType.PERP, UnderlyingCurrency.BTC),
+    ]
 
-    for currency in currencies_to_try:
+    for inst_type, curr in instrument_combinations:
         try:
-            instruments = derive_client_2.fetch_instruments(instrument_type=InstrumentType.PERP, currency=currency)
-            # Filter for active instruments only
+            instruments = derive_client_2.fetch_instruments(instrument_type=inst_type, currency=curr, expired=False)
             active_instruments = [inst for inst in instruments if inst.get("is_active", True)]
             if active_instruments:
                 instrument_name = active_instruments[0]["instrument_name"]
-                print(f"Selected instrument: {instrument_name} from currency {currency}")
+                instrument_type = inst_type
+                currency = curr
                 break
-        except Exception as e:
-            print(f"Failed to fetch instruments for {currency}: {e}")
+        except Exception:
             continue
 
-    # Fallback to hardcoded instrument if no instruments found
-    if not instrument_name:
-        instrument_name = "BTC-PERP"
-        print("Falling back to hardcoded instrument: BTC-PERP")
+    assert instrument_name is not None, "No active instruments found"
 
-    test_amount = 100
+    test_amount = 10
 
-    # Get current market data to place a reasonable order that will fill
-    try:
-        ticker = derive_client_2.fetch_ticker(instrument_name=instrument_name)
-        print(f"Ticker data for {instrument_name}: {ticker}")
+    # Get market data for pricing
+    ticker = derive_client_2.fetch_ticker(instrument_name)
+    mark_price = float(ticker["mark_price"])
+    trade_price = round(mark_price, 2)
 
-        # Get the best ask price to place a buy order that will fill immediately
-        best_ask_price = float(ticker.get('best_ask_price', 0))
-        best_bid_price = float(ticker.get('best_bid_price', 0))
-        mark_price = float(ticker.get('mark_price', 0))
+    # Create matching buy/sell pair for guaranteed fill
+    # Step 1: Create BUY order on target subaccount
+    derive_client_2.subaccount_id = to_subaccount_id
+    buy_order = derive_client_2.create_order(
+        price=trade_price,
+        amount=test_amount,
+        instrument_name=instrument_name,
+        side=OrderSide.BUY,
+        order_type=OrderType.LIMIT,
+        instrument_type=instrument_type,
+    )
 
-        if best_ask_price == 0:
-            best_ask_price = 1
+    assert buy_order is not None, "Buy order should be created"
+    assert "order_id" in buy_order, "Buy order should have order_id"
 
-        print(f"Best ask price: {best_ask_price}, Best bid price: {best_bid_price}, Mark price: {mark_price}")
+    time.sleep(1.0)  # Small delay
 
-        # Use market order for immediate fill, or use a price that will definitely fill
-        order_price = round(best_ask_price * 1.01, 1)  # 1% above best ask to ensure fill, rounded to 1 decimal place
-        print(f"Using order price: {order_price} to ensure immediate fill")
-    except Exception as e:
-        print(f"Error getting ticker, using fallback price: {e}")
-        order_price = 120000.0  # High price to ensure fill for BTC
+    # Step 2: Create matching SELL order on source subaccount
+    derive_client_2.subaccount_id = from_subaccount_id
+    sell_order = derive_client_2.create_order(
+        price=trade_price,
+        amount=test_amount,
+        instrument_name=instrument_name,
+        side=OrderSide.SELL,
+        order_type=OrderType.LIMIT,
+        instrument_type=instrument_type,
+    )
 
-    # Check existing positions first
-    position_amount = 0
-    try:
-        position_amount = derive_client_2.get_position_amount(instrument_name, from_subaccount_id)
-        print(f"Existing position amount: {position_amount}")
-    except ValueError as e:
-        print(f"No existing position found: {e}")
-    except Exception as e:
-        print(f"Error checking existing positions: {e}")
+    assert sell_order is not None, "Sell order should be created"
+    assert "order_id" in sell_order, "Sell order should have order_id"
 
-    # Create a position by placing and filling an order (only if no existing position)
-    order_result = None
-    if position_amount == 0:
-        try:
-            # Set subaccount for the order
-            derive_client_2.subaccount_id = from_subaccount_id
-            print(f"Setting subaccount_id to: {from_subaccount_id}")
+    time.sleep(2.0)  # Wait for trade execution
 
-            print("Creating order...")
-            order_result = derive_client_2.create_order(
-                price=order_price,
-                amount=test_amount,
-                instrument_name=instrument_name,
-                side=OrderSide.BUY,
-                order_type=OrderType.LIMIT,
-                instrument_type=InstrumentType.PERP,
-            )
-            print(f"Order result: {order_result}")
+    # Verify position was created
+    position_amount = derive_client_2.get_position_amount(instrument_name, from_subaccount_id)
+    assert abs(position_amount) > 0, f"Position should be created, got {position_amount}"
 
-            # Wait a moment for order to potentially fill
-            import time
-
-            time.sleep(2.0)  # Increased wait time for order to fill
-
-            # Get the actual position amount
-            try:
-                position_amount = derive_client_2.get_position_amount(instrument_name, from_subaccount_id)
-                print(f"Position amount retrieved: {position_amount}")
-            except ValueError as e:
-                print(f"ValueError getting position amount: {e}")
-                # If no position exists, use the order amount as expected amount
-                position_amount = test_amount
-            except Exception as e:
-                print(f"Exception getting position amount: {e}")
-                # If no position exists, use the order amount as expected amount
-                position_amount = test_amount
-
-        except DeriveJSONRPCException as e:
-            if e.code == 11000:  # Insufficient funds error
-                print(f"Expected error due to insufficient funds: {e}")
-                print("This is normal for test accounts. Continuing with debug info...")
-                position_amount = 0  # No position created
-            else:
-                print(f"Unexpected Derive RPC error: {e}")
-                import traceback
-
-                traceback.print_exc()
-                return None
-        except Exception as e:
-            print(f"ERROR: Failed to create test position: {e}")
-            import traceback
-
-            traceback.print_exc()
-            return None
-
-    # Clean up any open orders before proceeding
-    # if order_result and 'order_id' in order_result:
-    #     try:
-    #         derive_client_2.cancel(order_id=order_result['order_id'], instrument_name=instrument_name)
-    #     except Exception:
-    #         pass
-
-    # Skip test if we don't have a position to transfer
-    # if position_amount == 0:
-    #     pytest.skip("No position created for transfer test - likely due to insufficient funds")
-
-    # Return position information
-    position_info = {
-        'from_subaccount_id': from_subaccount_id,
-        'to_subaccount_id': to_subaccount_id,
-        'instrument_name': instrument_name,
-        'position_amount': position_amount,
-        'order_price': order_price,
-        'mark_price': mark_price,
-        'created_order': order_result,
+    return {
+        "from_subaccount_id": from_subaccount_id,
+        "to_subaccount_id": to_subaccount_id,
+        "instrument_name": instrument_name,
+        "instrument_type": instrument_type,
+        "currency": currency,
+        "position_amount": position_amount,
+        "trade_price": trade_price,
+        "test_amount": test_amount,
+        "buy_order": buy_order,
+        "sell_order": sell_order,
     }
-
-    return position_info
