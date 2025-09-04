@@ -37,6 +37,7 @@ from .enums import (
     MainnetCurrency,
     MarginType,
     OrderSide,
+    QuoteStatus,
     SessionKeyScope,
     TimeInForce,
     TxStatus,
@@ -523,3 +524,33 @@ class Trade(BaseModel):
     transaction_id: str
     tx_hash: str | None
     tx_status: DeriveTxStatus
+
+
+class Leg(BaseModel):
+    amount: float
+    direction: OrderSide
+    instrument_name: str
+    price: float
+
+
+class Quote(BaseModel):
+    cancel_reason: str
+    creation_timestamp: int
+    direction: OrderSide
+    fee: float
+    fill_pct: int
+    is_transfer: bool
+    label: str
+    last_update_timestamp: int
+    legs: list[Leg]
+    legs_hash: str
+    liquidity_role: LiquidityRole
+    max_fee: float
+    mmp: bool
+    nonce: int
+    quote_id: str
+    rfq_id: str
+    signature: str
+    signature_expiry_sec: int
+    signer: Address
+    status: QuoteStatus

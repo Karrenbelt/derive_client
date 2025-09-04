@@ -20,6 +20,13 @@ class DeriveTxStatus(Enum):
     TIMED_OUT = "timed_out"
 
 
+class QuoteStatus(Enum):
+    OPEN = "open"
+    FILLED = "filled"
+    CANCELLED = "cancelled"
+    EXPIRED = "expired"
+
+
 class BridgeType(Enum):
     SOCKET = "socket"
     LAYERZERO = "layerzero"
