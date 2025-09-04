@@ -35,7 +35,9 @@ from .enums import (
     GasPriority,
     MainnetCurrency,
     MarginType,
+    OrderSide,
     SessionKeyScope,
+    TimeInForce,
     TxStatus,
 )
 
@@ -464,3 +466,35 @@ class FeeEstimates(RootModel):
 
     def items(self):
         return self.root.items()
+
+
+class Order(BaseModel):
+    amount: float
+    average_price: float
+    cancel_reason: str
+    creation_timestamp: int
+    direction: OrderSide
+    filled_amount: float
+    instrument_name: str
+    is_transfer: bool
+    label: str
+    last_update_timestamp: int
+    limit_price: float
+    max_fee: float
+    mmp: bool
+    nonce: int
+    order_fee: float
+    order_id: str
+    order_status: str
+    order_type: str
+    quote_id: None
+    replaced_order_id: str | None
+    signature: str
+    signature_expiry_sec: int
+    signer: str
+    subaccount_id: int
+    time_in_force: TimeInForce
+    trigger_price: float | None
+    trigger_price_type: str | None
+    trigger_reject_message: str | None
+    trigger_type: str | None
