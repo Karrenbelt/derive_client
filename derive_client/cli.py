@@ -798,7 +798,7 @@ def create_order(ctx, instrument_name, side, price, amount, order_type, instrume
 )
 def transfer_position(ctx, instrument_name, amount, limit_price, from_subaccount, to_subaccount, position_amount):
     """Transfer a single position between subaccounts."""
-    client: BaseClient = ctx.obj["client"]
+    client: DeriveClient = ctx.obj["client"]
     result = client.transfer_position(
         instrument_name=instrument_name,
         amount=amount,

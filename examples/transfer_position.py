@@ -98,7 +98,7 @@ def main():
     # beacuse of `must not have more than 2 decimal places` error from the derive API
     transfer_price = round(transfer_price, 2)
 
-    print(f"\nTransferring position...")
+    print("\nTransferring position...")
     print(f"  Amount: {abs(position_amount)}")
     print(f"  Price: {transfer_price}")
     print(f"  From: {from_subaccount_id}")
@@ -116,7 +116,7 @@ def main():
         currency=UnderlyingCurrency.ETH,
     )
 
-    print(f"\nTransfer completed!")
+    print("\nTransfer completed!")
     print(f"Transaction ID: {transfer_result.transaction_id}")
     print(f"Status: {transfer_result.status.value}")
 

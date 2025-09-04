@@ -246,11 +246,11 @@ def main():
         print(f"  Target after: {target_position}")
 
         if abs(source_position) < abs(original_amount):
-            print(f"  Status: Transfer successful (source position reduced)")
+            print("  Status: Transfer successful (source position reduced)")
         elif abs(target_position) > 0:
-            print(f"  Status: Position found in target (may include existing positions)")
+            print("  Status: Position found in target (may include existing positions)")
         else:
-            print(f"  Status: Verification inconclusive")
+            print("  Status: Verification inconclusive")
 
     print("\nMultiple position transfer example completed!")
     print("Note: Transfers add to existing positions in target account")

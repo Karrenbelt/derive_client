@@ -17,7 +17,6 @@ from pydantic import (
     HttpUrl,
     PositiveFloat,
     RootModel,
-    validator,
 )
 from pydantic.dataclasses import dataclass
 from pydantic_core import core_schema
