@@ -33,6 +33,7 @@ from .enums import (
     Currency,
     DeriveTxStatus,
     GasPriority,
+    LiquidityRole,
     MainnetCurrency,
     MarginType,
     OrderSide,
@@ -498,3 +499,27 @@ class Order(BaseModel):
     trigger_price_type: str | None
     trigger_reject_message: str | None
     trigger_type: str | None
+
+
+class Trade(BaseModel):
+    direction: OrderSide
+    expected_rebate: float
+    index_price: float
+    instrument_name: str
+    is_transfer: bool
+    label: str
+    liquidity_role: LiquidityRole
+    mark_price: float
+    order_id: str
+    quote_id: None
+    realized_pnl: float
+    realized_pnl_excl_fees: float
+    subaccount_id: int
+    timestamp: int
+    trade_amount: float
+    trade_fee: float
+    trade_id: str
+    trade_price: float
+    transaction_id: str
+    tx_hash: str | None
+    tx_status: DeriveTxStatus

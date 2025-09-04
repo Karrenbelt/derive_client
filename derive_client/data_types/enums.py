@@ -187,6 +187,11 @@ class OrderStatus(Enum):
     EXPIRED = "expired"
 
 
+class LiquidityRole(Enum):
+    MAKER = "maker"
+    TAKER = "taker"
+
+
 class TimeInForce(Enum):
     """Time in force."""
 
