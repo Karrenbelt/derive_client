@@ -46,37 +46,19 @@ async def derive_async_client():
 
 
 @pytest.fixture
-def derive_client_2():
-    # Exacted derive wallet address from the derive dashboard
-    # NOTE: Because of importing the account through metamask mostlikely derive created a
-    # new wallet with the fowllowing address
-    test_wallet = "0xA419f70C696a4b449a4A24F92e955D91482d44e9"
-    test_private_key = TEST_PRIVATE_KEY
-
-    derive_client = DeriveClient(
-        wallet=test_wallet,
-        private_key=test_private_key,
-        env=Environment.TEST,
-    )
-    # Don't set subaccount_id here - let position_setup handle it dynamically
-    yield derive_client
-    derive_client.cancel_all()
-
-
-@pytest.fixture
-def position_setup(derive_client_2):
+def position_setup(derive_client):
     """
     Create a position for transfer testing and return position details.
     Returns: dict with position info including subaccount_ids, instrument_name, position_amount, etc.
     """
     # Get available subaccounts
-    subaccounts = derive_client_2.fetch_subaccounts()
+    subaccounts = derive_client.fetch_subaccounts()
     subaccount_ids = subaccounts.get("subaccount_ids", [])
 
     assert len(subaccount_ids) >= 2, "Need at least 2 subaccounts for position transfer tests"
 
-    from_subaccount_id = subaccount_ids[0]
-    to_subaccount_id = subaccount_ids[1]
+    from_subaccount_id = subaccount_ids[1]
+    to_subaccount_id = subaccount_ids[0]
 
     # Find active instrument
     instrument_name = None
@@ -90,7 +72,7 @@ def position_setup(derive_client_2):
 
     for inst_type, curr in instrument_combinations:
         try:
-            instruments = derive_client_2.fetch_instruments(instrument_type=inst_type, currency=curr, expired=False)
+            instruments = derive_client.fetch_instruments(instrument_type=inst_type, currency=curr, expired=False)
             active_instruments = [inst for inst in instruments if inst.get("is_active", True)]
             if active_instruments:
                 instrument_name = active_instruments[0]["instrument_name"]
@@ -105,14 +87,14 @@ def position_setup(derive_client_2):
     test_amount = 10
 
     # Get market data for pricing
-    ticker = derive_client_2.fetch_ticker(instrument_name)
+    ticker = derive_client.fetch_ticker(instrument_name)
     mark_price = float(ticker["mark_price"])
     trade_price = round(mark_price, 2)
 
     # Create matching buy/sell pair for guaranteed fill
     # Step 1: Create BUY order on target subaccount
-    derive_client_2.subaccount_id = to_subaccount_id
-    buy_order = derive_client_2.create_order(
+    derive_client.subaccount_id = to_subaccount_id
+    buy_order = derive_client.create_order(
         price=trade_price,
         amount=test_amount,
         instrument_name=instrument_name,
@@ -127,8 +109,8 @@ def position_setup(derive_client_2):
     time.sleep(1.0)  # Small delay
 
     # Step 2: Create matching SELL order on source subaccount
-    derive_client_2.subaccount_id = from_subaccount_id
-    sell_order = derive_client_2.create_order(
+    derive_client.subaccount_id = from_subaccount_id
+    sell_order = derive_client.create_order(
         price=trade_price,
         amount=test_amount,
         instrument_name=instrument_name,
@@ -143,7 +125,7 @@ def position_setup(derive_client_2):
     time.sleep(2.0)  # Wait for trade execution
 
     # Verify position was created
-    position_amount = derive_client_2.get_position_amount(instrument_name, from_subaccount_id)
+    position_amount = derive_client.get_position_amount(instrument_name, from_subaccount_id)
     assert abs(position_amount) > 0, f"Position should be created, got {position_amount}"
 
     return {
