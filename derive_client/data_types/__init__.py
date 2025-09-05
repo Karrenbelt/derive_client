@@ -43,6 +43,8 @@ from .models import (
     ManagerAddress,
     MintableTokenData,
     NonMintableTokenData,
+    PositionsTransfer,
+    PositionTransfer,
     PreparedBridgeTx,
     PSignedTransaction,
     RPCEndpoints,
@@ -102,4 +104,6 @@ __all__ = [
     "PreparedBridgeTx",
     "PSignedTransaction",
     "Wei",
+    "PositionTransfer",
+    "PositionsTransfer",
 ]

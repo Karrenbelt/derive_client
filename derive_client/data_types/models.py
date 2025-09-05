@@ -526,6 +526,13 @@ class Trade(BaseModel):
     tx_status: DeriveTxStatus
 
 
+class PositionTransfer(BaseModel):
+    maker_order: Order
+    taker_order: Order
+    maker_trade: Trade
+    taker_trade: Trade
+
+
 class Leg(BaseModel):
     amount: float
     direction: OrderSide
@@ -554,3 +561,8 @@ class Quote(BaseModel):
     signature_expiry_sec: int
     signer: Address
     status: QuoteStatus
+
+
+class PositionsTransfer(BaseModel):
+    maker_quote: Quote
+    taker_quote: Quote

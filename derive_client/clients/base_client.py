@@ -48,6 +48,8 @@ from derive_client.data_types import (
     OrderSide,
     OrderStatus,
     OrderType,
+    PositionsTransfer,
+    PositionTransfer,
     RfqStatus,
     SessionKey,
     SubaccountType,
@@ -803,11 +805,6 @@ class BaseClient:
         Raises:
             ValueError: If no valid transaction ID is found in the response
         """
-        # Standard response format
-        if "result" in response_data and "transaction_id" in response_data["result"]:
-            transaction_id = response_data["result"]["transaction_id"]
-            if transaction_id:
-                return transaction_id
 
         # Transfer response format - check maker_order for transaction_id (old format)
         if "maker_order" in response_data:
@@ -845,7 +842,7 @@ class BaseClient:
         position_amount: float,
         instrument_type: Optional[InstrumentType] = None,
         currency: Optional[UnderlyingCurrency] = None,
-    ) -> DeriveTxResult:
+    ) -> PositionTransfer:
         """
         Transfer a single position between subaccounts.
         Parameters:
@@ -978,17 +975,9 @@ class BaseClient:
         }
 
         response_data = self._send_request(url, json=payload)
+        position_transfer = PositionTransfer(**response_data)
 
-        # Extract transaction_id from response for polling
-        transaction_id = self._extract_transaction_id(response_data)
-
-        return DeriveTxResult(
-            data=response_data,
-            status=DeriveTxStatus.SETTLED,
-            error_log={},
-            transaction_id=transaction_id,
-            transaction_hash=None,
-        )
+        return position_transfer
 
     def get_position_amount(self, instrument_name: str, subaccount_id: int) -> float:
         """
@@ -1021,7 +1010,7 @@ class BaseClient:
         from_subaccount_id: int,
         to_subaccount_id: int,
         global_direction: str = "buy",
-    ) -> DeriveTxResult:
+    ) -> PositionsTransfer:
         """
         Transfer multiple positions between subaccounts using RFQ system.
         Parameters:
@@ -1157,14 +1146,6 @@ class BaseClient:
         }
 
         response_data = self._send_request(url, json=payload)
+        positions_transfer = PositionsTransfer(**response_data)
 
-        # Extract transaction_id from response for polling
-        transaction_id = self._extract_transaction_id(response_data)
-
-        return DeriveTxResult(
-            data=response_data,
-            status=DeriveTxStatus.SETTLED,
-            error_log={},
-            transaction_id=transaction_id,
-            transaction_hash=None,
-        )
+        return positions_transfer
