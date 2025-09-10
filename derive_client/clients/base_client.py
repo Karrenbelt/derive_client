@@ -97,7 +97,11 @@ class BaseClient:
         self.signer = self.web3_client.eth.account.from_key(private_key)
         self.wallet = wallet
         self._verify_wallet(wallet)
-        self.subaccount_id = self._determine_subaccount_id(subaccount_id)
+        self.subaccount_ids = self.fetch_subaccounts().get("subaccount_ids", [])
+        if subaccount_id is not None and subaccount_id not in self.subaccount_ids:
+            msg = f"Provided subaccount {subaccount_id} not among retrieved aubaccounts: {self.subaccounts!r}"
+            raise ValueError(msg)
+        self.subaccount_id = subaccount_id or self.subaccount_ids[0]
 
     @property
     def account(self):
@@ -122,16 +126,6 @@ class BaseClient:
         if not any(self.signer.address == s.public_session_key for s in session_keys):
             msg = f"{self.signer.address} is not among registered session keys for wallet {wallet}."
             raise ValueError(msg)
-
-    def _determine_subaccount_id(self, subaccount_id: int | None) -> int:
-        subaccounts = self.fetch_subaccounts()
-        if not (subaccount_ids := subaccounts.get("subaccount_ids", [])):
-            raise ValueError(f"No subaccounts found for {self.wallet}. Please create one on Derive first.")
-        if subaccount_id is not None and subaccount_id not in subaccount_ids:
-            raise ValueError(f"Provided subaccount {subaccount_id} not among retrieved aubaccounts: {subaccounts!r}")
-        subaccount_id = subaccount_id or subaccount_ids[0]
-        self.logger.debug(f"Selected subaccount_id: {subaccount_id}")
-        return subaccount_id
 
     def create_account(self, wallet):
         """Call the create account endpoint."""

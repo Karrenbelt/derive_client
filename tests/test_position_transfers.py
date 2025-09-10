@@ -73,11 +73,8 @@ def client_with_position(request, derive_client):
 
     currency, instrument_type, side = request.param
 
-    subaccounts = derive_client.fetch_subaccounts()
-    subaccount_ids = subaccounts.get("subaccount_ids", [])
-    assert len(subaccount_ids) >= 2, "Need at least 2 subaccounts for position transfer tests"
+    assert len(derive_client.subaccount_ids) >= 2, "Need at least 2 subaccounts for position transfer tests"
 
-    derive_client.subaccount_ids = subaccount_ids
     close_all_positions(derive_client)
 
     positions = get_all_positions(derive_client)
