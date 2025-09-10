@@ -19,8 +19,9 @@ SM_SUBACCOUNT_ID = 30769
 )
 def test_transfer_from_subaccount_to_funding(derive_client, asset, subaccount_id):
     """Test transfer from subaccount to funding."""
-    # freeze_time(derive_client)
+
     amount = 1
+    derive_client.subaccount_id = subaccount_id
     result = derive_client.transfer_from_subaccount_to_funding(
         amount=amount,
         subaccount_id=subaccount_id,
@@ -38,12 +39,12 @@ def test_transfer_from_subaccount_to_funding(derive_client, asset, subaccount_id
 )
 def test_transfer_from_subaccount_to_sm_funding(derive_client, asset, subaccount_id):
     """Test transfer from subaccount to funding."""
-    # freeze_time(derive_client)
+
     amount = 1
-    from_subaccount_id = derive_client.fetch_subaccounts()['subaccount_ids'][-1]
+    derive_client.subaccount_id = subaccount_id
     result = derive_client.transfer_from_funding_to_subaccount(
         amount=amount,
-        subaccount_id=from_subaccount_id,
+        subaccount_id=subaccount_id,
         asset_name=asset.name,
     )
     assert result
