@@ -8,7 +8,6 @@ import time
 from decimal import Decimal
 from logging import Logger, LoggerAdapter
 from time import sleep
-from typing import Optional
 
 import eth_abi
 import requests
@@ -157,7 +156,7 @@ class BaseClient:
     ):
         """
         Return the tickers.
-        First fetch all instrucments
+        First fetch all instruments
         Then get the ticket for all instruments.
         """
         url = self.endpoints.public.get_instruments
@@ -260,8 +259,8 @@ class BaseClient:
             **signed_action.to_json(),
         }
 
-        response = self.submit_order(order)
-        return response
+        url = self.endpoints.private.order
+        return self._send_request(url, json=order)["order"]
 
     def _generate_signed_action(
         self,
@@ -796,93 +795,55 @@ class BaseClient:
         self,
         instrument_name: str,
         amount: float,
-        limit_price: float,
-        from_subaccount_id: int,
         to_subaccount_id: int,
-        position_amount: float,
-        instrument_type: Optional[InstrumentType] = None,
-        currency: Optional[UnderlyingCurrency] = None,
     ) -> PositionTransfer:
         """
-        Transfer a single position between subaccounts.
+        Transfer a position from the current subaccount to another subaccount.
+
         Parameters:
-            instrument_name (str): The name of the instrument to transfer.
-            amount (float): The amount to transfer (absolute value). Must be positive.
-            limit_price (float): The limit price for the transfer. Must be positive.
-            from_subaccount_id (int): The subaccount ID to transfer from.
-            to_subaccount_id (int): The subaccount_id to transfer to.
-            position_amount (float): The original position amount to determine direction.
-                                Must be provided explicitly (use get_positions() to fetch current amounts).
-            instrument_type (Optional[InstrumentType]): The type of instrument (PERP, OPTION, etc.).
-                                                    If not provided, it will be inferred from the instrument name.
-            currency (Optional[UnderlyingCurrency]): The underlying currency of the instrument.
-                                                If not provided, it will be inferred from the instrument name.
+            instrument_name (str): Instrument to transfer (e.g. 'ETH-PERP').
+            amount (float): Amount to transfer. Positive for a long, negative for a short.
+            to_subaccount_id (int): Destination subaccount id (must be different and present in self.subaccount_ids).
+
         Returns:
-            DeriveTxResult: The result of the transfer transaction.
-        Raises:
-            ValueError: If amount, limit_price are not positive, position_amount is zero, or if instrument not found.
+            PositionTransfer: Result containing maker/taker order and trade details.
         """
-        # Validate inputs
-        if amount <= 0:
-            raise ValueError("Transfer amount must be positive")
-        if limit_price <= 0:
-            raise ValueError("Limit price must be positive")
+        if to_subaccount_id == self.subaccount_id:
+            raise ValueError("Target subaccount is self")
+        if to_subaccount_id not in self.subaccount_ids:
+            raise ValueError(f"Subaccount id {to_subaccount_id} not in {self.subaccount_ids}")
+
         url = self.endpoints.private.transfer_position
+        positions = [p for p in self.get_positions() if p["instrument_name"] == instrument_name]
+        if not len(positions) == 1:
+            raise ValueError(f"Expected to find a position for {instrument_name}, found: {positions}")
 
-        # Infer instrument type and currency if not provided
-        if instrument_type is None or currency is None:
-            parts = instrument_name.split("-")
-            if len(parts) > 0 and parts[0] in UnderlyingCurrency.__members__:
-                currency = UnderlyingCurrency[parts[0]]
+        position = positions[0]
+        position_amount = float(position["amount"])
+        if abs(position_amount) < abs(amount):
+            raise ValueError(f"Position {position_amount} not sufficient for transfer {amount}")
 
-            # Determine instrument type
-            if instrument_type is None:
-                if len(parts) > 1 and parts[1] == "PERP":
-                    instrument_type = InstrumentType.PERP
-                elif len(parts) >= 4:  # Option format: BTC-20240329-1600-C
-                    instrument_type = InstrumentType.OPTION
-                else:
-                    # Default to PERP if we can't determine
-                    instrument_type = InstrumentType.PERP
+        ticker = self.fetch_ticker(instrument_name=instrument_name)
+        mark_price = Decimal(ticker["mark_price"]).quantize(Decimal(ticker["tick_size"]))
+        base_asset_address = ticker["base_asset_address"]
+        base_asset_sub_id = int(ticker["base_asset_sub_id"])
 
-        # If we still don't have currency, default to ETH
-        if currency is None:
-            currency = UnderlyingCurrency.ETH
-
-        # Get instrument details
-        try:
-            instruments = self.fetch_instruments(instrument_type=instrument_type, currency=currency, expired=False)
-            matching_instruments = [inst for inst in instruments if inst["instrument_name"] == instrument_name]
-            if matching_instruments:
-                instrument = matching_instruments[0]
-            else:
-                raise ValueError(f"Instrument {instrument_name} not found for {currency.name} {instrument_type.value}")
-        except Exception as e:
-            raise ValueError(f"Failed to fetch instruments: {str(e)}")
-
-        # Validate position_amount
-        if position_amount == 0:
-            raise ValueError("Position amount cannot be zero")
-
-        # Convert to Decimal for precise calculations
         transfer_amount = Decimal(str(abs(amount)))
-        transfer_price = Decimal(str(limit_price))
         original_position_amount = Decimal(str(position_amount))
 
-        # Create maker action (sender)
         maker_action = SignedAction(
-            subaccount_id=from_subaccount_id,
+            subaccount_id=self.subaccount_id,
             owner=self.wallet,
             signer=self.signer.address,
             signature_expiry_sec=MAX_INT_32,
-            nonce=get_action_nonce(),  # maker_nonce
+            nonce=get_action_nonce(),
             module_address=self.config.contracts.TRADE_MODULE,
             module_data=MakerTransferPositionModuleData(
-                asset_address=instrument["base_asset_address"],
-                sub_id=int(instrument["base_asset_sub_id"]),
-                limit_price=transfer_price,
+                asset_address=base_asset_address,
+                sub_id=base_asset_sub_id,
+                limit_price=mark_price,
                 amount=transfer_amount,
-                recipient_id=from_subaccount_id,
+                recipient_id=self.subaccount_id,
                 position_amount=original_position_amount,
             ),
             DOMAIN_SEPARATOR=self.config.DOMAIN_SEPARATOR,
@@ -892,7 +853,6 @@ class BaseClient:
         # Small delay to ensure different nonces
         time.sleep(0.001)
 
-        # Create taker action (recipient)
         taker_action = SignedAction(
             subaccount_id=to_subaccount_id,
             owner=self.wallet,
@@ -901,9 +861,9 @@ class BaseClient:
             nonce=get_action_nonce(),
             module_address=self.config.contracts.TRADE_MODULE,
             module_data=TakerTransferPositionModuleData(
-                asset_address=instrument["base_asset_address"],
-                sub_id=int(instrument["base_asset_sub_id"]),
-                limit_price=transfer_price,
+                asset_address=base_asset_address,
+                sub_id=base_asset_sub_id,
+                limit_price=mark_price,
                 amount=transfer_amount,
                 recipient_id=to_subaccount_id,
                 position_amount=original_position_amount,
@@ -912,11 +872,9 @@ class BaseClient:
             ACTION_TYPEHASH=self.config.ACTION_TYPEHASH,
         )
 
-        # Sign both actions
         maker_action.sign(self.signer.key)
         taker_action.sign(self.signer.key)
 
-        # Create request parameters
         maker_params = {
             "direction": maker_action.module_data.get_direction(),
             "instrument_name": instrument_name,
