@@ -1,475 +1,181 @@
 """
 Tests for position transfer functionality (transfer_position and transfer_positions methods).
-Rewritten with clean test structure - no inter-test dependencies.
 """
 
-import time
 from decimal import Decimal
 
 import pytest
 
-from derive_client.data_types import OrderSide, OrderType, TransferPosition
+from derive_client.data_types import (
+    DeriveTxResult,
+    DeriveTxStatus,
+    InstrumentType,
+    OrderSide,
+    OrderType,
+    TimeInForce,
+    UnderlyingCurrency,
+)
+from derive_client.utils import wait_until
 
 
-def test_position_setup_creates_position(position_setup):
-    """Test that position_setup fixture creates a valid position"""
-    assert position_setup is not None, "Position setup should return valid data"
-    assert position_setup["position_amount"] != 0, "Should have non-zero position"
-    assert (
-        position_setup["from_subaccount_id"] != position_setup["to_subaccount_id"]
-    ), "Should have different subaccounts"
-    assert position_setup["instrument_name"] is not None, "Should have instrument name"
-    assert position_setup["trade_price"] > 0, "Should have positive trade price"
+def is_settled(res: DeriveTxResult) -> bool:
+    return res.status is DeriveTxStatus.SETTLED
 
 
-def test_single_position_transfer(derive_client, position_setup):
+def get_all_positions(derive_client):
+
+    _subaccount_id = derive_client.subaccount_id
+
+    def is_zero(position):
+        return position["amount"] == "0"
+
+    positions = {}
+    for subaccount_id in derive_client.subaccount_ids:
+        derive_client.subaccount_id = subaccount_id
+        positions[subaccount_id] = list(filter(lambda p: not is_zero(p), derive_client.get_positions()))
+
+    derive_client.subaccount_id = _subaccount_id
+    return positions
+
+
+def close_all_positions(derive_client):
+
+    _subaccount_id = derive_client.subaccount_id
+    all_positions = get_all_positions(derive_client)
+    for subaccount_id, positions in all_positions.items():
+        derive_client.subaccount_id = subaccount_id  # this is nasty
+        for position in positions:
+            amount = float(position["amount"])
+
+            side = OrderSide.SELL if amount > 0 else OrderSide.BUY
+            ticker = derive_client.fetch_ticker(instrument_name=position["instrument_name"])
+            price = ticker["best_ask_price"] if amount < 0 else ticker["best_bid_price"]
+            price = float(Decimal(price).quantize(Decimal(ticker["tick_size"])))
+            amount = abs(amount)
+
+            derive_client.create_order(
+                price=price,
+                amount=amount,
+                instrument_name=position["instrument_name"],
+                reduce_only=True,
+                instrument_type=InstrumentType(position["instrument_type"]),
+                side=side,
+                order_type=OrderType.MARKET,
+                time_in_force=TimeInForce.FOK,
+            )
+
+    derive_client.subaccount_id = _subaccount_id
+
+
+@pytest.fixture
+def client_with_position(request, derive_client):
+    """Setup position for transfer"""
+
+    currency, instrument_type, side = request.param
+
+    subaccounts = derive_client.fetch_subaccounts()
+    subaccount_ids = subaccounts.get("subaccount_ids", [])
+    assert len(subaccount_ids) >= 2, "Need at least 2 subaccounts for position transfer tests"
+
+    derive_client.subaccount_ids = subaccount_ids
+    close_all_positions(derive_client)
+
+    positions = get_all_positions(derive_client)
+    if any(positions.values()):
+        raise ValueError(f"Pre-existing positions found: {positions}")
+
+    instrument_name = f"{currency.name}-{instrument_type.name}"
+
+    ticker = derive_client.fetch_ticker(instrument_name)
+    if not ticker["is_active"]:
+        raise RuntimeError(f"Instrument ticker status inactive: {instrument_name}: {ticker}")
+
+    min_amount = float(ticker["minimum_amount"])
+    best_price = ticker["best_ask_price"] if side == OrderSide.BUY else ticker["best_bid_price"]
+
+    # Derive RPC 11013: Limit price X must not have more than Y decimal places
+    price = float(Decimal(best_price).quantize(Decimal(ticker["tick_size"])))
+
+    collaterals = derive_client.get_collaterals()
+    assert len(collaterals) == 1, "Account collaterals assumption violated"
+
+    collateral = collaterals.pop()
+    if float(collateral["mark_value"]) < min_amount * price:
+        msg = (
+            f"Cannot afford minimum position size.\n"
+            f"Minimum: {min_amount}, Price: {price}, Total cost: {min_amount * price}\n"
+            f"Collateral market value: {collateral['mark_value']}"
+        )
+        raise ValueError(msg)
+
+    derive_client.create_order(
+        price=price,
+        amount=min_amount,
+        instrument_name=instrument_name,
+        side=side,
+        order_type=OrderType.MARKET,
+        instrument_type=instrument_type,
+    )
+
+    yield derive_client
+
+    close_all_positions(derive_client)
+    remaining_positions = get_all_positions(derive_client)
+    if any(remaining_positions.values()):
+        raise ValueError(f"Post-existing positions found: {remaining_positions}")
+
+
+@pytest.mark.parametrize(
+    "client_with_position",
+    [
+        (UnderlyingCurrency.ETH, InstrumentType.PERP, OrderSide.BUY),
+        (UnderlyingCurrency.ETH, InstrumentType.PERP, OrderSide.SELL),
+    ],
+    indirect=True,
+    ids=["eth-perp-buy", "eth-perp-sell"],
+)
+def test_single_position_transfer(client_with_position):
     """Test single position transfer using transfer_position method"""
-    from_subaccount_id = position_setup["from_subaccount_id"]
-    to_subaccount_id = position_setup["to_subaccount_id"]
-    instrument_name = position_setup["instrument_name"]
-    instrument_type = position_setup["instrument_type"]
-    currency = position_setup["currency"]
-    original_position = position_setup["position_amount"]
-    trade_price = position_setup["trade_price"]
 
-    # Verify initial position
-    derive_client.subaccount_id = from_subaccount_id
-    initial_position = derive_client.get_position_amount(instrument_name, from_subaccount_id)
-    assert (
-        initial_position == original_position
-    ), f"Initial position should match: {initial_position} vs {original_position}"
+    derive_client = client_with_position
+    source_subaccount_id = derive_client.subaccount_ids[0]
+    target_subaccount_id = derive_client.subaccount_ids[1]
+    assert derive_client.subaccount_id == source_subaccount_id
 
-    # Execute transfer
+    initial_positions = get_all_positions(derive_client)
+
+    if len(source_positions := initial_positions[source_subaccount_id]) != 1:
+        raise ValueError(f"Expected one open position on source, found: {source_positions}")
+    if target_positions := initial_positions[target_subaccount_id]:
+        raise ValueError(f"Expected zero open position on target, found: {target_positions}")
+
+    initial_position = source_positions[0]
+    amount = float(initial_position["amount"])
+    instrument_name = initial_position["instrument_name"]
     position_transfer = derive_client.transfer_position(
         instrument_name=instrument_name,
-        amount=abs(original_position),
-        limit_price=trade_price,
-        from_subaccount_id=from_subaccount_id,
-        to_subaccount_id=to_subaccount_id,
-        position_amount=original_position,
-        instrument_type=instrument_type,
-        currency=currency,
+        amount=amount,
+        to_subaccount_id=target_subaccount_id,
     )
 
-    # Check response data structure - handle both old and new formats
-    response_data = position_transfer.model_dump()
+    assert position_transfer.maker_trade.transaction_id == position_transfer.taker_trade.transaction_id
 
-    # Try new format first (maker_quote/taker_quote) - this is the current API format
-    if "maker_quote" in response_data and "taker_quote" in response_data:
-        maker_data = response_data["maker_quote"]
-        taker_data = response_data["taker_quote"]
-
-        # Verify maker quote details
-        assert maker_data["subaccount_id"] == from_subaccount_id, "Maker should be from source subaccount"
-        assert maker_data["status"] == "filled", f"Maker quote should be filled, got {maker_data['status']}"
-        assert maker_data["is_transfer"] is True, "Should be marked as transfer"
-
-        # Verify taker quote details
-        assert taker_data["subaccount_id"] == to_subaccount_id, "Taker should be target subaccount"
-        assert taker_data["status"] == "filled", f"Taker quote should be filled, got {taker_data['status']}"
-        assert taker_data["is_transfer"] is True, "Should be marked as transfer"
-
-        # Verify legs contain the correct instrument and amounts
-        assert len(maker_data["legs"]) == 1, "Maker should have one leg"
-        assert len(taker_data["legs"]) == 1, "Taker should have one leg"
-
-        maker_leg = maker_data["legs"][0]
-        taker_leg = taker_data["legs"][0]
-
-        assert maker_leg["instrument_name"] == instrument_name, "Maker leg should match instrument"
-        assert taker_leg["instrument_name"] == instrument_name, "Taker leg should match instrument"
-
-        # Amount verification for quote format
-        original_position_decimal = Decimal(str(original_position))
-        expected_amount = abs(original_position_decimal).quantize(Decimal('0.01'))
-
-        assert Decimal(maker_leg["amount"]) == expected_amount, "Maker leg should have correct amount"
-        assert Decimal(taker_leg["amount"]) == expected_amount, "Taker leg should have correct amount"
-
-    # Try old format (maker_order/taker_order) - for backward compatibility
-    elif "maker_order" in response_data and "taker_order" in response_data:
-        maker_order = response_data["maker_order"]
-        taker_order = response_data["taker_order"]
-
-        # Verify maker order details
-        assert maker_order["subaccount_id"] == from_subaccount_id, "Maker should be from source subaccount"
-        assert (
-            maker_order["order_status"] == "filled"
-        ), f"Maker order should be filled, got {maker_order['order_status']}"
-        assert maker_order["is_transfer"] is True, "Should be marked as transfer"
-
-        # Verify taker order details
-        assert taker_order["subaccount_id"] == to_subaccount_id, "Taker should be target subaccount"
-        assert (
-            taker_order["order_status"] == "filled"
-        ), f"Taker order should be filled, got {taker_order['order_status']}"
-        assert taker_order["is_transfer"] is True, "Should be marked as transfer"
-
-        # Amount verification for order format
-        original_position_decimal = Decimal(str(original_position))
-        expected_amount = abs(original_position_decimal).quantize(Decimal('0.01'))
-
-        assert Decimal(maker_order["filled_amount"]) == expected_amount, "Maker should fill correct amount"
-        assert Decimal(taker_order["filled_amount"]) == expected_amount, "Taker should fill correct amount"
-
-    else:
-        raise AssertionError("Response should have either maker_order/taker_order or maker_quote/taker_quote")
-
-    time.sleep(2.0)  # Allow position updates
-
-    # Verify positions after transfer
-    derive_client.subaccount_id = from_subaccount_id
-    try:
-        source_position_after = derive_client.get_position_amount(instrument_name, from_subaccount_id)
-    except ValueError:
-        source_position_after = 0
-
-    derive_client.subaccount_id = to_subaccount_id
-    try:
-        target_position_after = derive_client.get_position_amount(instrument_name, to_subaccount_id)
-    except ValueError:
-        target_position_after = 0
-
-    # Assertions for position changes
-    assert abs(source_position_after) < abs(
-        original_position
-    ), f"Source position should be reduced: {source_position_after} vs {original_position}"
-    assert abs(target_position_after) > 0, f"Target should have position: {target_position_after}"
-
-    print(f"Transfer successful - Source: {source_position_after}, Target: {target_position_after}")
-
-
-def test_multiple_position_transfer_back(derive_client, position_setup):
-    """Test transferring position back using transfer_positions method - independent test"""
-    from_subaccount_id = position_setup["from_subaccount_id"]
-    to_subaccount_id = position_setup["to_subaccount_id"]
-    instrument_name = position_setup["instrument_name"]
-    instrument_type = position_setup["instrument_type"]
-    currency = position_setup["currency"]
-    original_position = position_setup["position_amount"]
-    trade_price = position_setup["trade_price"]
-
-    # First, set up the position to transfer back by doing a single transfer
-    derive_client.subaccount_id = from_subaccount_id
-    _ = derive_client.transfer_position(
-        instrument_name=instrument_name,
-        amount=abs(original_position),
-        limit_price=trade_price,
-        from_subaccount_id=from_subaccount_id,
-        to_subaccount_id=to_subaccount_id,
-        position_amount=original_position,
-        instrument_type=instrument_type,
-        currency=currency,
+    derive_tx_result = wait_until(
+        derive_client.get_transaction,
+        condition=is_settled,
+        transaction_id=position_transfer.maker_trade.transaction_id,
     )
 
-    time.sleep(2.0)  # Allow transfer to process
+    assert derive_tx_result.status == DeriveTxStatus.SETTLED
 
-    # Verify we have position to transfer back
-    derive_client.subaccount_id = to_subaccount_id
-    current_target_position = derive_client.get_position_amount(instrument_name, to_subaccount_id)
-    assert abs(current_target_position) > 0, f"Should have position to transfer back: {current_target_position}"
+    action_data = derive_tx_result.data["action_data"]
+    assert position_transfer.taker_trade.subaccount_id == action_data["taker_account"]
+    assert position_transfer.maker_trade.subaccount_id == action_data["fill_details"][0]["filled_account"]
 
-    # Prepare transfer back using transfer_positions
-    transfer_list = [
-        TransferPosition(
-            instrument_name=instrument_name,
-            amount=abs(current_target_position),
-            limit_price=trade_price,
-        )
-    ]
+    final_positions = get_all_positions(derive_client)
+    assert len(final_positions[source_subaccount_id]) == 0
+    assert len(final_positions[target_subaccount_id]) == 1
 
-    # Execute transfer back
-    try:
-        _transfer_position = derive_client.transfer_positions(
-            positions=transfer_list,
-            from_subaccount_id=to_subaccount_id,
-            to_subaccount_id=from_subaccount_id,
-            global_direction="buy",  # For short positions
-        )
-
-    except ValueError as e:
-        if "No valid transaction ID found in response" in str(e):
-            # Known issue with transfer_positions transaction ID extraction
-            pytest.skip("Transfer positions transaction ID extraction needs fixing in base_client.py")
-        else:
-            raise e
-
-    time.sleep(2.0)  # Allow position updates
-
-    # Verify final positions
-    derive_client.subaccount_id = to_subaccount_id
-    try:
-        final_target_position = derive_client.get_position_amount(instrument_name, to_subaccount_id)
-    except ValueError:
-        final_target_position = 0
-
-    derive_client.subaccount_id = from_subaccount_id
-    try:
-        final_source_position = derive_client.get_position_amount(instrument_name, from_subaccount_id)
-    except ValueError:
-        final_source_position = 0
-
-    # Assertions for transfer back
-    assert abs(final_target_position) < abs(
-        current_target_position
-    ), "Target position should be reduced after transfer back"
-
-    print(f"Transfer back successful - Source: {final_source_position}, Target: {final_target_position}")
-
-
-def test_close_position_after_transfers(derive_client, position_setup):
-    """Test closing position - independent test"""
-    from_subaccount_id = position_setup["from_subaccount_id"]
-    to_subaccount_id = position_setup["to_subaccount_id"]
-    instrument_name = position_setup["instrument_name"]
-    instrument_type = position_setup["instrument_type"]
-    currency = position_setup["currency"]
-    original_position = position_setup["position_amount"]
-    trade_price = position_setup["trade_price"]
-
-    # Set up by doing some transfers first (to have a position to close)
-    derive_client.subaccount_id = from_subaccount_id
-    derive_client.transfer_position(
-        instrument_name=instrument_name,
-        amount=abs(original_position) / 2,  # Transfer half
-        limit_price=trade_price,
-        from_subaccount_id=from_subaccount_id,
-        to_subaccount_id=to_subaccount_id,
-        position_amount=original_position,
-        instrument_type=instrument_type,
-        currency=currency,
-    )
-
-    time.sleep(2.0)
-
-    # Check current position to close
-    derive_client.subaccount_id = from_subaccount_id
-    try:
-        current_position = derive_client.get_position_amount(instrument_name, from_subaccount_id)
-    except ValueError:
-        pytest.skip("No position to close")
-
-    if abs(current_position) < 0.01:
-        pytest.skip("Position too small to close")
-
-    # Get current market price
-    ticker = derive_client.fetch_ticker(instrument_name)
-    mark_price = float(ticker["mark_price"])
-    close_price = round(mark_price * 1.001, 2)  # Slightly above mark for fill
-
-    # Determine close side (opposite of current position)
-    close_side = OrderSide.BUY if current_position < 0 else OrderSide.SELL
-    close_amount = abs(current_position)
-
-    # Create close order
-    close_order = derive_client.create_order(
-        price=close_price,
-        amount=close_amount,
-        instrument_name=instrument_name,
-        side=close_side,
-        order_type=OrderType.LIMIT,
-        instrument_type=instrument_type,
-    )
-
-    assert close_order is not None, "Close order should be created"
-    assert "order_id" in close_order, "Close order should have order_id"
-
-    time.sleep(3.0)  # Wait for potential fill
-
-    # Check final position
-    try:
-        final_position = derive_client.get_position_amount(instrument_name, from_subaccount_id)
-        assert abs(final_position) <= abs(
-            current_position
-        ), f"Position should be reduced or closed: {final_position} vs {current_position}"
-        print(f"Close order executed - Position reduced from {current_position} to {final_position}")
-    except ValueError:
-        # Position completely closed
-        print("Position completely closed")
-
-
-def test_complete_workflow_integration(derive_client, position_setup):
-    """Complete workflow test: Open → Transfer → Transfer Back → Close - all in one test"""
-    from_subaccount_id = position_setup["from_subaccount_id"]
-    to_subaccount_id = position_setup["to_subaccount_id"]
-    instrument_name = position_setup["instrument_name"]
-    instrument_type = position_setup["instrument_type"]
-    currency = position_setup["currency"]
-    original_position = position_setup["position_amount"]
-    trade_price = position_setup["trade_price"]
-
-    print("=== COMPLETE WORKFLOW INTEGRATION TEST ===")
-    print(f"Starting position: {original_position}")
-    print(f"Instrument: {instrument_name}")
-    print(f"From subaccount: {from_subaccount_id} → To subaccount: {to_subaccount_id}")
-
-    # Step 1: Verify initial setup
-    assert original_position != 0, "Should have initial position"
-    derive_client.subaccount_id = from_subaccount_id
-    initial_position = derive_client.get_position_amount(instrument_name, from_subaccount_id)
-    assert (
-        initial_position == original_position
-    ), f"Initial position mismatch: {initial_position} vs {original_position}"
-
-    # Step 2: Single position transfer (from → to)
-    print(f"--- STEP 2: SINGLE TRANSFER ({from_subaccount_id} → {to_subaccount_id}) ---")
-    _transfer_position = derive_client.transfer_position(
-        instrument_name=instrument_name,
-        amount=abs(original_position),
-        limit_price=trade_price,
-        from_subaccount_id=from_subaccount_id,
-        to_subaccount_id=to_subaccount_id,
-        position_amount=original_position,
-        instrument_type=instrument_type,
-        currency=currency,
-    )
-
-    # assert transfer_result.status == DeriveTxStatus.SETTLED, "Transfer should be successful"
-    time.sleep(2.0)  # Allow position updates
-
-    # Check positions after transfer
-    derive_client.subaccount_id = from_subaccount_id
-    try:
-        source_position_after = derive_client.get_position_amount(instrument_name, from_subaccount_id)
-    except ValueError:
-        source_position_after = 0
-
-    derive_client.subaccount_id = to_subaccount_id
-    try:
-        target_position_after = derive_client.get_position_amount(instrument_name, to_subaccount_id)
-    except ValueError:
-        target_position_after = 0
-
-    assert abs(source_position_after) < abs(original_position), "Source position should be reduced"
-    assert abs(target_position_after) > 0, "Target should have position"
-    print(f"Transfer successful - Source: {source_position_after}, Target: {target_position_after}")
-
-    # Step 3: Multiple position transfer back (to → from)
-    print(f"--- STEP 3: MULTI TRANSFER BACK ({to_subaccount_id} → {from_subaccount_id}) ---")
-    transfer_list = [
-        TransferPosition(
-            instrument_name=instrument_name,
-            amount=abs(target_position_after),
-            limit_price=trade_price,
-        )
-    ]
-
-    try:
-        _positions_transfer = derive_client.transfer_positions(
-            positions=transfer_list,
-            from_subaccount_id=to_subaccount_id,
-            to_subaccount_id=from_subaccount_id,
-            global_direction="buy",  # For short positions
-        )
-
-    except ValueError as e:
-        if "No valid transaction ID found in response" in str(e):
-            print(f"WARNING: Transfer positions transaction ID extraction failed: {e}")
-            print("Continuing with manual position verification...")
-        else:
-            raise e
-
-    time.sleep(3.0)  # Allow position updates
-
-    # Check final positions after transfer back
-    derive_client.subaccount_id = from_subaccount_id
-    try:
-        final_source_position = derive_client.get_position_amount(instrument_name, from_subaccount_id)
-    except ValueError:
-        final_source_position = 0
-
-    derive_client.subaccount_id = to_subaccount_id
-    try:
-        final_target_position = derive_client.get_position_amount(instrument_name, to_subaccount_id)
-    except ValueError:
-        final_target_position = 0
-
-    print(f"After transfer back - Source: {final_source_position}, Target: {final_target_position}")
-
-    # Step 4: Close remaining position
-    print("--- STEP 4: CLOSE POSITION ---")
-    derive_client.subaccount_id = from_subaccount_id
-
-    if abs(final_source_position) > 0.01:
-        # Get current market price
-        ticker = derive_client.fetch_ticker(instrument_name)
-        mark_price = float(ticker["mark_price"])
-        close_price = round(mark_price * 1.001, 2)
-
-        # Determine close side
-        close_side = OrderSide.BUY if final_source_position < 0 else OrderSide.SELL
-        close_amount = abs(final_source_position)
-
-        # Create close order
-        _ = derive_client.create_order(
-            price=close_price,
-            amount=close_amount,
-            instrument_name=instrument_name,
-            side=close_side,
-            order_type=OrderType.LIMIT,
-            instrument_type=instrument_type,
-        )
-
-        time.sleep(3.0)  # Wait for fill
-
-        # Check final position
-        try:
-            final_position = derive_client.get_position_amount(instrument_name, from_subaccount_id)
-            assert abs(final_position) <= abs(final_source_position), "Position should be reduced or closed"
-            print(f"Close successful - Final position: {final_position}")
-        except ValueError:
-            print("Position completely closed")
-    else:
-        print("No meaningful position to close")
-
-
-def test_position_transfer_error_handling(derive_client, position_setup):
-    """Test error handling in position transfers"""
-    from_subaccount_id = position_setup["from_subaccount_id"]
-    to_subaccount_id = position_setup["to_subaccount_id"]
-    instrument_name = position_setup["instrument_name"]
-    trade_price = position_setup["trade_price"]
-
-    # Test invalid amount
-    with pytest.raises(ValueError, match="Transfer amount must be positive"):
-        derive_client.transfer_position(
-            instrument_name=instrument_name,
-            amount=0,  # Invalid amount
-            limit_price=trade_price,
-            from_subaccount_id=from_subaccount_id,
-            to_subaccount_id=to_subaccount_id,
-            position_amount=1.0,
-        )
-
-    # Test invalid limit price
-    with pytest.raises(ValueError, match="Limit price must be positive"):
-        derive_client.transfer_position(
-            instrument_name=instrument_name,
-            amount=1.0,
-            limit_price=0,  # Invalid price
-            from_subaccount_id=from_subaccount_id,
-            to_subaccount_id=to_subaccount_id,
-            position_amount=1.0,
-        )
-
-    # Test zero position amount
-    with pytest.raises(ValueError, match="Position amount cannot be zero"):
-        derive_client.transfer_position(
-            instrument_name=instrument_name,
-            amount=1.0,
-            limit_price=trade_price,
-            from_subaccount_id=from_subaccount_id,
-            to_subaccount_id=to_subaccount_id,
-            position_amount=0,  # Invalid position amount
-        )
-
-    # Test invalid instrument
-    with pytest.raises(ValueError, match="Instrument .* not found"):
-        derive_client.transfer_position(
-            instrument_name="INVALID-PERP",
-            amount=1.0,
-            limit_price=trade_price,
-            from_subaccount_id=from_subaccount_id,
-            to_subaccount_id=to_subaccount_id,
-            position_amount=1.0,
-        )
+    final_position = final_positions[target_subaccount_id][0]
+    assert final_position["instrument_name"] == initial_position["instrument_name"]
+    assert final_position["amount"] == initial_position["amount"]
