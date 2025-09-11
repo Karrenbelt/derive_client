@@ -34,6 +34,7 @@ class PrivateEndpoints:
     session_keys = Endpoint("private", "session_keys")
     get_subaccount = Endpoint("private", "get_subaccount")
     get_subaccounts = Endpoint("private", "get_subaccounts")
+    get_order = Endpoint("private", "get_order")
     get_orders = Endpoint("private", "get_orders")
     get_positions = Endpoint("private", "get_positions")
     get_collaterals = Endpoint("private", "get_collaterals")

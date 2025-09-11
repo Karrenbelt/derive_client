@@ -345,6 +345,16 @@ class BaseClient:
         instruments = self.fetch_instruments(instrument_type=instrument_type, currency=currency)
         return {inst["instrument_name"]: self.fetch_ticker(inst["instrument_name"]) for inst in instruments}
 
+    def get_order(self, order_id: str) -> dict:
+        url = self.endpoints.private.get_order
+        headers = self._create_signature_headers()
+        payload = {
+            "order_id": order_id,
+            "subaccount_id": self.subaccount_id,
+        }
+        response = requests.post(url, json=payload, headers=headers)
+        return response.json()["result"]
+
     def fetch_orders(
         self,
         instrument_name: str = None,
