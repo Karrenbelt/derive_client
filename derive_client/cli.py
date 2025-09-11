@@ -752,5 +752,62 @@ def create_order(ctx, instrument_name, side, price, amount, order_type, instrume
     print(result)
 
 
+@positions.command("transfer")
+@click.pass_context
+@click.option(
+    "--instrument-name",
+    "-i",
+    type=str,
+    required=True,
+    help="Name of the instrument to transfer",
+)
+@click.option(
+    "--amount",
+    "-a",
+    type=float,
+    required=True,
+    help="Amount to transfer (absolute value)",
+)
+@click.option(
+    "--limit-price",
+    "-p",
+    type=float,
+    required=True,
+    help="Limit price for the transfer",
+)
+@click.option(
+    "--from-subaccount",
+    "-f",
+    type=int,
+    required=True,
+    help="Subaccount ID to transfer from",
+)
+@click.option(
+    "--to-subaccount",
+    "-t",
+    type=int,
+    required=True,
+    help="Subaccount ID to transfer to",
+)
+@click.option(
+    "--position-amount",
+    type=float,
+    default=None,
+    help="Original position amount (if not provided, will be fetched)",
+)
+def transfer_position(ctx, instrument_name, amount, limit_price, from_subaccount, to_subaccount, position_amount):
+    """Transfer a single position between subaccounts."""
+    client: DeriveClient = ctx.obj["client"]
+    result = client.transfer_position(
+        instrument_name=instrument_name,
+        amount=amount,
+        limit_price=limit_price,
+        from_subaccount_id=from_subaccount,
+        to_subaccount_id=to_subaccount,
+        position_amount=position_amount,
+    )
+    print(result)
+
+
 if __name__ == "__main__":
     cli()  # pylint: disable=no-value-for-parameter

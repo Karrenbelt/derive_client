@@ -8,7 +8,16 @@ from eth_abi.abi import encode
 from eth_account.datastructures import SignedTransaction
 from eth_utils import is_0x_prefixed, is_address, is_hex, to_checksum_address
 from hexbytes import HexBytes
-from pydantic import BaseModel, ConfigDict, Field, GetCoreSchemaHandler, GetJsonSchemaHandler, HttpUrl, RootModel
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    GetCoreSchemaHandler,
+    GetJsonSchemaHandler,
+    HttpUrl,
+    PositiveFloat,
+    RootModel,
+)
 from pydantic.dataclasses import dataclass
 from pydantic_core import core_schema
 from web3 import AsyncWeb3, Web3
@@ -24,9 +33,14 @@ from .enums import (
     Currency,
     DeriveTxStatus,
     GasPriority,
+    LiquidityRole,
     MainnetCurrency,
     MarginType,
+    OrderSide,
+    OrderStatus,
+    QuoteStatus,
     SessionKeyScope,
+    TimeInForce,
     TxStatus,
 )
 
@@ -399,6 +413,15 @@ class WithdrawResult(BaseModel):
     transaction_id: str
 
 
+class TransferPosition(BaseModel):
+    """Model for position transfer data."""
+
+    # Ref: https://docs.pydantic.dev/2.3/usage/types/number_types/#constrained-types
+    instrument_name: str
+    amount: PositiveFloat
+    limit_price: PositiveFloat
+
+
 class DeriveTxResult(BaseModel):
     data: dict  # Data used to create transaction
     status: DeriveTxStatus
@@ -446,3 +469,106 @@ class FeeEstimates(RootModel):
 
     def items(self):
         return self.root.items()
+
+
+class Order(BaseModel):
+    amount: float
+    average_price: float
+    cancel_reason: str
+    creation_timestamp: int
+    direction: OrderSide
+    filled_amount: float
+    instrument_name: str
+    is_transfer: bool
+    label: str
+    last_update_timestamp: int
+    limit_price: float
+    max_fee: float
+    mmp: bool
+    nonce: int
+    order_fee: float
+    order_id: str
+    order_status: OrderStatus
+    order_type: str
+    quote_id: None
+    replaced_order_id: str | None
+    signature: str
+    signature_expiry_sec: int
+    signer: str
+    subaccount_id: int
+    time_in_force: TimeInForce
+    trigger_price: float | None
+    trigger_price_type: str | None
+    trigger_reject_message: str | None
+    trigger_type: str | None
+
+
+class Trade(BaseModel):
+    direction: OrderSide
+    expected_rebate: float
+    index_price: float
+    instrument_name: str
+    is_transfer: bool
+    label: str
+    liquidity_role: LiquidityRole
+    mark_price: float
+    order_id: str
+    quote_id: None
+    realized_pnl: float
+    realized_pnl_excl_fees: float
+    subaccount_id: int
+    timestamp: int
+    trade_amount: float
+    trade_fee: float
+    trade_id: str
+    trade_price: float
+    transaction_id: str
+    tx_hash: str | None
+    tx_status: DeriveTxStatus
+
+
+class PositionSpec(BaseModel):
+    amount: float  # negative allowed to indicate direction
+    instrument_name: str
+
+
+class PositionTransfer(BaseModel):
+    maker_order: Order
+    taker_order: Order
+    maker_trade: Trade
+    taker_trade: Trade
+
+
+class Leg(BaseModel):
+    amount: float
+    direction: OrderSide  # TODO: PositionSide
+    instrument_name: str
+    price: float
+
+
+class Quote(BaseModel):
+    cancel_reason: str
+    creation_timestamp: int
+    direction: OrderSide
+    fee: float
+    fill_pct: int
+    is_transfer: bool
+    label: str
+    last_update_timestamp: int
+    legs: list[Leg]
+    legs_hash: str
+    liquidity_role: LiquidityRole
+    max_fee: float
+    mmp: bool
+    nonce: int
+    quote_id: str
+    rfq_id: str
+    signature: str
+    signature_expiry_sec: int
+    signer: Address
+    status: QuoteStatus
+
+
+class PositionsTransfer(BaseModel):
+    maker_quote: Quote
+    taker_quote: Quote

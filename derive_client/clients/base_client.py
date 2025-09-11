@@ -4,6 +4,7 @@ Base Client for the derive dex.
 
 import json
 import random
+import time
 from decimal import Decimal
 from logging import Logger, LoggerAdapter
 from time import sleep
@@ -12,10 +13,15 @@ import eth_abi
 import requests
 from derive_action_signing.module_data import (
     DepositModuleData,
+    MakerTransferPositionModuleData,
+    MakerTransferPositionsModuleData,
     RecipientTransferERC20ModuleData,
     SenderTransferERC20ModuleData,
+    TakerTransferPositionModuleData,
+    TakerTransferPositionsModuleData,
     TradeModuleData,
     TransferERC20Details,
+    TransferPositionsDetails,
     WithdrawModuleData,
 )
 from derive_action_signing.signed_action import SignedAction
@@ -41,6 +47,9 @@ from derive_client.data_types import (
     OrderSide,
     OrderStatus,
     OrderType,
+    PositionSpec,
+    PositionsTransfer,
+    PositionTransfer,
     RfqStatus,
     SessionKey,
     SubaccountType,
@@ -88,7 +97,11 @@ class BaseClient:
         self.signer = self.web3_client.eth.account.from_key(private_key)
         self.wallet = wallet
         self._verify_wallet(wallet)
-        self.subaccount_id = self._determine_subaccount_id(subaccount_id)
+        self.subaccount_ids = self.fetch_subaccounts().get("subaccount_ids", [])
+        if subaccount_id is not None and subaccount_id not in self.subaccount_ids:
+            msg = f"Provided subaccount {subaccount_id} not among retrieved aubaccounts: {self.subaccounts!r}"
+            raise ValueError(msg)
+        self.subaccount_id = subaccount_id or self.subaccount_ids[0]
 
     @property
     def account(self):
@@ -114,16 +127,6 @@ class BaseClient:
             msg = f"{self.signer.address} is not among registered session keys for wallet {wallet}."
             raise ValueError(msg)
 
-    def _determine_subaccount_id(self, subaccount_id: int | None) -> int:
-        subaccounts = self.fetch_subaccounts()
-        if not (subaccount_ids := subaccounts.get("subaccount_ids", [])):
-            raise ValueError(f"No subaccounts found for {self.wallet}. Please create one on Derive first.")
-        if subaccount_id is not None and subaccount_id not in subaccount_ids:
-            raise ValueError(f"Provided subaccount {subaccount_id} not among retrieved aubaccounts: {subaccounts!r}")
-        subaccount_id = subaccount_id or subaccount_ids[0]
-        self.logger.debug(f"Selected subaccount_id: {subaccount_id}")
-        return subaccount_id
-
     def create_account(self, wallet):
         """Call the create account endpoint."""
         payload = {"wallet": wallet}
@@ -147,7 +150,7 @@ class BaseClient:
     ):
         """
         Return the tickers.
-        First fetch all instrucments
+        First fetch all instruments
         Then get the ticket for all instruments.
         """
         url = self.endpoints.public.get_instruments
@@ -250,8 +253,8 @@ class BaseClient:
             **signed_action.to_json(),
         }
 
-        response = self.submit_order(order)
-        return response
+        url = self.endpoints.private.order
+        return self._send_request(url, json=order)["order"]
 
     def _generate_signed_action(
         self,
@@ -341,6 +344,16 @@ class BaseClient:
     ):
         instruments = self.fetch_instruments(instrument_type=instrument_type, currency=currency)
         return {inst["instrument_name"]: self.fetch_ticker(inst["instrument_name"]) for inst in instruments}
+
+    def get_order(self, order_id: str) -> dict:
+        url = self.endpoints.private.get_order
+        headers = self._create_signature_headers()
+        payload = {
+            "order_id": order_id,
+            "subaccount_id": self.subaccount_id,
+        }
+        response = requests.post(url, json=payload, headers=headers)
+        return response.json()["result"]
 
     def fetch_orders(
         self,
@@ -781,3 +794,251 @@ class BaseClient:
             condition=_is_final_tx,
             transaction_id=withdraw_result.transaction_id,
         )
+
+    def transfer_position(
+        self,
+        instrument_name: str,
+        amount: float,
+        to_subaccount_id: int,
+    ) -> PositionTransfer:
+        """
+        Transfer a position from the current subaccount to another subaccount.
+
+        Parameters:
+            instrument_name (str): Instrument to transfer (e.g. 'ETH-PERP').
+            amount (float): Amount to transfer. Positive for a long, negative for a short.
+            to_subaccount_id (int): Destination subaccount id (must be different and present in self.subaccount_ids).
+
+        Returns:
+            PositionTransfer: Result containing maker/taker order and trade details.
+        """
+        if to_subaccount_id == self.subaccount_id:
+            raise ValueError("Target subaccount is self")
+        if to_subaccount_id not in self.subaccount_ids:
+            raise ValueError(f"Subaccount id {to_subaccount_id} not in {self.subaccount_ids}")
+
+        url = self.endpoints.private.transfer_position
+        positions = [p for p in self.get_positions() if p["instrument_name"] == instrument_name]
+        if not len(positions) == 1:
+            raise ValueError(f"Expected to find a position for {instrument_name}, found: {positions}")
+
+        position = positions[0]
+        position_amount = float(position["amount"])
+        if abs(position_amount) < abs(amount):
+            raise ValueError(f"Position {position_amount} not sufficient for transfer {amount}")
+
+        ticker = self.fetch_ticker(instrument_name=instrument_name)
+        mark_price = Decimal(ticker["mark_price"]).quantize(Decimal(ticker["tick_size"]))
+        base_asset_address = ticker["base_asset_address"]
+        base_asset_sub_id = int(ticker["base_asset_sub_id"])
+
+        transfer_amount = Decimal(str(abs(amount)))
+        original_position_amount = Decimal(str(position_amount))
+
+        maker_action = SignedAction(
+            subaccount_id=self.subaccount_id,
+            owner=self.wallet,
+            signer=self.signer.address,
+            signature_expiry_sec=MAX_INT_32,
+            nonce=get_action_nonce(),
+            module_address=self.config.contracts.TRADE_MODULE,
+            module_data=MakerTransferPositionModuleData(
+                asset_address=base_asset_address,
+                sub_id=base_asset_sub_id,
+                limit_price=mark_price,
+                amount=transfer_amount,
+                recipient_id=self.subaccount_id,
+                position_amount=original_position_amount,
+            ),
+            DOMAIN_SEPARATOR=self.config.DOMAIN_SEPARATOR,
+            ACTION_TYPEHASH=self.config.ACTION_TYPEHASH,
+        )
+
+        # Small delay to ensure different nonces
+        time.sleep(0.001)
+
+        taker_action = SignedAction(
+            subaccount_id=to_subaccount_id,
+            owner=self.wallet,
+            signer=self.signer.address,
+            signature_expiry_sec=MAX_INT_32,
+            nonce=get_action_nonce(),
+            module_address=self.config.contracts.TRADE_MODULE,
+            module_data=TakerTransferPositionModuleData(
+                asset_address=base_asset_address,
+                sub_id=base_asset_sub_id,
+                limit_price=mark_price,
+                amount=transfer_amount,
+                recipient_id=to_subaccount_id,
+                position_amount=original_position_amount,
+            ),
+            DOMAIN_SEPARATOR=self.config.DOMAIN_SEPARATOR,
+            ACTION_TYPEHASH=self.config.ACTION_TYPEHASH,
+        )
+
+        maker_action.sign(self.signer.key)
+        taker_action.sign(self.signer.key)
+
+        maker_params = {
+            "direction": maker_action.module_data.get_direction(),
+            "instrument_name": instrument_name,
+            **maker_action.to_json(),
+        }
+        taker_params = {
+            "direction": taker_action.module_data.get_direction(),
+            "instrument_name": instrument_name,
+            **taker_action.to_json(),
+        }
+
+        payload = {
+            "wallet": self.wallet,
+            "maker_params": maker_params,
+            "taker_params": taker_params,
+        }
+
+        response_data = self._send_request(url, json=payload)
+        position_transfer = PositionTransfer(**response_data)
+
+        return position_transfer
+
+    def get_position_amount(self, instrument_name: str, subaccount_id: int) -> float:
+        """
+        Get the current position amount for a specific instrument in a subaccount.
+
+        This is a helper method for getting position amounts to use with transfer_position().
+
+        Parameters:
+            instrument_name (str): The name of the instrument.
+            subaccount_id (int): The subaccount ID to check.
+
+        Returns:
+            float: The current position amount.
+
+        Raises:
+            ValueError: If no position found for the instrument in the subaccount.
+        """
+        positions = self.get_positions()
+        # get_positions() returns a list directly
+        position_list = positions if isinstance(positions, list) else positions.get("positions", [])
+        for pos in position_list:
+            if pos["instrument_name"] == instrument_name:
+                return float(pos["amount"])
+
+        raise ValueError(f"No position found for {instrument_name} in subaccount {subaccount_id}")
+
+    def transfer_positions(
+        self,
+        positions: list[PositionSpec],  # amount, instrument_name
+        to_subaccount_id: int,
+        direction: OrderSide,  # TransferDirection
+    ) -> PositionsTransfer:
+        """
+        Transfer multiple positions between subaccounts using RFQ system.
+        Parameters:
+            positions (list[TransferPosition]): list of TransferPosition objects containing:
+                - instrument_name (str): Name of the instrument
+                - amount (float): Amount to transfer (must be positive)
+                - limit_price (float): Limit price for the transfer (must be positive)
+            from_subaccount_id (int): The subaccount ID to transfer from.
+            to_subaccount_id (int): The subaccount ID to transfer to.
+            global_direction (str): Global direction for the transfer ("buy" or "sell").
+        Returns:
+            DeriveTxResult: The result of the transfer transaction.
+        Raises:
+            ValueError: If positions list is empty, invalid global_direction, or if any instrument not found.
+        """
+
+        if to_subaccount_id == self.subaccount_id:
+            raise ValueError("Target subaccount is self")
+        if to_subaccount_id not in self.subaccount_ids:
+            raise ValueError(f"Subaccount id {to_subaccount_id} not in {self.subaccount_ids}")
+
+        url = self.endpoints.private.transfer_positions
+        current_positions = {p["instrument_name"]: p for p in self.get_positions()}
+
+        transfer_details = []
+        for position in positions:
+            amount = Decimal(str(position.amount))
+            instrument_name = position.instrument_name
+
+            if (current_position := current_positions.get(instrument_name)) is None:
+                available = ", ".join(sorted(current_positions.keys())) or "none"
+                msg = f"No position for {instrument_name} (available: {available})"
+                raise ValueError(msg)
+
+            current_amount = Decimal(current_position["amount"]).quantize(Decimal(current_position["amount_step"]))
+            if abs(current_amount) < abs(amount):
+                msg = f"Insufficient position for {instrument_name}: have {current_amount}, need {amount}"
+                raise ValueError(msg)
+
+            ticker = self.fetch_ticker(instrument_name=instrument_name)
+            mark_price = Decimal(ticker["mark_price"]).quantize(Decimal(ticker["tick_size"]))
+            base_asset_address = ticker["base_asset_address"]
+            base_asset_sub_id = int(ticker["base_asset_sub_id"])
+
+            transfer_amount = Decimal(str(abs(amount)))
+
+            leg_direction = "sell" if amount > 0 else "buy"
+            transfer_details.append(
+                TransferPositionsDetails(
+                    instrument_name=instrument_name,
+                    direction=leg_direction,
+                    asset_address=base_asset_address,
+                    sub_id=base_asset_sub_id,
+                    price=mark_price,
+                    amount=transfer_amount,
+                )
+            )
+
+        # Derive RPC -32602: Invalid params  [data=['Legs must be sorted by instrument name']]
+        transfer_details.sort(key=lambda x: x.instrument_name)
+
+        # Create maker action (sender) - USING RFQ_MODULE, not TRADE_MODULE
+        maker_action = SignedAction(
+            subaccount_id=self.subaccount_id,
+            owner=self.wallet,
+            signer=self.signer.address,
+            signature_expiry_sec=MAX_INT_32,
+            nonce=get_action_nonce(),  # maker_nonce
+            module_address=self.config.contracts.RFQ_MODULE,
+            module_data=MakerTransferPositionsModuleData(
+                global_direction=direction.value,
+                positions=transfer_details,
+            ),
+            DOMAIN_SEPARATOR=self.config.DOMAIN_SEPARATOR,
+            ACTION_TYPEHASH=self.config.ACTION_TYPEHASH,
+        )
+
+        # Small delay to ensure different nonces
+        time.sleep(0.001)
+
+        # Create taker action (recipient) - USING RFQ_MODULE, not TRADE_MODULE
+        opposite_direction = "sell" if direction.value == "buy" else "buy"
+        taker_action = SignedAction(
+            subaccount_id=to_subaccount_id,
+            owner=self.wallet,
+            signer=self.signer.address,
+            signature_expiry_sec=MAX_INT_32,
+            nonce=get_action_nonce(),
+            module_address=self.config.contracts.RFQ_MODULE,
+            module_data=TakerTransferPositionsModuleData(
+                global_direction=opposite_direction,
+                positions=transfer_details,
+            ),
+            DOMAIN_SEPARATOR=self.config.DOMAIN_SEPARATOR,
+            ACTION_TYPEHASH=self.config.ACTION_TYPEHASH,
+        )
+
+        maker_action.sign(self.signer.key)
+        taker_action.sign(self.signer.key)
+
+        payload = {
+            "wallet": self.wallet,
+            "maker_params": maker_action.to_json(),
+            "taker_params": taker_action.to_json(),
+        }
+
+        response_data = self._send_request(url, json=payload)
+        positions_transfer = PositionsTransfer(**response_data)
+
+        return positions_transfer

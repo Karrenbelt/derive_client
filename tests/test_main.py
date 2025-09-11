@@ -286,20 +286,18 @@ def test_transfer_collateral(derive_client):
     # freeze_time(derive_client)
     amount = 1
     subaccounts = derive_client.fetch_subaccounts()
-    to = subaccounts['subaccount_ids'][0]
+    to = subaccounts['subaccount_ids'][1]
     asset = CollateralAsset.USDC
     result = derive_client.transfer_collateral(amount, to, asset)
     assert result
 
 
-def test_transfer_collateral_steps(
-    derive_client,
-):
+def test_transfer_collateral_steps(derive_client):
     """Test transfer collateral."""
 
     subaccounts = derive_client.fetch_subaccounts()
-    receiver = subaccounts['subaccount_ids'][0]
-    sender = subaccounts['subaccount_ids'][1]
+    receiver = subaccounts['subaccount_ids'][1]
+    sender = subaccounts['subaccount_ids'][0]
 
     pre_account_balance = float(derive_client.fetch_subaccount(sender)['collaterals_value'])
     asset = CollateralAsset.USDC

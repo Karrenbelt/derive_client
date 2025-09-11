@@ -35,7 +35,7 @@ ARBITRUM:
   - https://arb1.lava.build
   - https://arbitrum.rpc.subquery.network/public
   - https://arb-pokt.nodies.app
-  - https://arbitrum.api.onfinality.io/public
+  # - https://arbitrum.api.onfinality.io/public
 
 DERIVE:
   - https://rpc.derive.xyz/
