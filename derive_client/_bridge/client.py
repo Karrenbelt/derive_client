@@ -123,8 +123,18 @@ def _get_min_fees(
 
 
 class BridgeClient:
+    """
+    Synchronous constructor that performs minimal, non-blocking setup.
+
+    Args:
+        env: Environment to connect to (only PROD supported for bridging)
+        account: Account object containing the private key of the owner of the smart contract funding account
+        wallet: Address of the smart contract funding account
+        logger: Logger instance for logging
+
+    """
+
     def __init__(self, env: Environment, account: Account, wallet: Address, logger: Logger):
-        """Synchronous constructor that performs minimal, non-blocking setup."""
 
         if not env == Environment.PROD:
             raise RuntimeError(f"Bridging is not supported in the {env.name} environment.")
