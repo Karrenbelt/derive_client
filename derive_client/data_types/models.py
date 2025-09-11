@@ -37,11 +37,11 @@ from .enums import (
     MainnetCurrency,
     MarginType,
     OrderSide,
+    OrderStatus,
     QuoteStatus,
     SessionKeyScope,
     TimeInForce,
     TxStatus,
-    OrderStatus,
 )
 
 

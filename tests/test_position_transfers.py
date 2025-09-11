@@ -14,12 +14,18 @@ from derive_client.data_types import (
     OrderType,
     TimeInForce,
     UnderlyingCurrency,
+    PositionSpec,
+    OrderStatus,
 )
 from derive_client.utils import wait_until
 
 
 def is_settled(res: DeriveTxResult) -> bool:
     return res.status is DeriveTxStatus.SETTLED
+
+
+def is_filled(order: dict) -> bool:
+    return order["order_status"] == OrderStatus.FILLED.value
 
 
 def get_all_positions(derive_client):
@@ -51,6 +57,7 @@ def close_all_positions(derive_client):
             ticker = derive_client.fetch_ticker(instrument_name=position["instrument_name"])
             price = ticker["best_ask_price"] if amount < 0 else ticker["best_bid_price"]
             price = float(Decimal(price).quantize(Decimal(ticker["tick_size"])))
+            breakpoint()
             amount = abs(amount)
 
             derive_client.create_order(
@@ -76,7 +83,6 @@ def client_with_position(request, derive_client):
     assert len(derive_client.subaccount_ids) >= 2, "Need at least 2 subaccounts for position transfer tests"
 
     close_all_positions(derive_client)
-
     positions = get_all_positions(derive_client)
     if any(positions.values()):
         raise ValueError(f"Pre-existing positions found: {positions}")
@@ -93,6 +99,7 @@ def client_with_position(request, derive_client):
     # Derive RPC 11013: Limit price X must not have more than Y decimal places
     price = float(Decimal(best_price).quantize(Decimal(ticker["tick_size"])))
 
+    # TODO: balances
     collaterals = derive_client.get_collaterals()
     assert len(collaterals) == 1, "Account collaterals assumption violated"
 
@@ -105,13 +112,19 @@ def client_with_position(request, derive_client):
         )
         raise ValueError(msg)
 
-    derive_client.create_order(
+    order = derive_client.create_order(
         price=price,
         amount=min_amount,
         instrument_name=instrument_name,
         side=side,
         order_type=OrderType.MARKET,
         instrument_type=instrument_type,
+    )
+
+    wait_until(
+        derive_client.get_order,
+        condition=is_filled,
+        order_id=order["order_id"],
     )
 
     yield derive_client
@@ -176,3 +189,131 @@ def test_single_position_transfer(client_with_position):
     final_position = final_positions[target_subaccount_id][0]
     assert final_position["instrument_name"] == initial_position["instrument_name"]
     assert final_position["amount"] == initial_position["amount"]
+
+
+@pytest.fixture
+def client_with_positions(derive_client):
+    """Setup position for transfer"""
+
+    currency = UnderlyingCurrency.ETH
+    instruments = derive_client.fetch_instruments(
+        instrument_type=InstrumentType.OPTION,
+        currency=currency,
+    )
+    active = [i for i in instruments if i.get("is_active")]
+    currency = derive_client.fetch_currency(currency.name)
+    spot = Decimal(currency["spot_price"])
+
+    groups = {}
+    for instrument in active:
+        option_details = instrument["option_details"]
+        expiry = option_details["expiry"]
+        strike = Decimal(option_details["strike"])
+        option_type = option_details["option_type"]
+        key = (expiry, strike)
+        groups.setdefault(key, {})[option_type] = instrument
+
+    candidates = []
+    for (expiry, strike), pair in groups.items():
+        if "C" in pair and "P" in pair:
+            call_ticker = derive_client.fetch_ticker(pair["C"]["instrument_name"])
+            put_ticker = derive_client.fetch_ticker(pair["P"]["instrument_name"])
+
+            # select those that we cannot only open, but also close to cleanup test
+            call_has_liquidity = (Decimal(call_ticker["best_bid_amount"]) > 0 and
+                             Decimal(call_ticker["best_ask_amount"]) > 0)
+            put_has_liquidity = (Decimal(put_ticker["best_bid_amount"]) > 0 and
+                                Decimal(put_ticker["best_ask_amount"]) > 0)
+            if call_has_liquidity and put_has_liquidity:
+                dist = abs(strike - spot)
+                candidates.append((expiry, dist, strike, call_ticker, put_ticker))
+
+    # choose earliest expiry, then nearest strike (min dist)
+    candidates.sort(key=lambda t: (t[0], t[1]))
+    chosen_expiry, _, chosen_strike, call_ticker, put_ticker = candidates[0]
+
+    call_amount = Decimal(call_ticker["minimum_amount"]).quantize(Decimal(call_ticker["amount_step"]))
+    put_amount = Decimal(put_ticker["minimum_amount"]).quantize(Decimal(put_ticker["amount_step"]))
+
+    call_price = Decimal(call_ticker["best_ask_price"]).quantize(Decimal(call_ticker["tick_size"]))
+    put_price = Decimal(put_ticker["best_ask_price"]).quantize(Decimal(put_ticker["tick_size"]))
+
+    # call leg
+    order = derive_client.create_order(
+        price=float(call_price),
+        amount=str(call_amount),
+        instrument_name=call_ticker["instrument_name"],
+        side=OrderSide.BUY,
+        order_type=OrderType.LIMIT,
+        instrument_type=InstrumentType.OPTION,
+        time_in_force=TimeInForce.GTC,
+    )
+
+    wait_until(
+        derive_client.get_order,
+        condition=is_filled,
+        order_id=order["order_id"],
+    )
+
+    # put leg
+    derive_client.create_order(
+        price=float(put_price),
+        amount=str(put_amount),
+        instrument_name=put_ticker["instrument_name"],
+        side=OrderSide.BUY,
+        order_type=OrderType.LIMIT,
+        instrument_type=InstrumentType.OPTION,
+        time_in_force=TimeInForce.GTC,
+    )
+
+    wait_until(
+        derive_client.get_order,
+        condition=is_filled,
+        order_id=order["order_id"],
+    )
+
+    yield derive_client
+
+    close_all_positions(derive_client)
+    remaining_positions = get_all_positions(derive_client)
+    if any(remaining_positions.values()):
+        raise ValueError(f"Post-existing positions found: {remaining_positions}")
+
+
+def test_transfer_positions(client_with_positions):
+    """Test transfering positions."""
+
+    derive_client = client_with_positions
+
+    source_subaccount_id = derive_client.subaccount_ids[0]
+    target_subaccount_id = derive_client.subaccount_ids[1]
+    assert derive_client.subaccount_id == source_subaccount_id
+
+    initial_positions = get_all_positions(derive_client)
+    close_all_positions(derive_client)
+
+    if len(source_positions := initial_positions[source_subaccount_id]) < 2:
+        raise ValueError(f"Expected at least two open position on source, found: {source_positions}")
+    if target_positions := initial_positions[target_subaccount_id]:
+        raise ValueError(f"Expected zero open position on target, found: {target_positions}")
+
+    positions = []
+    for position in source_positions:
+        position_spec = PositionSpec(
+            amount=position["amount"],
+            instrument_name=position["instrument_name"],
+        )
+        positions.append(position_spec)
+
+    positions_transfer = derive_client.transfer_positions(
+        positions=positions,
+        to_subaccount_id=target_subaccount_id,
+        direction=OrderSide.BUY,
+    )
+
+    assert positions_transfer  # TODO
+
+    final_positions = get_all_positions(derive_client)
+
+    assert len(final_positions[source_subaccount_id]) == 0
+    assert len(final_positions[target_subaccount_id]) > 1
