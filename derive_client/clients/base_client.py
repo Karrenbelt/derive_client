@@ -53,7 +53,7 @@ from derive_client.data_types import (
     SessionKey,
     SubaccountType,
     TimeInForce,
-    TransferPosition,
+    PositionSpec,
     UnderlyingCurrency,
     WithdrawResult,
 )
@@ -918,10 +918,9 @@ class BaseClient:
 
     def transfer_positions(
         self,
-        positions: list[TransferPosition],
-        from_subaccount_id: int,
+        positions: list[PositionSpec],  # amount, instrument_name
         to_subaccount_id: int,
-        global_direction: str = "buy",
+        direction: OrderSide,  # TransferDirection
     ) -> PositionsTransfer:
         """
         Transfer multiple positions between subaccounts using RFQ system.
@@ -938,90 +937,62 @@ class BaseClient:
         Raises:
             ValueError: If positions list is empty, invalid global_direction, or if any instrument not found.
         """
-        # Validate inputs
-        if not positions:
-            raise ValueError("Positions list cannot be empty")
-        if global_direction not in ("buy", "sell"):
-            raise ValueError("Global direction must be either 'buy' or 'sell'")
+
+        if to_subaccount_id == self.subaccount_id:
+            raise ValueError("Target subaccount is self")
+        if to_subaccount_id not in self.subaccount_ids:
+            raise ValueError(f"Subaccount id {to_subaccount_id} not in {self.subaccount_ids}")
+
         url = self.endpoints.private.transfer_positions
+        current_positions = {p["instrument_name"]: p for p in self.get_positions()}
 
-        # Collect unique instrument types and currencies
-        instrument_types = set()
-        currencies = set()
-
-        # Analyze all positions to determine what instruments we need
-        for pos in positions:
-            parts = pos.instrument_name.split("-")
-            if len(parts) > 0 and parts[0] in UnderlyingCurrency.__members__:
-                currencies.add(UnderlyingCurrency[parts[0]])
-
-            # Determine instrument type
-            if len(parts) > 1 and parts[1] == "PERP":
-                instrument_types.add(InstrumentType.PERP)
-            elif len(parts) >= 4:  # Option format: BTC-20240329-1600-C
-                instrument_types.add(InstrumentType.OPTION)
-            else:
-                instrument_types.add(InstrumentType.PERP)  # Default to PERP
-
-        # Ensure we have at least one currency and instrument type
-        if not currencies:
-            currencies.add(UnderlyingCurrency.ETH)
-        if not instrument_types:
-            instrument_types.add(InstrumentType.PERP)
-
-        # Fetch all required instruments
-        instruments_map = {}
-        for currency in currencies:
-            for instrument_type in instrument_types:
-                try:
-                    instruments = self.fetch_instruments(
-                        instrument_type=instrument_type, currency=currency, expired=False
-                    )
-                    for inst in instruments:
-                        instruments_map[inst["instrument_name"]] = inst
-                except Exception as e:
-                    self.logger.warning(
-                        f"Failed to fetch {currency.name} {instrument_type.value} instruments: {str(e)}"
-                    )
-
-        # Convert positions to TransferPositionsDetails
         transfer_details = []
-        for pos in positions:
-            # Validate position data
-            if pos.amount <= 0:
-                raise ValueError(f"Transfer amount for {pos.instrument_name} must be positive")
-            if pos.limit_price <= 0:
-                raise ValueError(f"Limit price for {pos.instrument_name} must be positive")
+        for position in positions:
+            amount = Decimal(str(position.amount))
+            instrument_name = position.instrument_name
 
-            # Get instrument details
-            instrument = instruments_map.get(pos.instrument_name)
-            if not instrument:
-                raise ValueError(f"Instrument {pos.instrument_name} not found")
+            if (current_position := current_positions.get(instrument_name)) is None:
+                available = ", ".join(sorted(current_positions.keys())) or "none"
+                msg = f"No position for {instrument_name} (available: {available})"
+                raise ValueError(msg)
 
+            current_amount = Decimal(current_position["amount"]).quantize(Decimal(current_position["amount_step"]))
+            if abs(current_amount) < abs(amount):
+                msg = f"Insufficient position for {instrument_name}: have {current_amount}, need {amount}"
+                raise ValueError(msg)
+
+            ticker = self.fetch_ticker(instrument_name=instrument_name)
+            mark_price = Decimal(ticker["mark_price"]).quantize(Decimal(ticker["tick_size"]))
+            base_asset_address = ticker["base_asset_address"]
+            base_asset_sub_id = int(ticker["base_asset_sub_id"])
+
+            transfer_amount = Decimal(str(abs(amount)))
+
+            leg_direction = "sell" if amount > 0 else "buy"
             transfer_details.append(
                 TransferPositionsDetails(
-                    instrument_name=pos.instrument_name,
-                    direction=global_direction,
-                    asset_address=instrument["base_asset_address"],
-                    sub_id=int(instrument["base_asset_sub_id"]),
-                    price=Decimal(str(pos.limit_price)),
-                    amount=Decimal(str(abs(pos.amount))),
+                    instrument_name=instrument_name,
+                    direction=leg_direction,
+                    asset_address=base_asset_address,
+                    sub_id=base_asset_sub_id,
+                    price=mark_price,
+                    amount=transfer_amount,
                 )
             )
 
-        # Determine opposite direction for taker
-        opposite_direction = "sell" if global_direction == "buy" else "buy"
+        # Derive RPC -32602: Invalid params  [data=['Legs must be sorted by instrument name']]
+        transfer_details.sort(key=lambda x: x.instrument_name)
 
         # Create maker action (sender) - USING RFQ_MODULE, not TRADE_MODULE
         maker_action = SignedAction(
-            subaccount_id=from_subaccount_id,
+            subaccount_id=self.subaccount_id,
             owner=self.wallet,
             signer=self.signer.address,
             signature_expiry_sec=MAX_INT_32,
             nonce=get_action_nonce(),  # maker_nonce
             module_address=self.config.contracts.RFQ_MODULE,
             module_data=MakerTransferPositionsModuleData(
-                global_direction=global_direction,
+                global_direction=direction.value,
                 positions=transfer_details,
             ),
             DOMAIN_SEPARATOR=self.config.DOMAIN_SEPARATOR,
@@ -1032,6 +1003,7 @@ class BaseClient:
         time.sleep(0.001)
 
         # Create taker action (recipient) - USING RFQ_MODULE, not TRADE_MODULE
+        opposite_direction = "sell" if direction.value == "buy" else "buy"
         taker_action = SignedAction(
             subaccount_id=to_subaccount_id,
             owner=self.wallet,
@@ -1047,7 +1019,6 @@ class BaseClient:
             ACTION_TYPEHASH=self.config.ACTION_TYPEHASH,
         )
 
-        # Sign both actions
         maker_action.sign(self.signer.key)
         taker_action.sign(self.signer.key)
 
