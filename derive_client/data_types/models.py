@@ -41,6 +41,7 @@ from .enums import (
     SessionKeyScope,
     TimeInForce,
     TxStatus,
+    OrderStatus,
 )
 
 
@@ -487,7 +488,7 @@ class Order(BaseModel):
     nonce: int
     order_fee: float
     order_id: str
-    order_status: str
+    order_status: OrderStatus
     order_type: str
     quote_id: None
     replaced_order_id: str | None
@@ -526,6 +527,11 @@ class Trade(BaseModel):
     tx_status: DeriveTxStatus
 
 
+class PositionSpec(BaseModel):
+    amount: float  # negative allowed to indicate direction
+    instrument_name: str
+
+
 class PositionTransfer(BaseModel):
     maker_order: Order
     taker_order: Order
@@ -535,7 +541,7 @@ class PositionTransfer(BaseModel):
 
 class Leg(BaseModel):
     amount: float
-    direction: OrderSide
+    direction: OrderSide  # TODO: PositionSide
     instrument_name: str
     price: float
 
