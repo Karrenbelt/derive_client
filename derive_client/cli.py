@@ -2,7 +2,6 @@
 Cli module in order to allow interaction.
 """
 
-import json
 import math
 import os
 from pathlib import Path
@@ -806,55 +805,6 @@ def transfer_position(ctx, instrument_name, amount, limit_price, from_subaccount
         from_subaccount_id=from_subaccount,
         to_subaccount_id=to_subaccount,
         position_amount=position_amount,
-    )
-    print(result)
-
-
-@positions.command("transfer-multiple")
-@click.pass_context
-@click.option(
-    "--positions-json",
-    "-p",
-    type=str,
-    required=True,
-    help='JSON string of positions to transfer, e.g. \'[{"instrument_name": "ETH-PERP", "amount": 0.1, "limit_price": 2000}]\'',  # noqa: E501
-)
-@click.option(
-    "--from-subaccount",
-    "-f",
-    type=int,
-    required=True,
-    help="Subaccount ID to transfer from",
-)
-@click.option(
-    "--to-subaccount",
-    "-t",
-    type=int,
-    required=True,
-    help="Subaccount ID to transfer to",
-)
-@click.option(
-    "--global-direction",
-    "-d",
-    type=click.Choice(["buy", "sell"]),
-    default="buy",
-    help="Global direction for the transfer",
-)
-def transfer_positions(ctx, positions_json, from_subaccount, to_subaccount, global_direction):
-    """Transfer multiple positions between subaccounts."""
-
-    try:
-        positions = json.loads(positions_json)
-    except json.JSONDecodeError as e:
-        click.echo(f"Error parsing positions JSON: {e}")
-        return
-
-    client: DeriveClient = ctx.obj["client"]
-    result = client.transfer_positions(
-        positions=positions,
-        from_subaccount_id=from_subaccount,
-        to_subaccount_id=to_subaccount,
-        global_direction=global_direction,
     )
     print(result)
 
