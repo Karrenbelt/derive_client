@@ -48,7 +48,7 @@ fmt:
 	poetry run ruff check tests derive_client examples --fix
 
 lint:
-	poetry run ruff check tests derive_client examples --fix
+	poetry run ruff check tests derive_client examples
 
 all: fmt lint tests
 
