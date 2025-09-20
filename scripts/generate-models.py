@@ -3,6 +3,7 @@ import re
 from pathlib import Path
 
 import requests
+from datamodel_code_generator import DataModelType, InputFileType, PythonVersion, generate
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
@@ -60,6 +61,23 @@ def download_openapi_specs(base_url: str, dest_dir: Path) -> list[Path]:
     return saved_files
 
 
+def generate_models(input_path: Path, output_path: Path):
+    print(f"Generating models from {input_path.name} -> {output_path}")
+    generate(
+        input_=input_path,
+        input_file_type=InputFileType.OpenAPI,
+        output=output_path,
+        output_model_type=DataModelType.PydanticV2BaseModel,
+        target_python_version=PythonVersion.PY_310,
+        reuse_model=True,
+        use_subclass_enum=True,
+        strict_nullable=True,
+        use_double_quotes=True,
+        field_constraints=True,
+    )
+    print(f"Models generated at: {output_path}")
+
+
 if __name__ == "__main__":
     base_url = "https://docs.derive.xyz"
     repo_root = Path(__file__).parent.parent
@@ -68,3 +86,11 @@ if __name__ == "__main__":
     openapi_specs_path.mkdir(exist_ok=True)
 
     files = download_openapi_specs(base_url=base_url, dest_dir=openapi_specs_path)
+
+    input_path = next((p for p in files if "latest" in p.stem.lower()), None)
+    if input_path is None:
+        available = ", ".join(p.name for p in files)
+        raise RuntimeError(f"No 'latest' spec found among downloaded files: {available}")
+
+    output_path = repo_root / "derive_client" / "_clients" / "models.py"
+    generate_models(input_path=input_path, output_path=output_path)
