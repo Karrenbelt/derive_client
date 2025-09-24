@@ -169,33 +169,18 @@ class WsClient:
             if self._ws and not self._ws.closed:
                 await self._ws.close()
 
-    async def _handle_message(self, message: dict[str, Any]):
-        """Route messages to waiting requests"""
+    async def _handle_response(self, message: dict[str, Any]):
+        """Handle RPC responses."""
 
-        # request has mesage keys: "id" and "result" / "error"
-        # subscription has: "method" and "params"
-
-        request_id = message.get("id")
-        # method = message.get("method")
+        request_id = message["id"]
 
         async with self._futures_lock:
             future = self._request_futures.pop(request_id, None)
 
-        # subscription branch
-        if future is None:  # method == "subscription"
-            params = message.get("params", {})
-            channel = params.get("channel")
-            message = params.get("data")
-
-            q = self._subscriptions.get(channel)
-            try:
-                q.put_nowait(message)
-            except asyncio.QueueFull:
-                logger.warning("Subscription queue full for %s; dropping message", channel)
+        if not future:
+            logger.debug("No future found for id %s; ignoring message", request_id)
             return
-            # TODO: general fallback queue
 
-        # rpc branch
         if future.done():
             logger.debug("Future for id %s already done; ignoring message", request_id)
             return
@@ -204,6 +189,34 @@ class WsClient:
             future.set_result(message)
         except asyncio.InvalidStateError:
             logger.debug("Race completing future %s: already done", request_id)
+
+    async def _handle_subscription(self, message: dict[str, Any]):
+        """Handle subscription messages."""
+
+        params = message.get("params", {})
+        channel = params.get("channel")
+        data = params.get("data")
+
+        q = self._subscriptions.get(channel)
+        if not q:
+            logger.debug("No subscription queue for channel %s; dropping message", channel)
+            return
+
+        try:
+            q.put_nowait(data)
+        except asyncio.QueueFull:
+            logger.warning("Subscription queue full for %s; dropping message", channel)
+
+    async def _handle_message(self, message: dict[str, Any]):
+        """Route messages to waiting requests"""
+
+        # request has mesage keys: "id" and "result" / "error"
+        # subscription has: "method" and "params"
+
+        if "id" in message:
+            await self._handle_response(message)
+        else:
+            await self._handle_subscription(message)
 
     async def _cleanup_pending_requests(self):
         """Fail all pending requests when connection dies"""
