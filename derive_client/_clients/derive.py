@@ -63,19 +63,19 @@ async def test_it(instrument_name: str):
     await client.aio.close()
 
     async with client.ws as ws:
-        ws_ticker = await ws.get_ticker(instrument_name=instrument_name)
+        ws_ticker = await ws.rpc.get_ticker(instrument_name=instrument_name)
 
-    ws_ticker = await client.ws.get_ticker(instrument_name=instrument_name)
+    ws_ticker = await client.ws.rpc.get_ticker(instrument_name=instrument_name)
     await client.ws.close()
 
     # NOTE: caller, not the subscription, should own the connection
     async with client.ws:
-        async with client.ws.subscribe_ticker(instrument_name=instrument_name) as gen:
+        async with client.ws.subs.ticker(instrument_name=instrument_name) as gen:
             async for ticker in gen:
                 logger.error(f"{ticker}")
                 break
 
-    async with client.ws.subscribe_ticker(instrument_name=instrument_name) as gen:
+    async with client.ws.subs.ticker(instrument_name=instrument_name) as gen:
         async for ticker in gen:
             logger.error(f"{ticker}")
             break

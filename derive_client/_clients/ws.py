@@ -360,12 +360,69 @@ class WsClient:
             )
 
 
+class WsRPC:
+    def __init__(self, ws: WsClient):
+        self._ws = ws
+
+    async def get_ticker(self, instrument_name: str):
+        message = await self._ws._send_request("public/get_ticker", {"instrument_name": instrument_name})
+        return try_cast_response(message, PublicGetTickerResultSchema)
+
+
+class WsSubs:
+    def __init__(self, ws: WsClient):
+        self._ws = ws
+        self._subscriptions = ws._subscriptions  # just a reference
+
+    async def _subscribe(self, channel):
+        await self._ws._send_request("subscribe", {"channels": [channel]})
+
+    async def _unsubscribe(self, channel):
+        await self._ws._send_request("unsubscribe", {"channels": [channel]})
+
+    @asynccontextmanager
+    async def ticker(self, instrument_name: str, interval: int = 1000):
+        channel = f"ticker.{instrument_name}.{interval}"
+        q = self._subscriptions.get(channel)
+        if q is None:
+            q = asyncio.Queue(maxsize=1000)
+            self._subscriptions[channel] = q
+
+        await self._subscribe(channel)
+
+        async def gen():
+            try:
+                while True:
+                    message = await q.get()
+                    payload = message.get("instrument_ticker")
+                    try:
+                        yield PublicGetTickerResultSchema(**payload)
+                    except Exception:
+                        logger.exception("Failed to parse ticker payload from channel %s: %s", channel, payload)
+                        continue
+            finally:
+                try:
+                    await self._unsubscribe(channel)
+                except Exception:
+                    logger.debug("unsubscribe for %s failed or not supported", channel)
+                self._subscriptions.pop(channel, None)
+
+        try:
+            generator = gen()
+            yield generator
+        finally:
+            await generator.aclose()
+
+
 class DeriveWsClient:
-    def __init__(self, wallet: str, session_key: str, env: str):
+    def __init__(self, wallet: Address, session_key: str, env: Environment):
         self.wallet = wallet
         self.session_key = session_key
         self.config = CONFIGS[env]
+
         self._ws = WsClient(self.config.ws_address)
+        self.rpc = WsRPC(self._ws)
+        self.subs = WsSubs(self._ws)
 
     @property
     def endpoints(self):
@@ -382,54 +439,3 @@ class DeriveWsClient:
 
     async def close(self, force: bool = True):
         await self._ws.close(force=force)
-
-    async def get_ticker(self, instrument_name: str) -> PublicGetTickerResultSchema:
-        """Get ticker data with full error handling"""
-
-        message = await self._ws._send_request("public/get_ticker", {"instrument_name": instrument_name})
-        return try_cast_response(message=message, result_schema=PublicGetTickerResultSchema)
-
-    @asynccontextmanager
-    async def subscribe_ticker(self, instrument_name: str, interval: int = 1000):
-        """Ticker subscription"""
-
-        channel = f"ticker.{instrument_name}.{interval}"
-
-        q = self._ws._subscriptions.get(channel)
-        if q is None:
-            q = asyncio.Queue(maxsize=1000)
-            self._ws._subscriptions[channel] = q
-
-        try:
-            await self._ws._send_request("subscribe", {"channels": [channel]})
-        except Exception:
-            if self._ws._subscriptions.get(channel) is q:
-                self._ws._subscriptions.pop(channel, None)
-            raise
-
-        async def gen():
-            try:
-                while True:
-                    message = await q.get()
-                    payload = message.get("instrument_ticker")
-                    try:
-                        model = PublicGetTickerResultSchema(**payload)
-                    except Exception:
-                        logger.exception("Failed to parse ticker payload from channel %s: %s", channel, payload)
-                        continue
-
-                    yield model
-            except Exception as exc:
-                logger.error(f"{exc}")
-            finally:
-                try:
-                    await self._ws._send_request("unsubscribe", {"channels": [channel]})
-                except Exception:
-                    logger.debug("unsubscribe for %s failed or not supported", channel)
-                self._ws._subscriptions.pop(channel, None)
-
-        try:
-            generator = gen()
-            yield generator
-        finally:
-            await generator.aclose()
