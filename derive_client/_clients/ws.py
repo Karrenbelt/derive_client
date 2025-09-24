@@ -59,7 +59,7 @@ class WsClient:
         self._request_timeout = 1
 
         self._subscriptions: dict[str, asyncio.Queue] = {}
-        # self._notifications: asyncio.Queue = asyncio.Queue(maxsize=1000)
+        self._notifications: asyncio.Queue = asyncio.Queue(maxsize=1000)
 
         self._connection_lock = asyncio.Lock()
         self._futures_lock = asyncio.Lock()
@@ -207,16 +207,22 @@ class WsClient:
         except asyncio.QueueFull:
             logger.warning("Subscription queue full for %s; dropping message", channel)
 
+    async def _handle_notification(self, message: dict[str, Any]):
+        try:
+            self._notifications.put_nowait(message)
+        except asyncio.QueueFull:
+            logger.warning("Notification queue full, dropping message: %s", message)
+        logger.info("Notification: %s", message)
+
     async def _handle_message(self, message: dict[str, Any]):
         """Route messages to waiting requests"""
 
-        # request has mesage keys: "id" and "result" / "error"
-        # subscription has: "method" and "params"
-
         if "id" in message:
             await self._handle_response(message)
-        else:
+        elif message.get("method") == "subscription":
             await self._handle_subscription(message)
+        else:
+            await self._handle_notification(message)
 
     async def _cleanup_pending_requests(self):
         """Fail all pending requests when connection dies"""
