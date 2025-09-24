@@ -14,18 +14,10 @@ from derive_client._clients.logger import logger
 class HttpClient:
     """Pure synchronous HTTP client"""
 
-    def __init__(self, wallet: Address, session_key: str, env: Environment):
-        self.wallet = wallet
-        self.session_key = session_key
-        self.config = CONFIGS[env]
-
+    def __init__(self):
         self.default_timeout = 5
         self.session: requests.Session | None = None
         self._finalizer = weakref.finalize(self, self._cleanup)
-
-    @property
-    def endpoints(self):
-        return EndPoints(self.config.base_url)
 
     def _ensure_session(self):
         """Lazy session creation"""
@@ -69,9 +61,30 @@ class HttpClient:
             self.session.close()
             self.session = None
 
-    def get_ticker(self, instrument_name: str) -> PublicGetTickerResultSchema:
+
+class DeriveHttpClient:
+    def __init__(self, wallet: str, session_key: str, env: str):
+        self.wallet = wallet
+        self.session_key = session_key
+        self.config = CONFIGS[env]
+        self._http = HttpClient()
+
+    @property
+    def endpoints(self):
+        return EndPoints(self.config.base_url)
+
+    def __enter__(self):
+        self._http.__enter__()
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self._http.__exit__(exc_type, exc_val, exc_tb)
+
+    def close(self):
+        self._http.close()
+
+    def get_ticker(self, instrument_name: str):
         url = self.endpoints.public.get_ticker
         params = {"instrument_name": instrument_name}
-        message = self._send_request(url=url, params=params)
-        result = try_cast_response(message=message, result_schema=PublicGetTickerResultSchema)
-        return result
+        message = self._http._send_request(url, params)
+        return try_cast_response(message, PublicGetTickerResultSchema)

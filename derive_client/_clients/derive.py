@@ -2,9 +2,9 @@ import asyncio
 
 from dotenv import load_dotenv
 
-from derive_client._clients.aio import AioClient
-from derive_client._clients.http import HttpClient
-from derive_client._clients.ws import WsClient
+from derive_client._clients.aio import DeriveAioClient
+from derive_client._clients.http import DeriveHttpClient
+from derive_client._clients.ws import DeriveWsClient
 from derive_client._clients.logger import logger
 from derive_client.data_types import Address, Environment
 
@@ -25,24 +25,24 @@ class DeriveClient:
         self._ws_client = None
 
     @property
-    def http(self) -> HttpClient:
+    def http(self) -> DeriveHttpClient:
         """Access synchronous HTTP client"""
         if not self._sync_client:
-            self._sync_client = HttpClient(self.wallet, self.session_key, self.env)
+            self._sync_client = DeriveHttpClient(self.wallet, self.session_key, self.env)
         return self._sync_client
 
     @property
-    def aio(self) -> AioClient:
+    def aio(self) -> DeriveAioClient:
         """Access asynchronous HTTP client"""
         if not self._async_client:
-            self._async_client = AioClient(self.wallet, self.session_key, self.env)
+            self._async_client = DeriveAioClient(self.wallet, self.session_key, self.env)
         return self._async_client
 
     @property
-    def ws(self) -> WsClient:
+    def ws(self) -> DeriveWsClient:
         """Access WebSocket client (always async)"""
         if not self._ws_client:
-            self._ws_client = WsClient(self.wallet, self.session_key, self.env)
+            self._ws_client = DeriveWsClient(self.wallet, self.session_key, self.env)
         return self._ws_client
 
     @property

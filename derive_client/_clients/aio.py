@@ -15,18 +15,10 @@ from derive_client._clients.logger import logger
 class AioClient:
     """Pure asynchronous HTTP client"""
 
-    def __init__(self, wallet: Address, session_key: str, env: Environment):
-        self.wallet = wallet
-        self.session_key = session_key
-        self.config = CONFIGS[env]
-
+    def __init__(self):
         self.default_timeout = 5
         self.session: aiohttp.ClientSession | None = None
         self._finalizer = weakref.finalize(self, self._cleanup)
-
-    @property
-    def endpoints(self):
-        return EndPoints(self.config.base_url)
 
     async def _ensure_session(self):
         """Lazy session creation"""
@@ -66,9 +58,31 @@ class AioClient:
             except Exception as e:
                 raise ValueError(f"Failed to decode JSON from {url}: {e}") from e
 
+
+class DeriveAioClient:
+    def __init__(self, wallet: str, session_key: str, env: str):
+        self.wallet = wallet
+        self.session_key = session_key
+        self.config = CONFIGS[env]
+        self._aio = AioClient()
+
+    @property
+    def endpoints(self):
+        return EndPoints(self.config.base_url)
+
+    async def __aenter__(self):
+        await self._aio._ensure_session()
+        return self
+
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        await self._aio.close()
+
+    async def close(self):
+        await self._aio.close()
+
     async def get_ticker(self, instrument_name: str) -> PublicGetTickerResultSchema:
         url = self.endpoints.public.get_ticker
         params = {"instrument_name": instrument_name}
-        message = await self._send_request(url=url, params=params)
+        message = await self._aio._send_request(url=url, params=params)
         result = try_cast_response(message=message, result_schema=PublicGetTickerResultSchema)
         return result

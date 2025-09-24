@@ -40,10 +40,8 @@ class ConnectionState(Enum):
 class WsClient:
     """WebSocket client - ALWAYS async (as it should be!)"""
 
-    def __init__(self, wallet: Address, session_key: str, env: Environment):
-        self.wallet = wallet
-        self.session_key = session_key
-        self.config = CONFIGS[env]
+    def __init__(self, ws_address: str):
+        self.ws_address = ws_address
 
         # lazy: create on connect
         self._connector: aiohttp.TCPConnector | None = None
@@ -68,10 +66,6 @@ class WsClient:
 
         self._finalizer = weakref.finalize(self, self._cleanup)
 
-    @property
-    def endpoints(self):
-        return EndPoints(self.config.base_url)
-
     async def _ensure_connected(self):
         """Lazy connection with aiohttp built-ins"""
 
@@ -93,9 +87,10 @@ class WsClient:
                 )
                 self._session = aiohttp.ClientSession(connector=self._connector)
 
-            headers = {"Authorization": f"Bearer {self.session_key}"} if self.session_key else None
+            # headers = {"Authorization": f"Bearer {self.session_key}"} if self.session_key else None
+            headers = None
             self._ws = await self._session.ws_connect(
-                self.config.ws_address,
+                self.ws_address,
                 timeout=aiohttp.ClientTimeout(total=60),
                 heartbeat=30,
                 autoping=True,
@@ -345,10 +340,34 @@ class WsClient:
                 "Use 'async with' or call close() explicitly to ensure proper cleanup."
             )
 
+
+class DeriveWsClient:
+    def __init__(self, wallet: str, session_key: str, env: str):
+        self.wallet = wallet
+        self.session_key = session_key
+        self.config = CONFIGS[env]
+        self._ws = WsClient(self.config.ws_address)
+
+    @property
+    def endpoints(self):
+        return EndPoints(self.config.base_url)
+
+    async def __aenter__(self):
+        """Enter context manager"""
+        await self._ws.__aenter__()
+        return self
+
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        """Enter context manager"""
+        await self._ws.__aexit__(exc_type, exc_val, exc_tb)
+
+    async def close(self, force: bool = True):
+        await self._ws.close(force=force)
+
     async def get_ticker(self, instrument_name: str) -> PublicGetTickerResultSchema:
         """Get ticker data with full error handling"""
 
-        message = await self._send_request("public/get_ticker", {"instrument_name": instrument_name})
+        message = await self._ws._send_request("public/get_ticker", {"instrument_name": instrument_name})
         return try_cast_response(message=message, result_schema=PublicGetTickerResultSchema)
 
     @asynccontextmanager
@@ -357,16 +376,16 @@ class WsClient:
 
         channel = f"ticker.{instrument_name}.{interval}"
 
-        q = self._subscriptions.get(channel)
+        q = self._ws._subscriptions.get(channel)
         if q is None:
             q = asyncio.Queue(maxsize=1000)
-            self._subscriptions[channel] = q
+            self._ws._subscriptions[channel] = q
 
         try:
-            await self._send_request("subscribe", {"channels": [channel]})
+            await self._ws._send_request("subscribe", {"channels": [channel]})
         except Exception:
-            if self._subscriptions.get(channel) is q:
-                self._subscriptions.pop(channel, None)
+            if self._ws._subscriptions.get(channel) is q:
+                self._ws._subscriptions.pop(channel, None)
             raise
 
         async def gen():
@@ -385,10 +404,10 @@ class WsClient:
                 logger.error(f"{exc}")
             finally:
                 try:
-                    await self._send_request("unsubscribe", {"channels": [channel]})
+                    await self._ws._send_request("unsubscribe", {"channels": [channel]})
                 except Exception:
                     logger.debug("unsubscribe for %s failed or not supported", channel)
-                self._subscriptions.pop(channel, None)
+                self._ws._subscriptions.pop(channel, None)
 
         try:
             generator = gen()
