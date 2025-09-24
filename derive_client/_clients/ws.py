@@ -1,0 +1,390 @@
+import asyncio
+import json
+import logging
+import uuid
+import weakref
+from enum import Enum
+from typing import Any
+
+import aiohttp
+
+from derive_client._clients.models import (
+    PublicGetTickerResultSchema,
+)
+from derive_client.constants import CONFIGS
+from derive_client.data_types import Address, Environment
+from derive_client.endpoints import RestAPI as EndPoints
+
+logger = logging.getLogger(__file__)
+
+
+MAX_MSG_SIZE = 4 * 1024 * 1024  # 4MiB
+
+
+def wire_size_bytes(obj) -> int:
+    """Return number of bytes the JSON encoding will use (utf-8)."""
+    # Use orjson if available (much faster and often more compact for floats/decimals)
+    return len(json.dumps(obj, separators=(",", ":"), ensure_ascii=False).encode("utf-8"))
+
+
+class WsConnectionError(ConnectionError):
+    """"""
+
+
+class ConnectionState(Enum):
+    DISCONNECTED = "disconnected"
+    CONNECTED = "connected"
+    CLOSED = "closed"
+
+
+class WsClient:
+    """WebSocket client - ALWAYS async (as it should be!)"""
+
+    def __init__(self, wallet: Address, session_key: str, env: Environment):
+        self.wallet = wallet
+        self.session_key = session_key
+        self.config = CONFIGS[env]
+
+        # lazy: create on connect
+        self._connector: aiohttp.TCPConnector | None = None
+        self._session: aiohttp.ClientSession | None = None
+        self._ws: aiohttp.ClientWebSocketResponse | None = None
+        self._message_task: asyncio.Task | None = None
+
+        self._refcount = 0
+        self._idle_timeout = 0.0
+        self._idle_task: asyncio.Task | None = None
+
+        self._closing = False
+
+        self._request_futures: dict[str, asyncio.Future] = {}
+        self._request_timeout = 30
+
+        self._subscriptions: dict[str, asyncio.Queue] = {}
+        # self._notifications: asyncio.Queue = asyncio.Queue(maxsize=1000)
+
+        self._connection_lock = asyncio.Lock()
+        self._futures_lock = asyncio.Lock()
+
+        self._finalizer = weakref.finalize(self, self._cleanup_sync)
+
+    @property
+    def endpoints(self):
+        return EndPoints(self.config.base_url)
+
+    async def _ensure_connected(self):
+        """Lazy connection with aiohttp built-ins"""
+
+        # quick optimistic check to avoid acquiring the lock unnecessarily
+        if self._ws and not self._ws.closed:
+            return
+
+        async with self._connection_lock:
+            # double-check after acquiring the lock
+            if self._ws and not self._ws.closed:
+                return
+
+            if self._session is None or self._session.closed:
+                self._connector = aiohttp.TCPConnector(
+                    limit=100,
+                    limit_per_host=10,
+                    keepalive_timeout=30,
+                    enable_cleanup_closed=True,
+                )
+                self._session = aiohttp.ClientSession(connector=self._connector)
+
+            headers = {"Authorization": f"Bearer {self.session_key}"} if self.session_key else None
+            self._ws = await self._session.ws_connect(
+                self.config.ws_address,
+                timeout=aiohttp.ClientTimeout(total=60),
+                heartbeat=30,
+                autoping=True,
+                max_msg_size=MAX_MSG_SIZE,
+                headers=headers,
+            )
+
+            if not self._message_task or self._message_task.done():
+                self._message_task = asyncio.create_task(self._message_loop())
+
+    async def _send_request(self, method: str, params: dict, *, timeout: float | None = None) -> Any:
+        await self._ensure_connected()
+        request_id = str(uuid.uuid4())
+        loop = asyncio.get_running_loop()
+        future = loop.create_future()
+
+        async with self._futures_lock:
+            self._request_futures[request_id] = future
+
+        message = {"method": method, "params": params, "id": request_id}
+        try:
+            await self._ws.send_str(json.dumps(message))
+        except Exception as exc:
+            async with self._futures_lock:
+                future = self._request_futures.pop(request_id, None)
+            if future and not future.done():
+                future.set_exception(exc)
+            raise
+
+        try:
+            wait_timeout = timeout if timeout is not None else self._request_timeout
+            result = await asyncio.wait_for(future, timeout=wait_timeout)
+            return result
+        except (asyncio.TimeoutError, asyncio.CancelledError):
+            async with self._futures_lock:
+                future = self._request_futures.pop(request_id, None)
+            if future and not future.done():
+                future.cancel()
+            raise
+        finally:
+            async with self._futures_lock:
+                self._request_futures.pop(request_id, None)
+
+    async def _message_loop(self):
+        """Background task: listen for ALL incoming messages"""
+
+        try:
+            async for msg in self._ws:
+                if msg.type == aiohttp.WSMsgType.PING:
+                    logger.debug("Received PING")
+                elif msg.type == aiohttp.WSMsgType.PONG:
+                    logger.debug("Received PONG")
+                elif msg.type == aiohttp.WSMsgType.TEXT:
+                    message = json.loads(msg.data)  # orjson
+                    await self._handle_message(message)
+                elif msg.type == aiohttp.WSMsgType.BINARY:
+                    try:
+                        message = json.loads(msg.data.decode("utf-8"))
+                        await self._handle_message(message)
+                    except Exception:
+                        # may try: message = msgpack.loads(msg.data, raw=False)
+                        logger.warning("Unhandled BINARY message (not utf8/json); len=%d", len(msg.data))
+                elif msg.type in (aiohttp.WSMsgType.CLOSE, aiohttp.WSMsgType.CLOSING, aiohttp.WSMsgType.CLOSED):
+                    logger.info("WebSocket closing/closed: %s", msg.type)
+                    break
+                elif msg.type == aiohttp.WSMsgType.ERROR:
+                    logger.error(f"WebSocket error: {self._ws.exception()}")
+                    break
+                else:
+                    # should not get CONTINUATION because the library reassembles fragments and yields complete messages
+                    logger.warning("Unhandled WS message type: %s", msg.type)
+        except Exception as e:
+            logger.error(f"Message loop error: {e}")
+        finally:
+            await self._cleanup_pending_requests()
+
+    async def _handle_message(self, message: dict[str, Any]):
+        """Route messages to waiting requests"""
+
+        # request has mesage keys: "id" and "result" / "error"
+        # subscription has: "method" and "params"
+
+        request_id = message.get("id")
+        # method = message.get("method")
+
+        async with self._futures_lock:
+            future = self._request_futures.pop(request_id, None)
+
+        # subscription branch
+        if future is None:  # method == "subscription"
+            params = message.get("params", {})
+            channel = params.get("channel")
+            message = params.get("data")
+
+            q = self._subscriptions.get(channel)
+            try:
+                q.put_nowait(message)
+            except asyncio.QueueFull:
+                logger.warning("Subscription queue full for %s; dropping message", channel)
+            return
+            # TODO: general fallback queue
+
+        # rpc branch
+        if future.done():
+            logger.debug("Future for id %s already done; ignoring message", request_id)
+            return
+
+        try:
+            if "result" in message:
+                future.set_result(message["result"])
+            elif "error" in message:
+                future.set_exception(Exception(message["error"]))  # TODO: custom exception
+            else:
+                future.set_exception(Exception("Invalid response format"))
+        except asyncio.InvalidStateError:
+            logger.debug("Race completing future %s: already done", request_id)
+
+    async def _cleanup_pending_requests(self):
+        """Fail all pending requests when connection dies"""
+
+        # prevents `RuntimeError: dict changed size during iteration`
+        async with self._futures_lock:
+            futures = list(self._request_futures.values())
+            self._request_futures.clear()
+
+        # `future.set_exception()` runs future callbacks synchronously on the event loop
+        # Those callbacks are user-controlled and may do arbitrary work;
+        # running them while holding `_futures_lock` can deadlock
+        for future in futures:
+            if not future.done():
+                try:
+                    future.set_exception(WsConnectionError("WebSocket connection lost"))
+                except asyncio.InvalidStateError:
+                    # Rare race: the future completed between the check and set_exception
+                    logger.debug("Future already done during cleanup")
+
+    async def __aenter__(self):
+        """Enter context manager"""
+
+        await self._ensure_connected()
+        async with self._connection_lock:
+            # If we've scheduled an idle-close, cancel it because someone re-entered
+            if self._idle_task and not self._idle_task.done():
+                self._idle_task.cancel()
+                self._idle_task = None
+            self._refcount += 1
+        return self
+
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        """Exit context manager"""
+
+        if exc_type is not None:
+            logger.error(f"Context manager exiting due to {exc_type.__name__}: {exc_val}")
+
+        close_now = False
+        async with self._connection_lock:
+            self._refcount = max(0, self._refcount - 1)
+            if self._refcount == 0:
+                if self._idle_timeout <= 0:
+                    # immediate close-if-unused (do not spawn a task)
+                    close_now = True
+                else:
+                    loop = asyncio.get_running_loop()
+                    # if there's already an idle task, cancel and replace it (defensive)
+                    if self._idle_task and not self._idle_task.done():
+                        self._idle_task.cancel()
+                    self._idle_task = loop.create_task(self._idle_close(self._idle_timeout))
+
+        if close_now:
+            await self.close(force=False)
+
+    async def _idle_close(self, delay: float):
+        """Close after delay if refcount still zero."""
+
+        try:
+            await asyncio.sleep(delay)
+            # check refcount under lock but call close outside
+            async with self._connection_lock:
+                should_close = self._refcount == 0
+            if should_close:
+                await self.close(force=False)
+        except asyncio.CancelledError:
+            # cancelled because someone re-entered
+            return
+
+    async def close(self, force: bool = True):
+        """Explicit cleanup"""
+
+        async with self._connection_lock:
+            if self._closing:
+                return
+            if not force and self._refcount > 0:
+                return
+
+            self._closing = True
+
+            if self._idle_task and not self._idle_task.done():
+                self._idle_task.cancel()
+                self._idle_task = None
+
+            # snapshot and clear instance refs while holding the lock
+            ws = self._ws
+            session = self._session
+            connector = self._connector
+            message_task = self._message_task
+
+            self._ws = None
+            self._session = None
+            self._connector = None
+            self._message_task = None
+            self._refcount = 0
+
+        if message_task and not message_task.done():
+            message_task.cancel()
+            try:
+                await message_task
+            except asyncio.CancelledError:
+                pass
+
+        if ws and not ws.closed:
+            try:
+                await ws.close()
+            except Exception:
+                logger.exception("Error closing websocket")
+
+        # websocket does not own the session
+        if session and not session.closed:
+            try:
+                await session.close()
+            except Exception:
+                logger.exception("Error closing session")
+
+        if connector and not connector.closed:
+            try:
+                await connector.close()
+            except Exception:
+                logger.exception("Error closing connector")
+
+        await self._cleanup_pending_requests()
+
+    def _cleanup_sync(self):
+        """Synchronous cleanup for finalizer"""
+
+        # do not schedule async work from a finalizer!
+        # may run at any time, event loop may not be running -> async task fails silently
+        if self._session and not self._session.closed:
+            logger.warning(
+                "WebSocket client was garbage collected without explicit close(). "
+                "Use 'async with' or call close() explicitly to ensure proper cleanup."
+            )
+
+    async def get_ticker(self, instrument_name: str) -> PublicGetTickerResultSchema:
+        """Get ticker data with full error handling"""
+
+        result = await self._send_request("public/get_ticker", {"instrument_name": instrument_name})
+        return PublicGetTickerResultSchema(**result)
+
+    async def subscribe_ticker(self, instrument_name: str, interval: int = 1000):
+        await self._ensure_connected()
+
+        channel = f"ticker.{instrument_name}.{interval}"
+
+        q = self._subscriptions.get(channel)
+        if q is None:
+            q = asyncio.Queue(maxsize=1000)
+            self._subscriptions[channel] = q
+
+        try:
+            await self._send_request("subscribe", {"channels": [channel]})
+        except Exception:
+            if self._subscriptions.get(channel) is q:
+                self._subscriptions.pop(channel, None)
+            raise
+
+        try:
+            while True:
+                message = await q.get()  # keys: "timestamp" and ""
+                breakpoint()
+                payload = message.get("instrument_ticker")
+                try:
+                    model = PublicGetTickerResultSchema(**payload)
+                except Exception:
+                    logger.exception("Failed to parse ticker payload from channel %s: %s", channel, payload)
+                    continue
+
+                yield model
+        finally:
+            try:
+                await self._send_request("unsubscribe", {"channels": [channel]})
+            except Exception:
+                logger.debug("unsubscribe for %s failed or not supported", channel)
+            self._subscriptions.pop(channel, None)
