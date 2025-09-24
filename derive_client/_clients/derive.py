@@ -5,6 +5,7 @@ from dotenv import load_dotenv
 from derive_client._clients.aio import AioClient
 from derive_client._clients.http import HttpClient
 from derive_client._clients.ws import WsClient
+from derive_client._clients.logger import logger
 from derive_client.data_types import Address, Environment
 
 load_dotenv()
@@ -64,11 +65,21 @@ async def test_it(instrument_name: str):
     async with client.ws as ws:
         ws_ticker = await ws.get_ticker(instrument_name=instrument_name)
 
-    async with client.ws as ws:
-        gen = ws.subscribe_ticker(instrument_name=instrument_name)
+    ws_ticker = await client.ws.get_ticker(instrument_name=instrument_name)
+    await client.ws.close()
+
+    # NOTE: caller, not the subscription, should own the connection
+    async with client.ws:
+        async with client.ws.subscribe_ticker(instrument_name=instrument_name) as gen:
+            async for ticker in gen:
+                logger.error(f"{ticker}")
+                break
+
+    async with client.ws.subscribe_ticker(instrument_name=instrument_name) as gen:
         async for ticker in gen:
+            logger.error(f"{ticker}")
             break
-        await gen.aclose()
+    await client.ws.close()
 
     http_ticker = aio_ticker = ws_ticker = ticker = None
     return http_ticker, aio_ticker, ws_ticker, ticker

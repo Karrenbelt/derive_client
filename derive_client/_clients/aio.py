@@ -2,9 +2,7 @@ import weakref
 import aiohttp
 
 from derive_client._clients.models import (
-    PublicGetTickerResponseSchema,
     PublicGetTickerResultSchema,
-    RPCErrorFormatSchema,
 )
 from derive_client.constants import CONFIGS, PUBLIC_HEADERS
 from derive_client.data_types import Address, Environment

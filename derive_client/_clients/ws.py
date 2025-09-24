@@ -4,6 +4,7 @@ import uuid
 import weakref
 from enum import Enum
 from typing import Any
+from contextlib import asynccontextmanager
 
 import aiohttp
 
@@ -350,6 +351,7 @@ class WsClient:
         message = await self._send_request("public/get_ticker", {"instrument_name": instrument_name})
         return try_cast_response(message=message, result_schema=PublicGetTickerResultSchema)
 
+    @asynccontextmanager
     async def subscribe_ticker(self, instrument_name: str, interval: int = 1000):
         """Ticker subscription"""
 
@@ -367,20 +369,29 @@ class WsClient:
                 self._subscriptions.pop(channel, None)
             raise
 
-        try:
-            while True:
-                message = await q.get()
-                payload = message.get("instrument_ticker")
-                try:
-                    model = PublicGetTickerResultSchema(**payload)
-                except Exception:
-                    logger.exception("Failed to parse ticker payload from channel %s: %s", channel, payload)
-                    continue
-
-                yield model
-        finally:
+        async def gen():
             try:
-                await self._send_request("unsubscribe", {"channels": [channel]})
-            except Exception:
-                logger.debug("unsubscribe for %s failed or not supported", channel)
-            self._subscriptions.pop(channel, None)
+                while True:
+                    message = await q.get()
+                    payload = message.get("instrument_ticker")
+                    try:
+                        model = PublicGetTickerResultSchema(**payload)
+                    except Exception:
+                        logger.exception("Failed to parse ticker payload from channel %s: %s", channel, payload)
+                        continue
+
+                    yield model
+            except Exception as exc:
+                logger.error(f"{exc}")
+            finally:
+                try:
+                    await self._send_request("unsubscribe", {"channels": [channel]})
+                except Exception:
+                    logger.debug("unsubscribe for %s failed or not supported", channel)
+                self._subscriptions.pop(channel, None)
+
+        try:
+            generator = gen()
+            yield generator
+        finally:
+            await generator.aclose()
