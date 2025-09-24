@@ -49,12 +49,28 @@ class DeriveClient:
 
 
 async def test_it(instrument_name: str):
+    with client.http as http:
+        http_ticker = http.get_ticker(instrument_name=instrument_name)
+
     http_ticker = client.http.get_ticker(instrument_name=instrument_name)
+    client.http.close()
+
+    async with client.aio as aio:
+        aio_ticker = await aio.get_ticker(instrument_name=instrument_name)
+
     aio_ticker = await client.aio.get_ticker(instrument_name=instrument_name)
-    ws_ticker = await client.ws.get_ticker(instrument_name=instrument_name)
-    async for ticker in client.ws.subscribe_ticker(instrument_name=instrument_name):
-        ticker
-        break
+    await client.aio.close()
+
+    async with client.ws as ws:
+        ws_ticker = await ws.get_ticker(instrument_name=instrument_name)
+
+    async with client.ws as ws:
+        gen = ws.subscribe_ticker(instrument_name=instrument_name)
+        async for ticker in gen:
+            break
+        await gen.aclose()
+
+    http_ticker = aio_ticker = ws_ticker = ticker = None
     return http_ticker, aio_ticker, ws_ticker, ticker
 
 

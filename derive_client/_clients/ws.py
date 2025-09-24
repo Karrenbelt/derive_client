@@ -1,6 +1,5 @@
 import asyncio
 import json
-import logging
 import uuid
 import weakref
 from enum import Enum
@@ -14,8 +13,8 @@ from derive_client._clients.models import (
 from derive_client.constants import CONFIGS
 from derive_client.data_types import Address, Environment
 from derive_client.endpoints import RestAPI as EndPoints
-
-logger = logging.getLogger(__file__)
+from derive_client._clients.utils import try_cast_response
+from derive_client._clients.logger import logger
 
 
 MAX_MSG_SIZE = 4 * 1024 * 1024  # 4MiB
@@ -58,7 +57,7 @@ class WsClient:
         self._closing = False
 
         self._request_futures: dict[str, asyncio.Future] = {}
-        self._request_timeout = 30
+        self._request_timeout = 1
 
         self._subscriptions: dict[str, asyncio.Queue] = {}
         # self._notifications: asyncio.Queue = asyncio.Queue(maxsize=1000)
@@ -66,7 +65,7 @@ class WsClient:
         self._connection_lock = asyncio.Lock()
         self._futures_lock = asyncio.Lock()
 
-        self._finalizer = weakref.finalize(self, self._cleanup_sync)
+        self._finalizer = weakref.finalize(self, self._cleanup)
 
     @property
     def endpoints(self):
@@ -126,7 +125,7 @@ class WsClient:
             raise
 
         try:
-            wait_timeout = timeout if timeout is not None else self._request_timeout
+            wait_timeout = timeout or self._request_timeout
             result = await asyncio.wait_for(future, timeout=wait_timeout)
             return result
         except (asyncio.TimeoutError, asyncio.CancelledError):
@@ -171,6 +170,8 @@ class WsClient:
             logger.error(f"Message loop error: {e}")
         finally:
             await self._cleanup_pending_requests()
+            if self._ws and not self._ws.closed:
+                await self._ws.close()
 
     async def _handle_message(self, message: dict[str, Any]):
         """Route messages to waiting requests"""
@@ -204,12 +205,7 @@ class WsClient:
             return
 
         try:
-            if "result" in message:
-                future.set_result(message["result"])
-            elif "error" in message:
-                future.set_exception(Exception(message["error"]))  # TODO: custom exception
-            else:
-                future.set_exception(Exception("Invalid response format"))
+            future.set_result(message)
         except asyncio.InvalidStateError:
             logger.debug("Race completing future %s: already done", request_id)
 
@@ -247,8 +243,8 @@ class WsClient:
     async def __aexit__(self, exc_type, exc_val, exc_tb):
         """Exit context manager"""
 
-        if exc_type is not None:
-            logger.error(f"Context manager exiting due to {exc_type.__name__}: {exc_val}")
+        if exc_type not in (None, GeneratorExit, asyncio.CancelledError):
+            logger.error("Context manager exiting due to %s: %s", exc_type.__name__, exc_val)
 
         close_now = False
         async with self._connection_lock:
@@ -265,7 +261,7 @@ class WsClient:
                     self._idle_task = loop.create_task(self._idle_close(self._idle_timeout))
 
         if close_now:
-            await self.close(force=False)
+            await self.close(force=close_now)
 
     async def _idle_close(self, delay: float):
         """Close after delay if refcount still zero."""
@@ -335,26 +331,27 @@ class WsClient:
                 logger.exception("Error closing connector")
 
         await self._cleanup_pending_requests()
+        self._closing = False
 
-    def _cleanup_sync(self):
+    def _cleanup(self):
         """Synchronous cleanup for finalizer"""
 
         # do not schedule async work from a finalizer!
         # may run at any time, event loop may not be running -> async task fails silently
         if self._session and not self._session.closed:
             logger.warning(
-                "WebSocket client was garbage collected without explicit close(). "
+                f"{self.__class__.__name__} client was garbage collected without explicit close(). "
                 "Use 'async with' or call close() explicitly to ensure proper cleanup."
             )
 
     async def get_ticker(self, instrument_name: str) -> PublicGetTickerResultSchema:
         """Get ticker data with full error handling"""
 
-        result = await self._send_request("public/get_ticker", {"instrument_name": instrument_name})
-        return PublicGetTickerResultSchema(**result)
+        message = await self._send_request("public/get_ticker", {"instrument_name": instrument_name})
+        return try_cast_response(message=message, result_schema=PublicGetTickerResultSchema)
 
     async def subscribe_ticker(self, instrument_name: str, interval: int = 1000):
-        await self._ensure_connected()
+        """Ticker subscription"""
 
         channel = f"ticker.{instrument_name}.{interval}"
 
@@ -372,8 +369,7 @@ class WsClient:
 
         try:
             while True:
-                message = await q.get()  # keys: "timestamp" and ""
-                breakpoint()
+                message = await q.get()
                 payload = message.get("instrument_ticker")
                 try:
                     model = PublicGetTickerResultSchema(**payload)
