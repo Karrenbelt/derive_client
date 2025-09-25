@@ -6,7 +6,6 @@ import uuid
 import weakref
 from enum import Enum
 from typing import Any
-from contextlib import asynccontextmanager
 
 import aiohttp
 from pydantic import BaseModel
@@ -21,6 +20,7 @@ from derive_client._clients.utils import try_cast_response
 from derive_client._clients.logger import logger
 
 
+_CLOSE_SENTINEL = object()
 MAX_MSG_SIZE = 4 * 1024 * 1024  # 4MiB
 
 
@@ -435,39 +435,90 @@ class Channel:
         self._queue = asyncio.Queue(maxsize=1000)
         self._key = key
         self._schema = schema
-        self._closed = True  # not attached until __aenter__
+
+        self._open: bool = False
+        self._closed_event = asyncio.Event()
+        self._lock = asyncio.Lock()
+
+        self._finalizer = weakref.finalize(self, self._cleanup)
+
+    async def open(self) -> None:
+        """Idempotent attach. Waits for server subscribe to succeed."""
+
+        if self._open:
+            return
+
+        async with self._lock:
+            if self._open:
+                return
+            # register with WsClient which does subscribe-on-first-consumer
+            await self._ws._attach_channel(self._channel, self._queue)
+            self._open = True
+            # ensure closed flag is cleared (in case reused)
+            if self._closed_event.is_set():
+                self._closed_event = asyncio.Event()
+
+    async def close(self) -> None:
+        """Idempotent detach and stop iteration. Unblocks waiting readers."""
+
+        if not self._open and self._closed_event.is_set():
+            return
+
+        async with self._lock:
+            if not self._open and self._closed_event.is_set():
+                return
+
+            self._open = False
+            self._closed_event.set()
+
+            # detach: unregister local queue and possibly unsubscribe server-side
+            try:
+                await self._ws._detach_channel(self._channel, self._queue)
+            except Exception:
+                logger.debug("Detach/Unsubscribe failed for %s (ignored)", self._channel)
+
+            # put sentinel to unblock any waiting __anext__ consumer(s)
+            # Use non-blocking put_nowait; if queue full, that's OK: consumer will still read previous messages
+            try:
+                self._queue.put_nowait(_CLOSE_SENTINEL)
+            except asyncio.QueueFull:
+                logger.debug("Queue full when closing channel %s; sentinel not enqueued", self._channel)
+
+    def __aiter__(self):
+        return self
 
     async def __aenter__(self) -> Channel:
-        await self._ws._attach_channel(self._channel, self._queue)
-        self._closed = False
+        await self.open()
         return self
 
     async def __aexit__(self, exc_type, exc, tb) -> None:
         await self.close()
 
-    def __aiter__(self):
-        return self
-
     async def __anext__(self):
-        if self._closed:
+        """Return next parsed item from the channel. Stop iteration when channel is closed."""
+
+        if self._closed_event.is_set():
             raise StopAsyncIteration
 
-        message = await self._queue.get()
-        payload = message.get(self._key)
+        try:
+            message = await self._queue.get()
+        except asyncio.CancelledError:
+            raise
+
+        if message is _CLOSE_SENTINEL:
+            raise StopAsyncIteration
+
+        payload = message.get(self._key) if isinstance(message, dict) else message
         try:
             return self._schema(**payload)
         except Exception:
             logger.exception("Failed to parse payload from channel %s: %s", self._channel, payload)
             return await self.__anext__()
 
-    async def close(self):
-        if self._closed:
-            return
-        self._closed = True
-        try:
-            await self._ws._detach_channel(self._channel, self._queue)
-        except Exception:
-            logger.debug("Detach/Unsubscribe failed for %s", self._channel)
+    def _cleanup(self):
+        if self._open:
+            msg = "Channel %s was garbage-collected while still open. Call await channel.close() or use 'async with'."
+            logger.warning(msg, self._channel)
 
 
 class WsChannels:
