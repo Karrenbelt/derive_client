@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import asyncio
 import json
 import uuid
@@ -7,6 +9,7 @@ from typing import Any
 from contextlib import asynccontextmanager
 
 import aiohttp
+from pydantic import BaseModel
 
 from derive_client._clients.models import (
     PublicGetTickerResultSchema,
@@ -58,11 +61,12 @@ class WsClient:
         self._request_futures: dict[str, asyncio.Future] = {}
         self._request_timeout = 1
 
-        self._subscriptions: dict[str, asyncio.Queue] = {}
+        self._subscriptions: dict[str, set[asyncio.Queue]] = {}
         self._notifications: asyncio.Queue = asyncio.Queue(maxsize=1000)
 
         self._connection_lock = asyncio.Lock()
         self._futures_lock = asyncio.Lock()
+        self._subscriptions_lock = asyncio.Lock()
 
         self._finalizer = weakref.finalize(self, self._cleanup)
 
@@ -197,15 +201,16 @@ class WsClient:
         channel = params.get("channel")
         data = params.get("data")
 
-        q = self._subscriptions.get(channel)
-        if not q:
-            logger.debug("No subscription queue for channel %s; dropping message", channel)
+        queues = self._subscriptions.get(channel)
+        if not queues:
+            logger.debug("No subscription queues for channel %s; dropping message", channel)
             return
 
-        try:
-            q.put_nowait(data)
-        except asyncio.QueueFull:
-            logger.warning("Subscription queue full for %s; dropping message", channel)
+        for q in queues:
+            try:
+                q.put_nowait(data)
+            except asyncio.QueueFull:
+                logger.warning("Subscription queue full for %s; dropping message", channel)
 
     async def _handle_notification(self, message: dict[str, Any]):
         try:
@@ -348,6 +353,58 @@ class WsClient:
         await self._cleanup_pending_requests()
         self._closing = False
 
+    async def _attach_channel(self, channel: str, queue: asyncio.Queue) -> None:
+        """
+        Register a local queue as a consumer for 'channel'.
+        If this is the first local consumer, send the subscribe RPC to server.
+        """
+        need_subscribe = False
+        async with self._subscriptions_lock:
+            s = self._subscriptions.get(channel)
+            if s is None:
+                s = set()
+                self._subscriptions[channel] = s
+                need_subscribe = True
+            s.add(queue)
+
+        if need_subscribe:
+            try:
+                # send subscribe to server (await confirmation from server-side RPC)
+                await self._send_request("subscribe", {"channels": [channel]})
+            except Exception:
+                # rollback on failure
+                async with self._subscriptions_lock:
+                    s = self._subscriptions.get(channel)
+                    if s:
+                        s.discard(queue)
+                        if not s:
+                            self._subscriptions.pop(channel, None)
+                raise
+
+    async def _detach_channel(self, channel: str, queue: asyncio.Queue) -> None:
+        """
+        Remove a local consumer queue. If there are no more local consumers,
+        unsubscribe from server.
+        """
+        need_unsubscribe = False
+        async with self._subscriptions_lock:
+            s = self._subscriptions.get(channel)
+            if not s:
+                return
+            s.discard(queue)
+            if not s:
+                # last local consumer removed
+                self._subscriptions.pop(channel, None)
+                need_unsubscribe = True
+
+        if need_unsubscribe:
+            # best-effort: don't hold lock while awaiting _send_request
+            try:
+                await self._send_request("unsubscribe", {"channels": [channel]})
+            except Exception:
+                # log and ignore; we've already removed local state
+                logger.debug("unsubscribe failed for %s", channel)
+
     def _cleanup(self):
         """Synchronous cleanup for finalizer"""
 
@@ -369,49 +426,62 @@ class WsRPC:
         return try_cast_response(message, PublicGetTickerResultSchema)
 
 
-class WsSubs:
+class Channel:
+    """Async iterable for a subscription."""
+
+    def __init__(self, ws: WsClient, channel: str, key: str, schema: BaseModel):
+        self._ws = ws
+        self._channel = channel
+        self._queue = asyncio.Queue(maxsize=1000)
+        self._key = key
+        self._schema = schema
+        self._closed = True  # not attached until __aenter__
+
+    async def __aenter__(self) -> Channel:
+        await self._ws._attach_channel(self._channel, self._queue)
+        self._closed = False
+        return self
+
+    async def __aexit__(self, exc_type, exc, tb) -> None:
+        await self.close()
+
+    def __aiter__(self):
+        return self
+
+    async def __anext__(self):
+        if self._closed:
+            raise StopAsyncIteration
+
+        message = await self._queue.get()
+        payload = message.get(self._key)
+        try:
+            return self._schema(**payload)
+        except Exception:
+            logger.exception("Failed to parse payload from channel %s: %s", self._channel, payload)
+            return await self.__anext__()
+
+    async def close(self):
+        if self._closed:
+            return
+        self._closed = True
+        try:
+            await self._ws._detach_channel(self._channel, self._queue)
+        except Exception:
+            logger.debug("Detach/Unsubscribe failed for %s", self._channel)
+
+
+class WsChannels:
     def __init__(self, ws: WsClient):
         self._ws = ws
-        self._subscriptions = ws._subscriptions  # just a reference
 
-    async def _subscribe(self, channel):
-        await self._ws._send_request("subscribe", {"channels": [channel]})
-
-    async def _unsubscribe(self, channel):
-        await self._ws._send_request("unsubscribe", {"channels": [channel]})
-
-    @asynccontextmanager
-    async def ticker(self, instrument_name: str, interval: int = 1000):
+    def ticker(self, instrument_name: str, interval: int = 1000) -> Channel:
         channel = f"ticker.{instrument_name}.{interval}"
-        q = self._subscriptions.get(channel)
-        if q is None:
-            q = asyncio.Queue(maxsize=1000)
-            self._subscriptions[channel] = q
-
-        await self._subscribe(channel)
-
-        async def gen():
-            try:
-                while True:
-                    message = await q.get()
-                    payload = message.get("instrument_ticker")
-                    try:
-                        yield PublicGetTickerResultSchema(**payload)
-                    except Exception:
-                        logger.exception("Failed to parse ticker payload from channel %s: %s", channel, payload)
-                        continue
-            finally:
-                try:
-                    await self._unsubscribe(channel)
-                except Exception:
-                    logger.debug("unsubscribe for %s failed or not supported", channel)
-                self._subscriptions.pop(channel, None)
-
-        try:
-            generator = gen()
-            yield generator
-        finally:
-            await generator.aclose()
+        return Channel(
+            ws=self._ws,
+            channel=channel,
+            key="instrument_ticker",
+            schema=PublicGetTickerResultSchema,
+        )
 
 
 class DeriveWsClient:
@@ -422,7 +492,7 @@ class DeriveWsClient:
 
         self._ws = WsClient(self.config.ws_address)
         self.rpc = WsRPC(self._ws)
-        self.subs = WsSubs(self._ws)
+        self.channels = WsChannels(self._ws)
 
     @property
     def endpoints(self):

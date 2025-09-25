@@ -70,16 +70,26 @@ async def test_it(instrument_name: str):
 
     # NOTE: caller, not the subscription, should own the connection
     async with client.ws:
-        async with client.ws.subs.ticker(instrument_name=instrument_name) as gen:
-            async for ticker in gen:
+        async with client.ws.channels.ticker(instrument_name=instrument_name) as sub:
+            async for ticker in sub:
                 logger.error(f"{ticker}")
                 break
 
-    async with client.ws.subs.ticker(instrument_name=instrument_name) as gen:
-        async for ticker in gen:
+    async with client.ws.channels.ticker(instrument_name=instrument_name) as sub:
+        async for ticker in sub:
             logger.error(f"{ticker}")
             break
     await client.ws.close()
+
+    async with client.ws as ws:
+        async with ws.channels.ticker(instrument_name=instrument_name) as sub1:
+            async with ws.channels.ticker(instrument_name=instrument_name) as sub2:
+                async for msg in sub1:
+                    logger.error(f"Sub1: {msg}")
+                    break
+                async for msg in sub2:
+                    logger.error(f"Sub2: {msg}")
+                    break
 
     http_ticker = aio_ticker = ws_ticker = ticker = None
     return http_ticker, aio_ticker, ws_ticker, ticker
