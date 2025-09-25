@@ -66,15 +66,15 @@ class PrivateWSRPCProtocol(Protocol):
 
 
 @runtime_checkable
-class PublicWSSubsProtocol(Protocol):
-    """Public WebSocket subscription streams."""
+class PublicWSChannelsProtocol(Protocol):
+    """Public WebSocket channels."""
 
     def ticker(self, instrument_name: str, interval: int) -> AsyncIterator[PublicGetTickerResultSchema]: ...
 
 
 @runtime_checkable
-class PrivateWSSubsProtocol(Protocol):
-    """Private WebSocket subscription streams."""
+class PrivateWSChannelsProtocol(Protocol):
+    """Private WebSocket channels."""
 
     def balances(self, subaccount_id: int) -> AsyncIterator[PrivateBalancesResultSchema]: ...
 
@@ -122,14 +122,14 @@ class WSRPCProtocol(Protocol):
 
 
 @runtime_checkable
-class WSSubsProtocol(Protocol):
-    """Facade exposing namespaced WebSocket subscription adapters."""
+class WSChannelsProtocol(Protocol):
+    """Facade exposing namespaced WebSocket channel adapters."""
 
     @property
-    def public(self) -> PublicWSSubsProtocol: ...
+    def public(self) -> PublicWSChannelsProtocol: ...
 
     @property
-    def private(self) -> PrivateWSSubsProtocol: ...
+    def private(self) -> PrivateWSChannelsProtocol: ...
 
 
 @runtime_checkable
@@ -140,7 +140,7 @@ class WebSocketProtocol(Protocol):
     def rpc(self) -> WSRPCProtocol: ...
 
     @property
-    def subs(self) -> WSSubsProtocol: ...
+    def subs(self) -> WSChannelsProtocol: ...
 
     async def connect(self) -> None: ...
     async def disconnect(self) -> None: ...
