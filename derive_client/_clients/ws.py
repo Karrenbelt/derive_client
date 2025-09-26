@@ -500,20 +500,20 @@ class Channel:
         if self._closed_event.is_set():
             raise StopAsyncIteration
 
-        try:
-            message = await self._queue.get()
-        except asyncio.CancelledError:
-            raise
+        while True:
+            try:
+                message = await self._queue.get()
+            except asyncio.CancelledError:
+                raise
 
-        if message is _CLOSE_SENTINEL:
-            raise StopAsyncIteration
+            if message is _CLOSE_SENTINEL:
+                raise StopAsyncIteration
 
-        payload = message.get(self._key) if isinstance(message, dict) else message
-        try:
-            return self._schema(**payload)
-        except Exception:
-            logger.exception("Failed to parse payload from channel %s: %s", self._channel, payload)
-            return await self.__anext__()
+            payload = message.get(self._key) if isinstance(message, dict) else message
+            try:
+                return self._schema(**payload)
+            except Exception:
+                logger.exception("Failed to parse payload from channel %s: %s", self._channel, payload)
 
     def _cleanup(self):
         if self._open:
