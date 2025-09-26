@@ -78,7 +78,7 @@ class WsClient:
             return
 
         async with self._connection_lock:
-            # double-check after acquiring the lock
+            # double-check after acquiring the lock to prevent TOCTOU vulnerability
             if self._ws and not self._ws.closed:
                 return
 
@@ -201,7 +201,9 @@ class WsClient:
         channel = params.get("channel")
         data = params.get("data")
 
-        queues = self._subscriptions.get(channel)
+        async with self._subscriptions_lock:
+            queues = list(self._subscriptions.get(channel))
+
         if not queues:
             logger.debug("No subscription queues for channel %s; dropping message", channel)
             return
