@@ -179,20 +179,19 @@ class WsClient:
         request_id = message["id"]
 
         async with self._futures_lock:
-            future = self._request_futures.pop(request_id, None)
+            future = self._request_futures.get(request_id)
 
         if not future:
             logger.debug("No future found for id %s; ignoring message", request_id)
-            return
-
-        if future.done():
-            logger.debug("Future for id %s already done; ignoring message", request_id)
             return
 
         try:
             future.set_result(message)
         except asyncio.InvalidStateError:
             logger.debug("Race completing future %s: already done", request_id)
+
+        async with self._futures_lock:
+            future = self._request_futures.pop(request_id, None)
 
     async def _handle_subscription(self, message: dict[str, Any]):
         """Handle subscription messages."""
