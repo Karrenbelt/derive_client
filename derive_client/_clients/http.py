@@ -16,35 +16,28 @@ class HttpClient:
 
     def __init__(self):
         self.default_timeout = 5
-        self.session: requests.Session | None = None
-        self._finalizer = weakref.finalize(self, self._cleanup)
 
-    def _ensure_session(self):
+        self._session: requests.Session | None = None
+        self._finalizer = weakref.finalize(self, self._finalize)
+
+    def open(self):
         """Lazy session creation"""
 
-        if not self.session:
-            self.session = requests.Session()
+        if not self._session:
+            self._session = requests.Session()
 
     def close(self):
         """Explicit cleanup"""
-        if self.session:
-            self.session.close()
-            self.session = None
-
-    def _cleanup(self):
-        if self.session:
-            logger.warning(
-                f"{self.__class__.__name__} was garbage collected without explicit close(). "
-                "Use 'with' or call close() to ensure proper cleanup."
-            )
-            self.session.close()
-            self.session = None
+        if self._session:
+            self._session.close()
+            self._session = None
 
     def _send_request(self, url: str, params: dict, *, timeout: float | None = None):
-        self._ensure_session()
+        self.open()
+
         headers = PUBLIC_HEADERS
         timeout = timeout or self.default_timeout
-        response = self.session.post(url, json=params, headers=headers, timeout=timeout)
+        response = self._session.post(url, json=params, headers=headers, timeout=timeout)
         response.raise_for_status()
         try:
             message = response.json()
@@ -52,14 +45,22 @@ class HttpClient:
             raise ValueError(f"Failed to decode JSON from {url}: {e}") from e
         return message
 
+    def _finalize(self):
+        if self._session:
+            msg = "%s was garbage collected without explicit close(); closing session automatically"
+            logger.debug(msg, self.__class__.__name__)
+            try:
+                self._session.close()
+            except Exception:
+                logger.exception("Error closing session in finalizer")
+            self._session = None
+
     def __enter__(self):
-        self._ensure_session()
+        self.open()
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
-        if self.session:
-            self.session.close()
-            self.session = None
+        self.close()
 
 
 class DeriveHttpClient:
@@ -79,6 +80,9 @@ class DeriveHttpClient:
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         self._http.__exit__(exc_type, exc_val, exc_tb)
+
+    def open(self):
+        self._http.open()
 
     def close(self):
         self._http.close()
