@@ -119,7 +119,7 @@ class WsClient:
             await self._ws.send_str(json.dumps(message))
         except Exception as exc:
             async with self._futures_lock:
-                future = self._request_futures.pop(request_id, None)
+                future = self._request_futures.get(request_id)
             if future and not future.done():
                 future.set_exception(exc)
             raise
@@ -130,7 +130,7 @@ class WsClient:
             return result
         except (asyncio.TimeoutError, asyncio.CancelledError):
             async with self._futures_lock:
-                future = self._request_futures.pop(request_id, None)
+                future = self._request_futures.get(request_id)
             if future and not future.done():
                 future.cancel()
             raise
@@ -185,10 +185,11 @@ class WsClient:
             logger.debug("No future found for id %s; ignoring message", request_id)
             return
 
-        try:
-            future.set_result(message)
-        except asyncio.InvalidStateError:
-            logger.debug("Race completing future %s: already done", request_id)
+        if not future.done():
+            try:
+                future.set_result(message)
+            except asyncio.InvalidStateError:
+                logger.debug("Race completing future %s: already done", request_id)
 
         async with self._futures_lock:
             future = self._request_futures.pop(request_id, None)
