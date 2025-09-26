@@ -419,15 +419,6 @@ class WsClient:
             )
 
 
-class WsRPC:
-    def __init__(self, ws: WsClient):
-        self._ws = ws
-
-    async def get_ticker(self, instrument_name: str):
-        message = await self._ws._send_request("public/get_ticker", {"instrument_name": instrument_name})
-        return try_cast_response(message, PublicGetTickerResultSchema)
-
-
 class Channel:
     """Async iterable for a subscription."""
 
@@ -456,9 +447,7 @@ class Channel:
             # register with WsClient which does subscribe-on-first-consumer
             await self._ws._attach_channel(self._channel, self._queue)
             self._open = True
-            # ensure closed flag is cleared (in case reused)
-            if self._closed_event.is_set():
-                self._closed_event = asyncio.Event()
+            self._closed_event.clear()
 
     async def close(self) -> None:
         """Idempotent detach and stop iteration. Unblocks waiting readers."""
@@ -521,6 +510,15 @@ class Channel:
         if self._open:
             msg = "Channel %s was garbage-collected while still open. Call await channel.close() or use 'async with'."
             logger.warning(msg, self._channel)
+
+
+class WsRPC:
+    def __init__(self, ws: WsClient):
+        self._ws = ws
+
+    async def get_ticker(self, instrument_name: str):
+        message = await self._ws._send_request("public/get_ticker", {"instrument_name": instrument_name})
+        return try_cast_response(message, PublicGetTickerResultSchema)
 
 
 class WsChannels:
