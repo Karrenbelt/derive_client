@@ -53,10 +53,8 @@ class WsClient:
         self._message_task: asyncio.Task | None = None
 
         self._refcount = 0
-        self._idle_timeout = 0.0
-        self._idle_task: asyncio.Task | None = None
-
-        self._closing = False
+        self._idle_cleanup_timeout = 0.0
+        self._idle_cleanup_task: asyncio.Task | None = None
 
         self._request_futures: dict[str, asyncio.Future] = {}
         self._request_timeout = 1
@@ -68,18 +66,22 @@ class WsClient:
         self._futures_lock = asyncio.Lock()
         self._subscriptions_lock = asyncio.Lock()
 
-        self._finalizer = weakref.finalize(self, self._cleanup)
+        self._finalizer = weakref.finalize(self, self._finalize)
 
-    async def _ensure_connected(self):
+    @property
+    def is_connected(self) -> bool:
+        return self._ws is not None and not self._ws.closed
+
+    async def connect(self):
         """Lazy connection with aiohttp built-ins"""
 
-        # quick optimistic check to avoid acquiring the lock unnecessarily
-        if self._ws and not self._ws.closed:
-            return
-
         async with self._connection_lock:
-            # double-check after acquiring the lock to prevent TOCTOU vulnerability
-            if self._ws and not self._ws.closed:
+            if self.is_connected:
+                self._refcount += 1
+                # cancel pending idle close if any
+                if self._idle_cleanup_task and not self._idle_cleanup_task.done():
+                    self._idle_cleanup_task.cancel()
+                    self._idle_cleanup_task = None
                 return
 
             if self._session is None or self._session.closed:
@@ -91,22 +93,125 @@ class WsClient:
                 )
                 self._session = aiohttp.ClientSession(connector=self._connector)
 
-            # headers = {"Authorization": f"Bearer {self.session_key}"} if self.session_key else None
-            headers = None
-            self._ws = await self._session.ws_connect(
-                self.ws_address,
-                timeout=aiohttp.ClientTimeout(total=60),
-                heartbeat=30,
-                autoping=True,
-                max_msg_size=MAX_MSG_SIZE,
-                headers=headers,
-            )
+            try:
+                # headers = {"Authorization": f"Bearer {self.session_key}"} if self.session_key else None
+                headers = None
+                self._ws = await self._session.ws_connect(
+                    self.ws_address,
+                    timeout=aiohttp.ClientTimeout(total=60),
+                    heartbeat=30,
+                    autoping=True,
+                    max_msg_size=MAX_MSG_SIZE,
+                    headers=headers,
+                )
+                if not self._message_task or self._message_task.done():
+                    self._message_task = asyncio.create_task(self._message_loop())
+                self._refcount += 1
 
-            if not self._message_task or self._message_task.done():
-                self._message_task = asyncio.create_task(self._message_loop())
+            except Exception:
+                if self._session and not self._session.closed:
+                    await self._session.close()
+                if self._connector and not self._connector.closed:
+                    await self._connector.close()
+                self._session = None
+                self._connector = None
+                raise
+
+    async def disconnect(self, force: bool = False):
+        """Explicit cleanup"""
+
+        # no optimistic check: because network can drop, we must always acquire the lock
+        async with self._connection_lock:
+            self._refcount = max(0, self._refcount - 1)
+
+            if not force and self._refcount > 0:
+                return
+
+            if not self.is_connected:
+                return
+
+            # cancel any pending idle cleanup
+            if self._idle_cleanup_task and not self._idle_cleanup_task.done():
+                self._idle_cleanup_task.cancel()
+                self._idle_cleanup_task = None
+
+            should_cleanup_now = force or self._idle_cleanup_timeout <= 0
+
+        if should_cleanup_now:
+            await self._cleanup()
+        else:
+            loop = asyncio.get_running_loop()
+            self._idle_cleanup_task = loop.create_task(self._cleanup_after_delay(self._idle_cleanup_timeout))
+
+    async def _cleanup_after_delay(self, delay: float):
+        """Sleep then cleanup if refcount still zero."""
+
+        try:
+            await asyncio.sleep(delay)
+            # check refcount under lock but call cleanup outside
+            async with self._connection_lock:
+                should_cleanup = self._refcount == 0 and self.is_connected
+            if should_cleanup:
+                await self._cleanup()
+        except asyncio.CancelledError:
+            # cancelled because someone re-entered
+            return
+
+    async def _cleanup(self):
+        """Cleanup resources"""
+
+        # snapshot and clear instance refs while holding the lock
+        async with self._connection_lock:
+            ws = self._ws
+            session = self._session
+            connector = self._connector
+            message_task = self._message_task
+
+            self._ws = None
+            self._session = None
+            self._connector = None
+            self._message_task = None
+            self._refcount = 0
+
+        if message_task and not message_task.done():
+            message_task.cancel()
+            try:
+                await message_task
+            except asyncio.CancelledError:
+                pass
+
+        if ws and not ws.closed:
+            try:
+                await ws.close()
+            except Exception:
+                logger.exception("Error closing websocket")
+
+        # websocket does not own the session
+        if session and not session.closed:
+            try:
+                await session.close()
+            except Exception:
+                logger.exception("Error closing session")
+
+        if connector and not connector.closed:
+            try:
+                await connector.close()
+            except Exception:
+                logger.exception("Error closing connector")
+
+        await self._cleanup_pending_requests()
+
+    async def __aenter__(self):
+        await self.connect()
+        return self
+
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        await self.disconnect()
 
     async def _send_request(self, method: str, params: dict, *, timeout: float | None = None) -> Any:
-        await self._ensure_connected()
+        if not self._ws or self._ws.closed:
+            raise RuntimeError("WebSocket not connected. Call await .connect() or use 'async with' before making RPCs.")
+
         request_id = str(uuid.uuid4())
         loop = asyncio.get_running_loop()
         future = loop.create_future()
@@ -250,111 +355,6 @@ class WsClient:
                     # Rare race: the future completed between the check and set_exception
                     logger.debug("Future already done during cleanup")
 
-    async def __aenter__(self):
-        """Enter context manager"""
-
-        await self._ensure_connected()
-        async with self._connection_lock:
-            # If we've scheduled an idle-close, cancel it because someone re-entered
-            if self._idle_task and not self._idle_task.done():
-                self._idle_task.cancel()
-                self._idle_task = None
-            self._refcount += 1
-        return self
-
-    async def __aexit__(self, exc_type, exc_val, exc_tb):
-        """Exit context manager"""
-
-        if exc_type not in (None, GeneratorExit, asyncio.CancelledError):
-            logger.error("Context manager exiting due to %s: %s", exc_type.__name__, exc_val)
-
-        close_now = False
-        async with self._connection_lock:
-            self._refcount = max(0, self._refcount - 1)
-            if self._refcount == 0:
-                if self._idle_timeout <= 0:
-                    # immediate close-if-unused (do not spawn a task)
-                    close_now = True
-                else:
-                    loop = asyncio.get_running_loop()
-                    # if there's already an idle task, cancel and replace it (defensive)
-                    if self._idle_task and not self._idle_task.done():
-                        self._idle_task.cancel()
-                    self._idle_task = loop.create_task(self._idle_close(self._idle_timeout))
-
-        if close_now:
-            await self.close(force=close_now)
-
-    async def _idle_close(self, delay: float):
-        """Close after delay if refcount still zero."""
-
-        try:
-            await asyncio.sleep(delay)
-            # check refcount under lock but call close outside
-            async with self._connection_lock:
-                should_close = self._refcount == 0
-            if should_close:
-                await self.close(force=False)
-        except asyncio.CancelledError:
-            # cancelled because someone re-entered
-            return
-
-    async def close(self, force: bool = True):
-        """Explicit cleanup"""
-
-        async with self._connection_lock:
-            if self._closing:
-                return
-            if not force and self._refcount > 0:
-                return
-
-            self._closing = True
-
-            if self._idle_task and not self._idle_task.done():
-                self._idle_task.cancel()
-                self._idle_task = None
-
-            # snapshot and clear instance refs while holding the lock
-            ws = self._ws
-            session = self._session
-            connector = self._connector
-            message_task = self._message_task
-
-            self._ws = None
-            self._session = None
-            self._connector = None
-            self._message_task = None
-            self._refcount = 0
-
-        if message_task and not message_task.done():
-            message_task.cancel()
-            try:
-                await message_task
-            except asyncio.CancelledError:
-                pass
-
-        if ws and not ws.closed:
-            try:
-                await ws.close()
-            except Exception:
-                logger.exception("Error closing websocket")
-
-        # websocket does not own the session
-        if session and not session.closed:
-            try:
-                await session.close()
-            except Exception:
-                logger.exception("Error closing session")
-
-        if connector and not connector.closed:
-            try:
-                await connector.close()
-            except Exception:
-                logger.exception("Error closing connector")
-
-        await self._cleanup_pending_requests()
-        self._closing = False
-
     async def _attach_channel(self, channel: str, queue: asyncio.Queue) -> None:
         """
         Register a local queue as a consumer for 'channel'.
@@ -407,8 +407,8 @@ class WsClient:
                 # log and ignore; we've already removed local state
                 logger.debug("unsubscribe failed for %s", channel)
 
-    def _cleanup(self):
-        """Synchronous cleanup for finalizer"""
+    def _finalize(self):
+        """Synchronous finalizer"""
 
         # do not schedule async work from a finalizer!
         # may run at any time, event loop may not be running -> async task fails silently
@@ -549,6 +549,12 @@ class DeriveWsClient:
     def endpoints(self):
         return EndPoints(self.config.base_url)
 
+    async def connect(self):
+        await self._ws.connect()
+
+    async def disconnect(self, force: bool = True):
+        await self._ws.disconnect(force=force)
+
     async def __aenter__(self):
         """Enter context manager"""
         await self._ws.__aenter__()
@@ -557,6 +563,3 @@ class DeriveWsClient:
     async def __aexit__(self, exc_type, exc_val, exc_tb):
         """Enter context manager"""
         await self._ws.__aexit__(exc_type, exc_val, exc_tb)
-
-    async def close(self, force: bool = True):
-        await self._ws.close(force=force)

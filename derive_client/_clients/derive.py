@@ -50,45 +50,57 @@ class DeriveClient:
 
 
 async def test_it(instrument_name: str):
+    ## 1. REST API
+
+    # lazy session, ergonomic one-off call (session created on demand)
+    http_ticker = client.http.get_ticker(instrument_name=instrument_name)
+
+    # batch sync HTTP calls: use context manager to reuse a session and ensure deterministic close
     with client.http as http:
         http_ticker = http.get_ticker(instrument_name=instrument_name)
 
-    http_ticker = client.http.get_ticker(instrument_name=instrument_name)
-    client.http.close()
+    # async HTTP: ergonomic one-off call (auto-open if needed; use open() or context manager for batch/low-latency)
+    aio_ticker = await client.aio.get_ticker(instrument_name=instrument_name)
 
+    # async HTTP session managed by context: preferred for batch usage (pre-open, auto-close on exit)
     async with client.aio as aio:
         aio_ticker = await aio.get_ticker(instrument_name=instrument_name)
 
-    aio_ticker = await client.aio.get_ticker(instrument_name=instrument_name)
-    await client.aio.close()
+    ## 2. Websocket API
 
+    # context-managed WS: connect, perform RPC, then auto-disconnect
     async with client.ws as ws:
         ws_ticker = await ws.rpc.get_ticker(instrument_name=instrument_name)
 
+    # explicit connect/disconnect for manual control across multiple operations
+    await client.ws.connect()
     ws_ticker = await client.ws.rpc.get_ticker(instrument_name=instrument_name)
-    await client.ws.close()
+    await client.ws.disconnect()
 
-    # NOTE: caller, not the subscription, should own the connection
+    # subscribe using channel context; subscription closes on exit
     async with client.ws:
         async with client.ws.channels.ticker(instrument_name=instrument_name) as sub:
             async for ticker in sub:
-                logger.error(f"{ticker}")
+                logger.info(f"{ticker}")
                 break
 
+    # manual connect + channel context: explicit connection lifetime control
+    await client.ws.connect()
     async with client.ws.channels.ticker(instrument_name=instrument_name) as sub:
         async for ticker in sub:
-            logger.error(f"{ticker}")
+            logger.info(f"{ticker}")
             break
-    await client.ws.close()
+    await client.ws.disconnect()
 
+    # multiple simultaneous subscriptions sharing the same WS connection
     async with client.ws as ws:
         async with ws.channels.ticker(instrument_name=instrument_name) as sub1:
             async with ws.channels.ticker(instrument_name=instrument_name) as sub2:
                 async for msg in sub1:
-                    logger.error(f"Sub1: {msg}")
+                    logger.info(f"Sub1: {msg}")
                     break
                 async for msg in sub2:
-                    logger.error(f"Sub2: {msg}")
+                    logger.info(f"Sub2: {msg}")
                     break
 
     http_ticker = aio_ticker = ws_ticker = ticker = None
