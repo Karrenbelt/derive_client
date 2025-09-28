@@ -5,7 +5,8 @@ import json
 import uuid
 import weakref
 from enum import Enum
-from typing import Any
+from typing import Any, AsyncGenerator, AsyncIterator
+from contextlib import asynccontextmanager
 
 import aiohttp
 from pydantic import BaseModel
@@ -384,10 +385,8 @@ class WsClient:
                 raise
 
     async def _detach_channel(self, channel: str, queue: asyncio.Queue) -> None:
-        """
-        Remove a local consumer queue. If there are no more local consumers,
-        unsubscribe from server.
-        """
+        """Remove a local consumer queue. If there are no more local consumers, unsubscribe from server."""
+
         need_unsubscribe = False
         async with self._subscriptions_lock:
             s = self._subscriptions.get(channel)
@@ -419,97 +418,118 @@ class WsClient:
             )
 
 
-class Channel:
+class Subscription:
     """Async iterable for a subscription."""
 
     def __init__(self, ws: WsClient, channel: str, key: str, schema: BaseModel):
         self._ws = ws
         self._channel = channel
-        self._queue = asyncio.Queue(maxsize=1000)
+        self._queue: asyncio.Queue | None = None
         self._key = key
         self._schema = schema
-
-        self._open: bool = False
-        self._closed_event = asyncio.Event()
         self._lock = asyncio.Lock()
 
-        self._finalizer = weakref.finalize(self, self._cleanup)
+    @property
+    def active(self):
+        return self._queue is not None
 
-    async def open(self) -> None:
-        """Idempotent attach. Waits for server subscribe to succeed."""
-
-        if self._open:
-            return
-
+    async def open(self):
         async with self._lock:
-            if self._open:
+            if self.active:
                 return
-            # register with WsClient which does subscribe-on-first-consumer
+
+            self._queue = asyncio.Queue(maxsize=1000)
             await self._ws._attach_channel(self._channel, self._queue)
-            self._open = True
-            self._closed_event.clear()
 
-    async def close(self) -> None:
-        """Idempotent detach and stop iteration. Unblocks waiting readers."""
-
-        if not self._open and self._closed_event.is_set():
+    async def close(self):
+        if not self.active:
             return
 
         async with self._lock:
-            if not self._open and self._closed_event.is_set():
+            if not self.active:
                 return
 
-            self._open = False
-            self._closed_event.set()
-
-            # detach: unregister local queue and possibly unsubscribe server-side
-            try:
+            if self._queue:
                 await self._ws._detach_channel(self._channel, self._queue)
-            except Exception:
-                logger.debug("Detach/Unsubscribe failed for %s (ignored)", self._channel)
+            self._queue = None
 
-            # put sentinel to unblock any waiting __anext__ consumer(s)
-            # Use non-blocking put_nowait; if queue full, that's OK: consumer will still read previous messages
-            try:
-                self._queue.put_nowait(_CLOSE_SENTINEL)
-            except asyncio.QueueFull:
-                logger.debug("Queue full when closing channel %s; sentinel not enqueued", self._channel)
-
-    def __aiter__(self):
+    def __aiter__(self) -> AsyncIterator:
         return self
 
-    async def __aenter__(self) -> Channel:
+    async def __anext__(self):
+        if not self.active:
+            raise RuntimeError("Subscription not active. Call await .open() or use 'async with' before streaming.")
+
+        try:
+            message = await self._queue.get()
+            payload = message.get(self._key, message)
+            return self._schema(**payload)
+        except asyncio.CancelledError:
+            await self.close()
+            raise
+
+    async def __aenter__(self):
         await self.open()
         return self
 
     async def __aexit__(self, exc_type, exc, tb) -> None:
         await self.close()
 
-    async def __anext__(self):
-        """Return next parsed item from the channel. Stop iteration when channel is closed."""
 
-        if self._closed_event.is_set():
-            raise StopAsyncIteration
+class WsChannels:
+    def __init__(self, ws: WsClient):
+        self._ws = ws
 
-        while True:
-            try:
-                message = await self._queue.get()
-            except asyncio.CancelledError:
-                raise
+    async def ticker_generator(
+        self,
+        instrument_name: str,
+        interval: int = 1000,
+    ) -> AsyncGenerator[PublicGetTickerResultSchema, None]:
+        channel = f"ticker.{instrument_name}.{interval}"
+        queue = asyncio.Queue(maxsize=1000)
 
-            if message is _CLOSE_SENTINEL:
-                raise StopAsyncIteration
+        await self._ws._attach_channel(channel, queue)
 
-            payload = message.get(self._key) if isinstance(message, dict) else message
-            try:
-                return self._schema(**payload)
-            except Exception:
-                logger.exception("Failed to parse payload from channel %s: %s", self._channel, payload)
+        try:
+            while True:
+                message = await queue.get()
+                payload = message.get("instrument_ticker", message)
+                yield PublicGetTickerResultSchema(**payload)
 
-    def _cleanup(self):
-        if self._open:
-            msg = "Channel %s was garbage-collected while still open. Call await channel.close() or use 'async with'."
-            logger.warning(msg, self._channel)
+        finally:
+            await self._ws._detach_channel(channel, queue)
+
+    @asynccontextmanager
+    async def ticker_generator(
+        self,
+        instrument_name: str,
+        interval: int = 1000,
+    ) -> AsyncGenerator[PublicGetTickerResultSchema, None]:
+        channel = f"ticker.{instrument_name}.{interval}"
+        queue = asyncio.Queue(maxsize=1000)
+
+        try:
+            await self._ws._attach_channel(channel, queue)
+
+            async def stream():
+                while True:
+                    message = await queue.get()
+                    payload = message.get("instrument_ticker", message)
+                    yield PublicGetTickerResultSchema(**payload)
+
+            yield stream()
+
+        finally:
+            await self._ws._detach_channel(channel, queue)
+
+    def ticker_iterator(self, instrument_name: str, interval: int = 1000) -> Subscription:
+        channel = f"ticker.{instrument_name}.{interval}"
+        return Subscription(
+            ws=self._ws,
+            channel=channel,
+            key="instrument_ticker",
+            schema=PublicGetTickerResultSchema,
+        )
 
 
 class WsRPC:
@@ -519,20 +539,6 @@ class WsRPC:
     async def get_ticker(self, instrument_name: str):
         message = await self._ws._send_request("public/get_ticker", {"instrument_name": instrument_name})
         return try_cast_response(message, PublicGetTickerResultSchema)
-
-
-class WsChannels:
-    def __init__(self, ws: WsClient):
-        self._ws = ws
-
-    def ticker(self, instrument_name: str, interval: int = 1000) -> Channel:
-        channel = f"ticker.{instrument_name}.{interval}"
-        return Channel(
-            ws=self._ws,
-            channel=channel,
-            key="instrument_ticker",
-            schema=PublicGetTickerResultSchema,
-        )
 
 
 class DeriveWsClient:
