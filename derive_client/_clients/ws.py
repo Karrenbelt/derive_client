@@ -4,14 +4,13 @@ import asyncio
 import json
 import uuid
 import weakref
-from enum import Enum
 from typing import Any, AsyncGenerator, AsyncIterator
 from contextlib import asynccontextmanager
 
 import aiohttp
 from pydantic import BaseModel
 from web3 import AsyncWeb3
-from derive_action_signing.utils import sign_ws_login, utc_now_ms
+from derive_action_signing.utils import sign_ws_login
 
 from derive_client._clients.models import (
     PublicGetTickerResultSchema,
@@ -36,25 +35,19 @@ def wire_size_bytes(obj) -> int:
     return len(json.dumps(obj, separators=(",", ":"), ensure_ascii=False).encode("utf-8"))
 
 
-class WsConnectionError(ConnectionError):
-    """"""
+class WebSocketConnectionError(ConnectionError):
+    """WebSocketConnectionError"""
 
 
-class ConnectionState(Enum):
-    DISCONNECTED = "disconnected"
-    CONNECTED = "connected"
-    CLOSED = "closed"
-
-
-class WsClient:
-    """WebSocket client - ALWAYS async (as it should be!)"""
+class WebSocketSession:
+    """WebSocket Session"""
 
     def __init__(self, ws_address: str):
         self.ws_address = ws_address
 
         # lazy: create on connect
         self._connector: aiohttp.TCPConnector | None = None
-        self._session: aiohttp.ClientSession | None = None
+        self._aiohttp_session: aiohttp.ClientSession | None = None
         self._ws: aiohttp.ClientWebSocketResponse | None = None
         self._message_task: asyncio.Task | None = None
 
@@ -90,41 +83,38 @@ class WsClient:
                     self._idle_cleanup_task = None
                 return
 
-            if self._session is None or self._session.closed:
+            if self._aiohttp_session is None or self._aiohttp_session.closed:
                 self._connector = aiohttp.TCPConnector(
                     limit=100,
                     limit_per_host=10,
                     keepalive_timeout=30,
                     enable_cleanup_closed=True,
                 )
-                self._session = aiohttp.ClientSession(connector=self._connector)
+                self._aiohttp_session = aiohttp.ClientSession(connector=self._connector)
 
             try:
-                # headers = {"Authorization": f"Bearer {self.session_key}"} if self.session_key else None
-                headers = None
-                self._ws = await self._session.ws_connect(
+                self._ws = await self._aiohttp_session.ws_connect(
                     self.ws_address,
                     timeout=aiohttp.ClientTimeout(total=60),
                     heartbeat=30,
                     autoping=True,
                     max_msg_size=MAX_MSG_SIZE,
-                    headers=headers,
                 )
                 if not self._message_task or self._message_task.done():
                     self._message_task = asyncio.create_task(self._message_loop())
                 self._refcount += 1
 
             except Exception:
-                if self._session and not self._session.closed:
-                    await self._session.close()
+                if self._aiohttp_session and not self._aiohttp_session.closed:
+                    await self._aiohttp_session.close()
                 if self._connector and not self._connector.closed:
                     await self._connector.close()
-                self._session = None
+                self._aiohttp_session = None
                 self._connector = None
                 raise
 
     async def disconnect(self, force: bool = False):
-        """Explicit cleanup"""
+        """Disconnect: decrement reference count and cleanup"""
 
         # no optimistic check: because network can drop, we must always acquire the lock
         async with self._connection_lock:
@@ -169,12 +159,12 @@ class WsClient:
         # snapshot and clear instance refs while holding the lock
         async with self._connection_lock:
             ws = self._ws
-            session = self._session
+            session = self._aiohttp_session
             connector = self._connector
             message_task = self._message_task
 
             self._ws = None
-            self._session = None
+            self._aiohttp_session = None
             self._connector = None
             self._message_task = None
             self._refcount = 0
@@ -219,10 +209,9 @@ class WsClient:
         method: str,
         params: dict,
         *,
-        headers: dict | None = None,
         timeout: float | None = None,
     ) -> Any:
-        if not self._ws or self._ws.closed:
+        if not self.is_connected:
             raise RuntimeError("WebSocket not connected. Call await .connect() or use 'async with' before making RPCs.")
 
         request_id = str(uuid.uuid4())
@@ -333,6 +322,8 @@ class WsClient:
                 logger.warning("Subscription queue full for %s; dropping message", channel)
 
     async def _handle_notification(self, message: dict[str, Any]):
+        """Handle notification messages."""
+
         try:
             self._notifications.put_nowait(message)
         except asyncio.QueueFull:
@@ -340,7 +331,7 @@ class WsClient:
         logger.info("Notification: %s", message)
 
     async def _handle_message(self, message: dict[str, Any]):
-        """Route messages to waiting requests"""
+        """Route messages to their respecitve handler."""
 
         if "id" in message:
             await self._handle_response(message)
@@ -350,7 +341,7 @@ class WsClient:
             await self._handle_notification(message)
 
     async def _cleanup_pending_requests(self):
-        """Fail all pending requests when connection dies"""
+        """Fail all pending requests when connection dies."""
 
         # prevents `RuntimeError: dict changed size during iteration`
         async with self._futures_lock:
@@ -363,7 +354,7 @@ class WsClient:
         for future in futures:
             if not future.done():
                 try:
-                    future.set_exception(WsConnectionError("WebSocket connection lost"))
+                    future.set_exception(WebSocketConnectionError("WebSocket connection lost"))
                 except asyncio.InvalidStateError:
                     # Rare race: the future completed between the check and set_exception
                     logger.debug("Future already done during cleanup")
@@ -419,11 +410,11 @@ class WsClient:
                 logger.debug("unsubscribe failed for %s", channel)
 
     def _finalize(self):
-        """Synchronous finalizer"""
+        """Synchronous finalizer."""
 
         # do not schedule async work from a finalizer!
         # may run at any time, event loop may not be running -> async task fails silently
-        if self._session and not self._session.closed:
+        if self._aiohttp_session and not self._aiohttp_session.closed:
             logger.warning(
                 f"{self.__class__.__name__} client was garbage collected without explicit close(). "
                 "Use 'async with' or call close() explicitly to ensure proper cleanup."
@@ -433,8 +424,8 @@ class WsClient:
 class Subscription:
     """Async iterable for a subscription."""
 
-    def __init__(self, ws: WsClient, channel: str, key: str, schema: BaseModel):
-        self._ws = ws
+    def __init__(self, session: WebSocketSession, channel: str, key: str, schema: BaseModel):
+        self._session = session
         self._channel = channel
         self._queue: asyncio.Queue | None = None
         self._key = key
@@ -451,7 +442,7 @@ class Subscription:
                 return
 
             self._queue = asyncio.Queue(maxsize=1000)
-            await self._ws._attach_channel(self._channel, self._queue)
+            await self._session._attach_channel(self._channel, self._queue)
 
     async def close(self):
         if not self.active:
@@ -462,7 +453,7 @@ class Subscription:
                 return
 
             if self._queue:
-                await self._ws._detach_channel(self._channel, self._queue)
+                await self._session._detach_channel(self._channel, self._queue)
             self._queue = None
 
     def __aiter__(self) -> AsyncIterator:
@@ -488,9 +479,9 @@ class Subscription:
         await self.close()
 
 
-class WsChannels:
-    def __init__(self, ws: WsClient):
-        self._ws = ws
+class WebSocketChannels:
+    def __init__(self, ws: WebSocketClient):
+        self.ws = ws
 
     @asynccontextmanager
     async def ticker_generator(
@@ -502,7 +493,7 @@ class WsChannels:
         queue = asyncio.Queue(maxsize=1000)
 
         try:
-            await self._ws._attach_channel(channel, queue)
+            await self.ws._session._attach_channel(channel, queue)
 
             async def stream():
                 while True:
@@ -513,26 +504,25 @@ class WsChannels:
             yield stream()
 
         finally:
-            await self._ws._detach_channel(channel, queue)
+            await self.ws._session._detach_channel(channel, queue)
 
     def ticker_iterator(self, instrument_name: str, interval: int = 1000) -> Subscription:
         channel = f"ticker.{instrument_name}.{interval}"
         return Subscription(
-            ws=self._ws,
+            session=self.ws._session,
             channel=channel,
             key="instrument_ticker",
             schema=PublicGetTickerResultSchema,
         )
 
 
-class WsRPC:
-    def __init__(self, ws: DeriveWsClient):
+class WebSocketRPC:
+    def __init__(self, ws: WebSocketClient):
         self.ws = ws
-        self._ws = ws._ws
 
     async def get_ticker(self, instrument_name: str) -> PublicGetTickerResultSchema:
         params = {"instrument_name": instrument_name}
-        message = await self._ws._send_request("public/get_ticker", params)
+        message = await self.ws._session._send_request("public/get_ticker", params)
         return try_cast_response(message, PublicGetTickerResultSchema)
 
     async def login(self):
@@ -541,22 +531,24 @@ class WsRPC:
             smart_contract_wallet=self.ws.wallet,
             session_key_or_wallet_private_key=self.ws.account.key,
         )
-        message = await self._ws._send_request("public/login", params)
+        message = await self.ws._session._send_request("public/login", params)
         return PublicLoginResponseSchema(**message)
 
     async def get_subaccounts(self) -> PrivateGetSubaccountsResultSchema:
         await self.login()
         params = {"wallet": self.ws.wallet}
-        message = await self._ws._send_request("private/get_subaccounts", params)
+        message = await self.ws._session._send_request("private/get_subaccounts", params)
         return try_cast_response(message, PrivateGetSubaccountsResultSchema)
 
     async def get_orders(self, subaccount_id: int, **kwargs) -> PrivateGetOrdersResultSchema:
         params = {"subaccount_id": subaccount_id, **kwargs}
-        message = await self._ws._send_request("private/get_orders", params)
+        message = await self.ws._session._send_request("private/get_orders", params)
         return try_cast_response(message, PrivateGetOrdersResultSchema)
 
 
-class DeriveWsClient:
+class WebSocketClient:
+    """WebSocket client - ALWAYS async (as it should be!)"""
+
     def __init__(self, wallet: Address, session_key: str, env: Environment):
         self.wallet = wallet
         self.session_key = session_key
@@ -564,25 +556,25 @@ class DeriveWsClient:
         self.w3 = AsyncWeb3(AsyncWeb3.HTTPProvider(self.config.rpc_endpoint))
         self.account = self.w3.eth.account.from_key(session_key)
 
-        self._ws = WsClient(self.config.ws_address)
-        self.rpc = WsRPC(self)
-        self.channels = WsChannels(self._ws)
+        self._session = WebSocketSession(self.config.ws_address)
+        self.rpc = WebSocketRPC(self)
+        self.channels = WebSocketChannels(self)
 
     @property
     def endpoints(self):
         return EndPoints(self.config.base_url)
 
     async def connect(self):
-        await self._ws.connect()
+        await self._session.connect()
 
     async def disconnect(self, force: bool = True):
-        await self._ws.disconnect(force=force)
+        await self._session.disconnect(force=force)
 
     async def __aenter__(self):
         """Enter context manager"""
-        await self._ws.__aenter__()
+        await self._session.__aenter__()
         return self
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):
         """Enter context manager"""
-        await self._ws.__aexit__(exc_type, exc_val, exc_tb)
+        await self._session.__aexit__(exc_type, exc_val, exc_tb)

@@ -16,26 +16,26 @@ from derive_client._clients.utils import try_cast_response
 from derive_client._clients.logger import logger
 
 
-class HttpClient:
-    """Pure synchronous HTTP client"""
+class HTTPSession:
+    """HTTP session."""
 
     def __init__(self):
         self.default_timeout = 5
 
-        self._session: requests.Session | None = None
+        self._requests_session: requests.Session | None = None
         self._finalizer = weakref.finalize(self, self._finalize)
 
     def open(self):
         """Lazy session creation"""
 
-        if not self._session:
-            self._session = requests.Session()
+        if not self._requests_session:
+            self._requests_session = requests.Session()
 
     def close(self):
         """Explicit cleanup"""
-        if self._session:
-            self._session.close()
-            self._session = None
+        if self._requests_session:
+            self._requests_session.close()
+            self._requests_session = None
 
     def _send_request(
         self,
@@ -49,7 +49,7 @@ class HttpClient:
 
         headers = headers or PUBLIC_HEADERS
         timeout = timeout or self.default_timeout
-        response = self._session.post(url, json=params, headers=headers, timeout=timeout)
+        response = self._requests_session.post(url, json=params, headers=headers, timeout=timeout)
         response.raise_for_status()
         try:
             message = response.json()
@@ -58,14 +58,14 @@ class HttpClient:
         return message
 
     def _finalize(self):
-        if self._session:
+        if self._requests_session:
             msg = "%s was garbage collected without explicit close(); closing session automatically"
             logger.debug(msg, self.__class__.__name__)
             try:
-                self._session.close()
+                self._requests_session.close()
             except Exception:
                 logger.exception("Error closing session in finalizer")
-            self._session = None
+            self._requests_session = None
 
     def __enter__(self):
         self.open()
@@ -75,13 +75,15 @@ class HttpClient:
         self.close()
 
 
-class DeriveHttpClient:
+class HTTPClient:
+    """Pure synchronous HTTP client"""
+
     def __init__(self, wallet: str, session_key: str, env: str):
         self.wallet = wallet
         self.config = CONFIGS[env]
         self.w3 = Web3(Web3.HTTPProvider(self.config.rpc_endpoint))
         self.account = self.w3.eth.account.from_key(session_key)
-        self._http = HttpClient()
+        self._session = HTTPSession()
 
     @property
     def auth_headers(self):
@@ -96,34 +98,34 @@ class DeriveHttpClient:
         return EndPoints(self.config.base_url)
 
     def __enter__(self):
-        self._http.__enter__()
+        self._session.__enter__()
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
-        self._http.__exit__(exc_type, exc_val, exc_tb)
+        self._session.__exit__(exc_type, exc_val, exc_tb)
 
     def open(self):
-        self._http.open()
+        self._session.open()
 
     def close(self):
-        self._http.close()
+        self._session.close()
 
     def get_ticker(self, instrument_name: str):
         url = self.endpoints.public.get_ticker
         params = {"instrument_name": instrument_name}
-        message = self._http._send_request(url, params)
+        message = self._session._send_request(url, params)
         return try_cast_response(message, PublicGetTickerResultSchema)
 
     def get_subaccounts(self) -> PrivateGetSubaccountsResultSchema:
         url = self.endpoints.private.get_subaccounts
         params = {"wallet": self.wallet}
         headers = self.auth_headers
-        message = self._http._send_request(url, params, headers=headers)
+        message = self._session._send_request(url, params, headers=headers)
         return try_cast_response(message, PrivateGetSubaccountsResultSchema)
 
     def get_orders(self, subaccount_id: int, **kwargs) -> PrivateGetOrdersResultSchema:
         url = self.endpoints.private.get_orders
         params = {"subaccount_id": subaccount_id, **kwargs}
         headers = self.auth_headers
-        message = self._http._send_request(url, params, headers=headers)
+        message = self._session._send_request(url, params, headers=headers)
         return try_cast_response(message, PrivateGetOrdersResultSchema)

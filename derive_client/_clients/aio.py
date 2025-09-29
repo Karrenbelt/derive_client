@@ -18,25 +18,23 @@ from derive_client._clients.utils import try_cast_response
 from derive_client._clients.logger import logger
 
 
-class AioClient:
-    """Pure asynchronous HTTP client"""
-
+class AsyncHTTPSession:
     def __init__(self):
         self.default_timeout = 5
 
         self._connector: aiohttp.TCPConnector | None = None
-        self._session: aiohttp.ClientSession | None = None
+        self._aiohttp_session: aiohttp.ClientSession | None = None
         self._lock = asyncio.Lock()
         self._finalizer = weakref.finalize(self, self._finalize)
 
     async def open(self) -> None:
         """Explicit session creation."""
 
-        if self._session and not self._session.closed:
+        if self._aiohttp_session and not self._aiohttp_session.closed:
             return
 
         async with self._lock:
-            if self._session and not self._session.closed:
+            if self._aiohttp_session and not self._aiohttp_session.closed:
                 return
 
             self._connector = aiohttp.TCPConnector(
@@ -46,15 +44,15 @@ class AioClient:
                 enable_cleanup_closed=True,
             )
 
-            self._session = aiohttp.ClientSession(connector=self._connector)
+            self._aiohttp_session = aiohttp.ClientSession(connector=self._connector)
 
     async def close(self):
         """Explicit cleanup"""
 
         async with self._lock:
-            session = self._session
+            session = self._aiohttp_session
             connector = self._connector
-            self._session = None
+            self._aiohttp_session = None
             self._connector = None
 
         if session and not session.closed:
@@ -81,7 +79,7 @@ class AioClient:
 
         headers = headers or PUBLIC_HEADERS
         timeout = timeout or self.default_timeout
-        async with self._session.post(url, json=params, headers=headers, timeout=timeout) as response:
+        async with self._aiohttp_session.post(url, json=params, headers=headers, timeout=timeout) as response:
             response.raise_for_status()
             try:
                 return await response.json()
@@ -89,7 +87,7 @@ class AioClient:
                 raise ValueError(f"Failed to decode JSON from {url}: {e}") from e
 
     def _finalize(self):
-        if self._session:
+        if self._aiohttp_session and not self._aiohttp_session.closed:
             msg = "%s was garbage collected with an open session. Session will be closed by process exit if needed."
             logger.debug(msg, self.__class__.__name__)
 
@@ -101,14 +99,16 @@ class AioClient:
         await self.close()
 
 
-class DeriveAioClient:
+class AsyncHTTPClient:
+    """Pure asynchronous HTTP client"""
+
     def __init__(self, wallet: str, session_key: str, env: str):
         self.wallet = wallet
         self.session_key = session_key
         self.config = CONFIGS[env]
         self.w3 = AsyncWeb3(AsyncWeb3.HTTPProvider(self.config.rpc_endpoint))
         self.account = self.w3.eth.account.from_key(session_key)
-        self._aio = AioClient()
+        self._session = AsyncHTTPSession()
 
     @property
     def auth_headers(self):
@@ -123,34 +123,34 @@ class DeriveAioClient:
         return EndPoints(self.config.base_url)
 
     async def __aenter__(self):
-        await self._aio.open()
+        await self._session.open()
         return self
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):
-        await self._aio.close()
+        await self._session.close()
 
     async def open(self):
-        await self._aio.open()
+        await self._session.open()
 
     async def close(self):
-        await self._aio.close()
+        await self._session.close()
 
     async def get_ticker(self, instrument_name: str) -> PublicGetTickerResultSchema:
         url = self.endpoints.public.get_ticker
         params = {"instrument_name": instrument_name}
-        message = await self._aio._send_request(url=url, params=params)
+        message = await self._session._send_request(url=url, params=params)
         return try_cast_response(message=message, result_schema=PublicGetTickerResultSchema)
 
     async def get_subaccounts(self) -> PrivateGetSubaccountsResultSchema:
         url = self.endpoints.private.get_subaccounts
         params = {"wallet": self.wallet}
         headers = self.auth_headers
-        message = await self._aio._send_request(url, params, headers=headers)
+        message = await self._session._send_request(url, params, headers=headers)
         return try_cast_response(message, PrivateGetSubaccountsResultSchema)
 
     async def get_orders(self, subaccount_id: int, **kwargs) -> PrivateGetOrdersResultSchema:
         url = self.endpoints.private.get_orders
         params = {"subaccount_id": subaccount_id, **kwargs}
         headers = self.auth_headers
-        message = await self._aio._send_request(url, params, headers=headers)
+        message = await self._session._send_request(url, params, headers=headers)
         return try_cast_response(message, PrivateGetOrdersResultSchema)
