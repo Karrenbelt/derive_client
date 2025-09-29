@@ -479,6 +479,37 @@ class Subscription:
         await self.close()
 
 
+class WebSocketRPC:
+    """Facade for WebSocket RPC endpoints."""
+
+    def __init__(self, ws: WebSocketClient):
+        self.ws = ws
+
+    async def get_ticker(self, instrument_name: str) -> PublicGetTickerResultSchema:
+        params = {"instrument_name": instrument_name}
+        message = await self.ws._session._send_request("public/get_ticker", params)
+        return try_cast_response(message, PublicGetTickerResultSchema)
+
+    async def login(self):
+        params = sign_ws_login(
+            web3_client=self.ws.w3,
+            smart_contract_wallet=self.ws.wallet,
+            session_key_or_wallet_private_key=self.ws.account.key,
+        )
+        message = await self.ws._session._send_request("public/login", params)
+        return PublicLoginResponseSchema(**message)
+
+    async def get_subaccounts(self) -> PrivateGetSubaccountsResultSchema:
+        params = {"wallet": self.ws.wallet}
+        message = await self.ws._session._send_request("private/get_subaccounts", params)
+        return try_cast_response(message, PrivateGetSubaccountsResultSchema)
+
+    async def get_orders(self, subaccount_id: int, **kwargs) -> PrivateGetOrdersResultSchema:
+        params = {"subaccount_id": subaccount_id, **kwargs}
+        message = await self.ws._session._send_request("private/get_orders", params)
+        return try_cast_response(message, PrivateGetOrdersResultSchema)
+
+
 class WebSocketChannels:
     """Facade for WebSocket channels."""
 
@@ -517,36 +548,14 @@ class WebSocketChannels:
             schema=PublicGetTickerResultSchema,
         )
 
-
-class WebSocketRPC:
-    """Facade for WebSocket RPC endpoints."""
-
-    def __init__(self, ws: WebSocketClient):
-        self.ws = ws
-
-    async def get_ticker(self, instrument_name: str) -> PublicGetTickerResultSchema:
-        params = {"instrument_name": instrument_name}
-        message = await self.ws._session._send_request("public/get_ticker", params)
-        return try_cast_response(message, PublicGetTickerResultSchema)
-
-    async def login(self):
-        params = sign_ws_login(
-            web3_client=self.ws.w3,
-            smart_contract_wallet=self.ws.wallet,
-            session_key_or_wallet_private_key=self.ws.account.key,
+    def orders(self, subaccount_id: int) -> Subscription:
+        channel = f"{subaccount_id}.orders"
+        return Subscription(
+            session=self.ws._session,
+            channel=channel,
+            key="instrument_ticker",
+            schema=PrivateGetOrdersResultSchema,
         )
-        message = await self.ws._session._send_request("public/login", params)
-        return PublicLoginResponseSchema(**message)
-
-    async def get_subaccounts(self) -> PrivateGetSubaccountsResultSchema:
-        params = {"wallet": self.ws.wallet}
-        message = await self.ws._session._send_request("private/get_subaccounts", params)
-        return try_cast_response(message, PrivateGetSubaccountsResultSchema)
-
-    async def get_orders(self, subaccount_id: int, **kwargs) -> PrivateGetOrdersResultSchema:
-        params = {"subaccount_id": subaccount_id, **kwargs}
-        message = await self.ws._session._send_request("private/get_orders", params)
-        return try_cast_response(message, PrivateGetOrdersResultSchema)
 
 
 class WebSocketClient:
