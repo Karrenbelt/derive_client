@@ -2,8 +2,13 @@ import asyncio
 import weakref
 import aiohttp
 
+from web3 import AsyncWeb3
+from derive_action_signing.utils import sign_rest_auth_header
+
 from derive_client._clients.models import (
     PublicGetTickerResultSchema,
+    PrivateGetSubaccountsResultSchema,
+    PrivateGetOrdersResultSchema,
 )
 from derive_client.constants import CONFIGS, PUBLIC_HEADERS
 from derive_client.data_types import Address, Environment
@@ -64,10 +69,17 @@ class AioClient:
             except Exception:
                 logger.exception("Error closing connector")
 
-    async def _send_request(self, url: str, params: dict, *, timeout: float | None = None):
+    async def _send_request(
+        self,
+        url: str,
+        params: dict,
+        *,
+        headers: dict | None = None,
+        timeout: float | None = None,
+    ):
         await self.open()
 
-        headers = PUBLIC_HEADERS
+        headers = headers or PUBLIC_HEADERS
         timeout = timeout or self.default_timeout
         async with self._session.post(url, json=params, headers=headers, timeout=timeout) as response:
             response.raise_for_status()
@@ -94,7 +106,17 @@ class DeriveAioClient:
         self.wallet = wallet
         self.session_key = session_key
         self.config = CONFIGS[env]
+        self.w3 = AsyncWeb3(AsyncWeb3.HTTPProvider(self.config.rpc_endpoint))
+        self.account = self.w3.eth.account.from_key(session_key)
         self._aio = AioClient()
+
+    @property
+    def auth_headers(self):
+        return sign_rest_auth_header(
+            web3_client=self.w3,
+            smart_contract_wallet=self.wallet,
+            session_key_or_wallet_private_key=self.account.key,
+        )
 
     @property
     def endpoints(self):
@@ -117,5 +139,18 @@ class DeriveAioClient:
         url = self.endpoints.public.get_ticker
         params = {"instrument_name": instrument_name}
         message = await self._aio._send_request(url=url, params=params)
-        result = try_cast_response(message=message, result_schema=PublicGetTickerResultSchema)
-        return result
+        return try_cast_response(message=message, result_schema=PublicGetTickerResultSchema)
+
+    async def get_subaccounts(self) -> PrivateGetSubaccountsResultSchema:
+        url = self.endpoints.private.get_subaccounts
+        params = {"wallet": self.wallet}
+        headers = self.auth_headers
+        message = await self._aio._send_request(url, params, headers=headers)
+        return try_cast_response(message, PrivateGetSubaccountsResultSchema)
+
+    async def get_orders(self, subaccount_id: int, **kwargs) -> PrivateGetOrdersResultSchema:
+        url = self.endpoints.private.get_orders
+        params = {"subaccount_id": subaccount_id, **kwargs}
+        headers = self.auth_headers
+        message = await self._aio._send_request(url, params, headers=headers)
+        return try_cast_response(message, PrivateGetOrdersResultSchema)
