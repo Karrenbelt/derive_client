@@ -480,6 +480,8 @@ class Subscription:
 
 
 class WebSocketChannels:
+    """Facade for WebSocket channels."""
+
     def __init__(self, ws: WebSocketClient):
         self.ws = ws
 
@@ -517,6 +519,8 @@ class WebSocketChannels:
 
 
 class WebSocketRPC:
+    """Facade for WebSocket RPC endpoints."""
+
     def __init__(self, ws: WebSocketClient):
         self.ws = ws
 
@@ -535,7 +539,6 @@ class WebSocketRPC:
         return PublicLoginResponseSchema(**message)
 
     async def get_subaccounts(self) -> PrivateGetSubaccountsResultSchema:
-        await self.login()
         params = {"wallet": self.ws.wallet}
         message = await self.ws._session._send_request("private/get_subaccounts", params)
         return try_cast_response(message, PrivateGetSubaccountsResultSchema)
@@ -570,9 +573,13 @@ class WebSocketClient:
     async def disconnect(self, force: bool = True):
         await self._session.disconnect(force=force)
 
+    async def login(self):
+        await self.rpc.login()
+
     async def __aenter__(self):
         """Enter context manager"""
         await self._session.__aenter__()
+        await self.login()
         return self
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):
