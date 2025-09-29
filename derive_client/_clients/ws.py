@@ -10,9 +10,14 @@ from contextlib import asynccontextmanager
 
 import aiohttp
 from pydantic import BaseModel
+from web3 import AsyncWeb3
+from derive_action_signing.utils import sign_ws_login, utc_now_ms
 
 from derive_client._clients.models import (
     PublicGetTickerResultSchema,
+    PrivateGetSubaccountsResultSchema,
+    PrivateGetOrdersResultSchema,
+    PublicLoginResponseSchema,
 )
 from derive_client.constants import CONFIGS
 from derive_client.data_types import Address, Environment
@@ -209,7 +214,14 @@ class WsClient:
     async def __aexit__(self, exc_type, exc_val, exc_tb):
         await self.disconnect()
 
-    async def _send_request(self, method: str, params: dict, *, timeout: float | None = None) -> Any:
+    async def _send_request(
+        self,
+        method: str,
+        params: dict,
+        *,
+        headers: dict | None = None,
+        timeout: float | None = None,
+    ) -> Any:
         if not self._ws or self._ws.closed:
             raise RuntimeError("WebSocket not connected. Call await .connect() or use 'async with' before making RPCs.")
 
@@ -480,25 +492,6 @@ class WsChannels:
     def __init__(self, ws: WsClient):
         self._ws = ws
 
-    async def ticker_generator(
-        self,
-        instrument_name: str,
-        interval: int = 1000,
-    ) -> AsyncGenerator[PublicGetTickerResultSchema, None]:
-        channel = f"ticker.{instrument_name}.{interval}"
-        queue = asyncio.Queue(maxsize=1000)
-
-        await self._ws._attach_channel(channel, queue)
-
-        try:
-            while True:
-                message = await queue.get()
-                payload = message.get("instrument_ticker", message)
-                yield PublicGetTickerResultSchema(**payload)
-
-        finally:
-            await self._ws._detach_channel(channel, queue)
-
     @asynccontextmanager
     async def ticker_generator(
         self,
@@ -533,12 +526,34 @@ class WsChannels:
 
 
 class WsRPC:
-    def __init__(self, ws: WsClient):
-        self._ws = ws
+    def __init__(self, ws: DeriveWsClient):
+        self.ws = ws
+        self._ws = ws._ws
 
-    async def get_ticker(self, instrument_name: str):
-        message = await self._ws._send_request("public/get_ticker", {"instrument_name": instrument_name})
+    async def get_ticker(self, instrument_name: str) -> PublicGetTickerResultSchema:
+        params = {"instrument_name": instrument_name}
+        message = await self._ws._send_request("public/get_ticker", params)
         return try_cast_response(message, PublicGetTickerResultSchema)
+
+    async def login(self):
+        params = sign_ws_login(
+            web3_client=self.ws.w3,
+            smart_contract_wallet=self.ws.wallet,
+            session_key_or_wallet_private_key=self.ws.account.key,
+        )
+        message = await self._ws._send_request("public/login", params)
+        return PublicLoginResponseSchema(**message)
+
+    async def get_subaccounts(self) -> PrivateGetSubaccountsResultSchema:
+        await self.login()
+        params = {"wallet": self.ws.wallet}
+        message = await self._ws._send_request("private/get_subaccounts", params)
+        return try_cast_response(message, PrivateGetSubaccountsResultSchema)
+
+    async def get_orders(self, subaccount_id: int, **kwargs) -> PrivateGetOrdersResultSchema:
+        params = {"subaccount_id": subaccount_id, **kwargs}
+        message = await self._ws._send_request("private/get_orders", params)
+        return try_cast_response(message, PrivateGetOrdersResultSchema)
 
 
 class DeriveWsClient:
@@ -546,9 +561,11 @@ class DeriveWsClient:
         self.wallet = wallet
         self.session_key = session_key
         self.config = CONFIGS[env]
+        self.w3 = AsyncWeb3(AsyncWeb3.HTTPProvider(self.config.rpc_endpoint))
+        self.account = self.w3.eth.account.from_key(session_key)
 
         self._ws = WsClient(self.config.ws_address)
-        self.rpc = WsRPC(self._ws)
+        self.rpc = WsRPC(self)
         self.channels = WsChannels(self._ws)
 
     @property
