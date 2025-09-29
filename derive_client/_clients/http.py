@@ -1,8 +1,13 @@
 import requests
 import weakref
 
+from web3 import Web3
+from derive_action_signing.utils import MAX_INT_32, get_action_nonce, sign_rest_auth_header, utc_now_ms
+
 from derive_client._clients.models import (
     PublicGetTickerResultSchema,
+    PrivateGetSubaccountsResultSchema,
+    PrivateGetOrdersResultSchema,
 )
 from derive_client.constants import CONFIGS, PUBLIC_HEADERS
 from derive_client.data_types import Address, Environment
@@ -32,10 +37,17 @@ class HttpClient:
             self._session.close()
             self._session = None
 
-    def _send_request(self, url: str, params: dict, *, timeout: float | None = None):
+    def _send_request(
+        self,
+        url: str,
+        params: dict,
+        *,
+        headers: dict | None = None,
+        timeout: float | None = None,
+    ):
         self.open()
 
-        headers = PUBLIC_HEADERS
+        headers = headers or PUBLIC_HEADERS
         timeout = timeout or self.default_timeout
         response = self._session.post(url, json=params, headers=headers, timeout=timeout)
         response.raise_for_status()
@@ -66,9 +78,18 @@ class HttpClient:
 class DeriveHttpClient:
     def __init__(self, wallet: str, session_key: str, env: str):
         self.wallet = wallet
-        self.session_key = session_key
         self.config = CONFIGS[env]
+        self.w3 = Web3(Web3.HTTPProvider(self.config.rpc_endpoint))
+        self.account = self.w3.eth.account.from_key(session_key)
         self._http = HttpClient()
+
+    @property
+    def auth_headers(self):
+        return sign_rest_auth_header(
+            web3_client=self.w3,
+            smart_contract_wallet=self.wallet,
+            session_key_or_wallet_private_key=self.account.key,
+        )
 
     @property
     def endpoints(self):
@@ -92,3 +113,17 @@ class DeriveHttpClient:
         params = {"instrument_name": instrument_name}
         message = self._http._send_request(url, params)
         return try_cast_response(message, PublicGetTickerResultSchema)
+
+    def get_subaccounts(self) -> PrivateGetSubaccountsResultSchema:
+        url = self.endpoints.private.get_subaccounts
+        params = {"wallet": self.wallet}
+        headers = self.auth_headers
+        message = self._http._send_request(url, params, headers=headers)
+        return try_cast_response(message, PrivateGetSubaccountsResultSchema)
+
+    def get_orders(self, subaccount_id: int, **kwargs) -> PrivateGetOrdersResultSchema:
+        url = self.endpoints.private.get_orders
+        params = {"subaccount_id": subaccount_id, **kwargs}
+        headers = self.auth_headers
+        message = self._http._send_request(url, params, headers=headers)
+        return try_cast_response(message, PrivateGetOrdersResultSchema)
